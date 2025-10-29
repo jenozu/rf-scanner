@@ -15,33 +15,33 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
   const [data, setData] = useLocalStorage<Item[]>("rf_active", []);
   const [status, setStatus] = useState<string>("");
 
-  // 📥 Handle CSV upload
+  // 📥 Handle file upload (CSV or XLSX)
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setCsvFile(file);
-    setStatus("⏳ Parsing CSV...");
+    const fileType = file.name.toLowerCase().endsWith('.xlsx') || file.name.toLowerCase().endsWith('.xls') 
+      ? 'Excel' 
+      : 'CSV';
+    setStatus(`⏳ Parsing ${fileType} file...`);
 
     try {
       const parsedData = await parseCSV(file);
 
-      // 🧮 Normalize and add missing fields
-      const normalized: Item[] = parsedData.map((row: any) => ({
-        BinCode: row.BinCode?.trim() || "",
-        ItemCode: row.ItemCode?.trim() || "",
-        Description: row.Description?.trim() || "",
-        ExpectedQty: parseFloat(row.ExpectedQty) || 0,
-        CountedQty: 0,
-        Variance: 0,
-      }));
-
-      setData(normalized);
-      setStatus(`✅ Loaded ${normalized.length} items from CSV`);
-      setPage("scan");
+      // Data is already normalized by parseCSV function
+      setData(parsedData);
+      setStatus(`✅ Loaded ${parsedData.length} items from ${fileType} file`);
+      
+      // Automatically navigate to home if data is loaded successfully
+      if (onSetupComplete) {
+        setTimeout(() => {
+          onSetupComplete();
+        }, 1000);
+      }
     } catch (err) {
-      console.error("Error parsing CSV:", err);
-      setStatus("❌ Error reading file. Please check CSV format.");
+      console.error("Error parsing file:", err);
+      setStatus(`❌ Error reading ${fileType} file. Please check the format and column names.`);
     }
   };
 
@@ -117,18 +117,24 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
             htmlFor="csvFile"
             className="cursor-pointer text-blue-500 font-medium"
           >
-            Upload Custom Stock CSV
+            Upload Inventory File (CSV or Excel)
           </label>
           <input
             id="csvFile"
             type="file"
-            accept=".csv"
+            accept=".csv,.xlsx,.xls"
             onChange={handleFileUpload}
             className="hidden"
           />
           <p className="text-xs text-gray-500 mt-2">
-            Required: <code>BinCode</code>, <code>ItemCode</code>,{" "}
+            Supports: <strong>.csv</strong>, <strong>.xlsx</strong>, <strong>.xls</strong>
+          </p>
+          <p className="text-xs text-gray-500 mt-1">
+            Required columns: <code>BinCode</code>, <code>ItemCode</code>,{" "}
             <code>Description</code>, <code>ExpectedQty</code>
+          </p>
+          <p className="text-xs text-gray-400 mt-1">
+            (Column names are flexible - will auto-detect similar names)
           </p>
         </div>
 

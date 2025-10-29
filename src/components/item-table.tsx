@@ -1,6 +1,7 @@
 import React from "react";
 import { Check, X } from "lucide-react";
 import { Item } from "../types";
+import { displayBinCode } from "../utils/bin-utils";
 
 interface ItemTableProps {
   items: Item[];
@@ -24,10 +25,16 @@ export default function ItemTable({ items, onConfirm, onAdjust }: ItemTableProps
         </thead>
         <tbody>
           {items.map((item) => {
+            // Check if item has been counted
+            const isCounted = item.CountedQty !== undefined && item.CountedQty !== null;
+            
+            // Color coding for variance
             const varianceColor =
-              item.Variance === 0
+              !isCounted
+                ? "text-gray-400"
+                : item.Variance === 0
                 ? "text-green-600"
-                : item.Variance > 0
+                : item.Variance! > 0
                 ? "text-blue-600"
                 : "text-red-600";
 
@@ -36,9 +43,19 @@ export default function ItemTable({ items, onConfirm, onAdjust }: ItemTableProps
                 <td className="p-2 font-medium text-gray-900">{item.ItemCode}</td>
                 <td className="p-2 text-gray-600">{item.Description}</td>
                 <td className="p-2 text-right">{item.ExpectedQty}</td>
-                <td className="p-2 text-right">{item.CountedQty}</td>
+                <td className="p-2 text-right">
+                  {isCounted ? (
+                    item.CountedQty
+                  ) : (
+                    <span className="text-gray-400">-</span>
+                  )}
+                </td>
                 <td className={`p-2 text-right font-semibold ${varianceColor}`}>
-                  {item.Variance > 0 ? `+${item.Variance}` : item.Variance}
+                  {isCounted ? (
+                    item.Variance! > 0 ? `+${item.Variance}` : item.Variance
+                  ) : (
+                    <span className="text-gray-400 font-normal">-</span>
+                  )}
                 </td>
                 <td className="p-2 text-center">
                   <div className="flex justify-center space-x-2">

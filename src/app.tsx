@@ -6,6 +6,7 @@ import PickPage from "./pages/pick-page";
 import InventoryPage from "./pages/inventory-page";
 import ExportPage from "./pages/export-page";
 import SetupPage from "./pages/setup-page";
+import SettingsPage from "./pages/settings-page";
 import NumpadModal from "./pages/numpad-modal";
 import FooterNav from "./components/footer-nav";
 import Header from "./components/header";
@@ -59,6 +60,7 @@ export default function App() {
         {page === "pick" && <PickPage setPage={setPage} />}
         {page === "inventory" && <InventoryPage setPage={setPage} />}
         {page === "export" && <ExportPage setPage={setPage} />}
+        {page === "settings" && <SettingsPage setPage={setPage} />}
       </main>
 
       {isInitialized && <FooterNav currentPage={page} setPage={setPage} />}

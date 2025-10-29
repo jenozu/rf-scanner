@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from "react";
 import Quagga from "@ericblade/quagga2";
 import { Item, BinLocation } from "../types";
 import { Package, MapPin, Plus, Search } from "lucide-react";
+import { displayBinCode, normalizeBinInput } from "../utils/bin-utils";
+import { smartSearch } from "../utils/search-utils";
 
 interface ScanPageProps {
   setPage: (page: any) => void;
@@ -14,9 +16,10 @@ interface Toast {
 }
 
 type ScanResult = {
-  type: "item" | "bin";
+  type: "item" | "bin" | "multiple";
   item?: Item;
   bin?: BinLocation;
+  matches?: Item[];
 };
 
 const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem }) => {
@@ -85,41 +88,46 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem }) => {
     };
   }, []);
 
-  // ✅ Handle barcode scan
+  // ✅ Handle barcode scan with smart search
   const handleScan = (code: string) => {
     console.log("Scanned:", code);
     setScannedCode(code);
 
-    // Check if it's a bin
-    const bin = bins.find((b) => b.BinCode === code.trim());
-    if (bin) {
-      setScanResult({ type: "bin", bin });
-      showToast(`✅ Scanned bin: ${code}`, "success");
-      return;
-    }
-
-    // Check if it's an item
     const items = JSON.parse(localStorage.getItem("rf_active") || "[]") as Item[];
-    const item = items.find((i) => i.ItemCode?.trim() === code.trim());
+    const result = smartSearch(code, bins, items);
     
-    if (item) {
-      setScanResult({ type: "item", item });
-      showToast(`✅ Scanned item: ${code}`, "success");
-      return;
+    if (result) {
+      if (result.type === "bin" && result.bin) {
+        setScanResult({ type: "bin", bin: result.bin });
+        showToast(`✅ Found bin: ${displayBinCode(result.bin.BinCode)}`, "success");
+      } else if (result.type === "item" && result.item) {
+        setScanResult({ type: "item", item: result.item });
+        showToast(`✅ Found item: ${result.item.ItemCode}`, "success");
+      } else if (result.matches && result.matches.length > 0) {
+        setScanResult({ type: "multiple", matches: result.matches });
+        showToast(`📋 Found ${result.matches.length} matching items`, "info");
+      }
+    } else {
+      setScanResult(null);
+      showToast(`❌ No matches found for: ${code}`, "error");
     }
-
-    // Not found
-    setScanResult(null);
-    showToast(`❌ No bin or item found for code: ${code}`, "error");
   };
 
-  // Handle manual lookup
+  // Handle manual lookup with normalization
   const handleManualLookup = () => {
     if (!manualCode.trim()) {
       showToast("⚠️ Please enter a code", "error");
       return;
     }
-    handleScan(manualCode.trim());
+    // Normalize input (adds "01-" prefix if it looks like a bin code)
+    const normalized = normalizeBinInput(manualCode.trim());
+    handleScan(normalized);
+  };
+  
+  // Handle selecting an item from multiple matches
+  const handleSelectMatch = (item: Item) => {
+    setScanResult({ type: "item", item });
+    showToast(`✅ Selected: ${item.ItemCode}`, "success");
   };
 
   // Create new bin
@@ -201,8 +209,9 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem }) => {
         <div className="flex gap-2">
           <input
             type="text"
+            inputMode="numeric"
             value={manualCode}
-            onChange={(e) => setManualCode(e.target.value)}
+            onChange={(e) => setManualCode(e.target.value.toUpperCase())}
             onKeyPress={(e) => e.key === "Enter" && handleManualLookup()}
             placeholder="Enter item or bin code"
             className="flex-1 border border-gray-300 rounded-md px-3 py-2"
@@ -225,7 +234,7 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem }) => {
                 <div>
                   <div className="flex items-center gap-2 mb-2">
                     <MapPin className="text-blue-600" size={24} />
-                    <h2 className="text-2xl font-bold">{scanResult.bin.BinCode}</h2>
+                    <h2 className="text-2xl font-bold">{displayBinCode(scanResult.bin.BinCode)}</h2>
                   </div>
                   <p className="text-gray-600">{scanResult.bin.Zone}</p>
                   <p className="text-sm text-gray-500 mt-1">
@@ -299,7 +308,9 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem }) => {
                 <div className="bg-green-50 p-4 rounded-lg">
                   <p className="text-sm text-gray-600 mb-1">Counted Qty</p>
                   <p className="text-2xl font-bold text-green-600">
-                    {scanResult.item.CountedQty || 0}
+                    {scanResult.item.CountedQty !== undefined && scanResult.item.CountedQty !== null
+                      ? scanResult.item.CountedQty
+                      : <span className="text-sm text-gray-400">Not counted</span>}
                   </p>
                 </div>
               </div>
@@ -309,7 +320,7 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem }) => {
                   <MapPin size={20} className="text-gray-600" />
                   <p className="font-medium">Location</p>
                 </div>
-                <p className="text-lg">{scanResult.item.BinCode}</p>
+                <p className="text-lg">{displayBinCode(scanResult.item.BinCode)}</p>
               </div>
 
               {scanResult.item.Variance !== undefined && (
@@ -327,6 +338,54 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem }) => {
                   </p>
                 </div>
               )}
+
+              <button
+                onClick={handleClearScan}
+                className="w-full mt-4 bg-gray-200 text-gray-700 py-2 rounded-md hover:bg-gray-300"
+              >
+                Clear
+              </button>
+            </div>
+          )}
+
+          {scanResult.type === "multiple" && scanResult.matches && (
+            <div className="bg-white rounded-lg shadow p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <Search className="text-blue-600" size={24} />
+                <div>
+                  <h2 className="text-xl font-bold">
+                    {scanResult.matches.length} Matching Items
+                  </h2>
+                  <p className="text-sm text-gray-600">Click an item to select it</p>
+                </div>
+              </div>
+
+              <div className="space-y-2 max-h-96 overflow-y-auto">
+                {scanResult.matches.map((item) => (
+                  <button
+                    key={item.ItemCode}
+                    onClick={() => handleSelectMatch(item)}
+                    className="w-full text-left bg-gray-50 hover:bg-blue-50 p-4 rounded-md transition border-2 border-transparent hover:border-blue-200"
+                  >
+                    <div className="flex justify-between items-start">
+                      <div className="flex-1">
+                        <p className="font-medium text-lg">{item.ItemCode}</p>
+                        <p className="text-sm text-gray-600">{item.Description}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <MapPin size={14} className="text-gray-400" />
+                          <span className="text-xs text-gray-500">
+                            Bin: {displayBinCode(item.BinCode)}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="text-right ml-4">
+                        <p className="text-sm text-gray-500">Expected</p>
+                        <p className="text-xl font-bold text-blue-600">{item.ExpectedQty}</p>
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
 
               <button
                 onClick={handleClearScan}

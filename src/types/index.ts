@@ -98,7 +98,45 @@ export interface CycleCount {
 }
 
 /**
+ * User for authentication and multi-user support
+ */
+export interface User {
+  id: string;
+  username: string;
+  password: string; // In production, this should be hashed
+  fullName: string;
+  role: "admin" | "operator" | "viewer";
+  isActive: boolean;
+  createdDate: string;
+  lastLogin?: string;
+}
+
+/**
+ * Activity log for tracking user actions
+ */
+export interface ActivityLog {
+  id: string;
+  userId: string;
+  username: string;
+  action: string;
+  timestamp: string;
+  details?: string;
+}
+
+/**
+ * App settings
+ */
+export interface AppSettings {
+  soundEnabled: boolean;
+  vibrationEnabled: boolean;
+  autoLogout: boolean;
+  autoLogoutMinutes: number;
+  showActivityLog: boolean;
+  theme: "light" | "dark";
+}
+
+/**
  * Page navigation type used throughout the app
  */
-export type PageType = "setup" | "home" | "receive" | "scan" | "pick" | "inventory" | "export";
+export type PageType = "setup" | "home" | "receive" | "scan" | "pick" | "inventory" | "export" | "settings";
 
