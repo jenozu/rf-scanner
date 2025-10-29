@@ -6,6 +6,136 @@ This document tracks all changes, updates, and improvements made to the RF Scann
 
 ## 2025-10-29
 
+### 🎨 Navigation Consolidation - Transactions Hub - 7:00 PM
+
+**Summary:** Consolidated Pick and Receive pages into a unified "Transactions" hub to reduce footer clutter and improve navigation UX. Footer reduced from 6 buttons to 5, with Scan remaining central for quick access.
+
+**The Issue:**
+- Footer navigation was crowded with 6 buttons
+- Pick and Receive are conceptually similar (opposite inventory operations)
+- Mobile users needed cleaner, more accessible UI
+
+**The Solution:**
+- Created new **Transactions** hub page that branches to Pick or Receive
+- Reduced footer from 6 to 5 buttons (17% less cluttered)
+- Kept **Scan** in the center position for easy thumb access
+- Used lightning bolt (⚡) icon for Transactions
+
+**New Footer Layout:**
+```
+🏠 Home | ⚡ Transactions | 🔍 Scan | 🔢 Inventory | ⚙️ Settings
+         (center position - most accessible)
+```
+
+**Files Added:**
+- `src/pages/transactions-page.tsx`
+  ```typescript
+  // New hub page with two main options:
+  - Receive Inventory (📦 Inbound)
+    * Process purchase orders
+    * Putaway to bins
+    * Update stock levels
+  
+  - Pick Orders (🚚 Outbound)
+    * Wave picking
+    * Order fulfillment
+    * Deplete inventory
+  
+  // Features:
+  - Large, tappable cards with clear descriptions
+  - Color-coded borders (blue for receive, green for pick)
+  - Tags showing workflow types
+  - Hover effects for better UX
+  - Info tip explaining inbound vs outbound
+  ```
+
+**Files Modified:**
+
+1. `src/types/index.ts`
+```typescript
+// BEFORE:
+export type PageType = "setup" | "home" | "receive" | "scan" | "pick" | "inventory" | "export" | "settings";
+
+// AFTER:
+export type PageType = "setup" | "home" | "transactions" | "receive" | "scan" | "pick" | "inventory" | "export" | "settings";
+// Added "transactions" to page type
+```
+
+2. `src/components/footer-nav.tsx`
+```typescript
+// BEFORE (6 buttons):
+const navItems = [
+  { page: "home", icon: Home, label: "Home" },
+  { page: "receive", icon: Package, label: "Receive" },      // ← Removed from footer
+  { page: "scan", icon: Camera, label: "Scan" },
+  { page: "pick", icon: Truck, label: "Pick" },              // ← Removed from footer
+  { page: "inventory", icon: ClipboardCheck, label: "Inventory" },
+  { page: "settings", icon: Settings, label: "Settings" },
+];
+
+// AFTER (5 buttons):
+const navItems = [
+  { page: "home", icon: Home, label: "Home" },
+  { page: "transactions", icon: Zap, label: "Transactions" }, // ← New hub
+  { page: "scan", icon: Camera, label: "Scan" },              // ← Kept central
+  { page: "inventory", icon: ClipboardCheck, label: "Inventory" },
+  { page: "settings", icon: Settings, label: "Settings" },
+];
+```
+
+3. `src/app.tsx`
+```typescript
+// Added import:
+import TransactionsPage from "./pages/transactions-page";
+
+// Added route:
+{page === "transactions" && isLoggedIn && <TransactionsPage setPage={setPage} />}
+
+// Note: Pick and Receive pages remain unchanged and accessible via Transactions hub
+```
+
+**User Flow:**
+```
+Old: Footer → Pick (direct access)
+     Footer → Receive (direct access)
+
+New: Footer → Transactions → [Pick or Receive]
+     Footer → Scan (direct access, centered)
+```
+
+**UI/UX Improvements:**
+- ✅ **Less cluttered footer** - 5 balanced buttons vs 6 cramped ones
+- ✅ **Logical grouping** - Related operations (inbound/outbound) in one place
+- ✅ **Central Scan access** - Most-used feature in middle for thumb reach
+- ✅ **Clear descriptions** - Hub page explains what each transaction type does
+- ✅ **Visual hierarchy** - Color coding (blue=receive, green=pick)
+- ✅ **Better spacing** - More room for each footer button on mobile
+- ✅ **Scalable** - Easy to add more transaction types (transfers, returns, adjustments)
+
+**Benefits:**
+- **Mobile-first design** - Easier navigation on phones/tablets
+- **Cleaner interface** - Reduced cognitive load
+- **Better organization** - Transactions grouped logically
+- **Room to grow** - Can add bin-to-bin transfers, adjustments, etc. under Transactions
+- **Industry standard** - Matches how most WMS systems organize workflows
+
+**Technical Notes:**
+- No changes to Pick or Receive page functionality
+- Pages remain independent, just accessed via hub
+- Navigation state properly maintained
+- All existing workflows unaffected
+- Backward compatible with existing data
+
+**Build Status:**
+- ✅ Build successful
+- ✅ No linting errors
+- ✅ All routes working correctly
+- ✅ Mobile-responsive design
+
+---
+
+## 2025-10-29
+
 ### 🔐 Multi-User Authentication & Settings Page - 3:45 PM
 
 **Summary:** Added comprehensive user authentication system with login/logout functionality and a new Settings page accessible from bottom navigation.
@@ -639,5 +769,5 @@ Each entry should include:
 
 ---
 
-*Last Updated: October 29, 2025, 6:30 PM*
+*Last Updated: October 29, 2025, 7:00 PM*
 

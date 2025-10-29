@@ -1,4 +1,4 @@
-import { Camera, Home, Package, Truck, ClipboardCheck, Settings } from "lucide-react";
+import { Camera, Home, Zap, ClipboardCheck, Settings } from "lucide-react";
 import { PageType } from "../types";
 
 interface FooterNavProps {
@@ -9,9 +9,8 @@ interface FooterNavProps {
 export default function FooterNav({ currentPage, setPage }: FooterNavProps) {
   const navItems = [
     { page: "home" as PageType, icon: Home, label: "Home", emoji: "🏠" },
-    { page: "receive" as PageType, icon: Package, label: "Receive", emoji: "📦" },
+    { page: "transactions" as PageType, icon: Zap, label: "Transactions", emoji: "⚡" },
     { page: "scan" as PageType, icon: Camera, label: "Scan", emoji: "🔍" },
-    { page: "pick" as PageType, icon: Truck, label: "Pick", emoji: "🚚" },
     { page: "inventory" as PageType, icon: ClipboardCheck, label: "Inventory", emoji: "🔢" },
     { page: "settings" as PageType, icon: Settings, label: "Settings", emoji: "⚙️" },
   ];

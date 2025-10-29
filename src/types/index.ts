@@ -138,5 +138,5 @@ export interface AppSettings {
 /**
  * Page navigation type used throughout the app
  */
-export type PageType = "setup" | "home" | "receive" | "scan" | "pick" | "inventory" | "export" | "settings";
+export type PageType = "setup" | "home" | "transactions" | "receive" | "scan" | "pick" | "inventory" | "export" | "settings";
 

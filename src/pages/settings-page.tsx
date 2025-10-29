@@ -9,9 +9,10 @@ import {
 
 interface SettingsPageProps {
   setPage: (page: PageType) => void;
+  onLogin?: () => void;
 }
 
-export default function SettingsPage({ setPage }: SettingsPageProps) {
+export default function SettingsPage({ setPage, onLogin }: SettingsPageProps) {
   const auth = useAuth();
   const [showLogin, setShowLogin] = useState(!auth.isLoggedIn);
   const [username, setUsername] = useState("");
@@ -72,6 +73,10 @@ export default function SettingsPage({ setPage }: SettingsPageProps) {
       setUsername("");
       setPassword("");
       setShowLogin(false);
+      // Call the onLogin callback to update app state
+      if (onLogin) {
+        onLogin();
+      }
     } else {
       setLoginError("Invalid username or password");
     }
@@ -208,10 +213,10 @@ export default function SettingsPage({ setPage }: SettingsPageProps) {
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b">
+        <div className="flex border-b overflow-x-auto scrollbar-hide">
           <button
             onClick={() => setActiveTab("profile")}
-            className={`flex items-center gap-2 px-6 py-3 font-medium transition-colors ${
+            className={`flex items-center gap-2 px-6 py-3 font-medium transition-colors whitespace-nowrap flex-shrink-0 ${
               activeTab === "profile"
                 ? "text-blue-600 border-b-2 border-blue-600"
                 : "text-gray-500 hover:text-gray-700"
@@ -224,7 +229,7 @@ export default function SettingsPage({ setPage }: SettingsPageProps) {
           {auth.currentUser?.role === "admin" && (
             <button
               onClick={() => setActiveTab("users")}
-              className={`flex items-center gap-2 px-6 py-3 font-medium transition-colors ${
+              className={`flex items-center gap-2 px-6 py-3 font-medium transition-colors whitespace-nowrap flex-shrink-0 ${
                 activeTab === "users"
                   ? "text-blue-600 border-b-2 border-blue-600"
                   : "text-gray-500 hover:text-gray-700"
@@ -237,7 +242,7 @@ export default function SettingsPage({ setPage }: SettingsPageProps) {
 
           <button
             onClick={() => setActiveTab("settings")}
-            className={`flex items-center gap-2 px-6 py-3 font-medium transition-colors ${
+            className={`flex items-center gap-2 px-6 py-3 font-medium transition-colors whitespace-nowrap flex-shrink-0 ${
               activeTab === "settings"
                 ? "text-blue-600 border-b-2 border-blue-600"
                 : "text-gray-500 hover:text-gray-700"
@@ -249,7 +254,7 @@ export default function SettingsPage({ setPage }: SettingsPageProps) {
 
           <button
             onClick={() => setActiveTab("activity")}
-            className={`flex items-center gap-2 px-6 py-3 font-medium transition-colors ${
+            className={`flex items-center gap-2 px-6 py-3 font-medium transition-colors whitespace-nowrap flex-shrink-0 ${
               activeTab === "activity"
                 ? "text-blue-600 border-b-2 border-blue-600"
                 : "text-gray-500 hover:text-gray-700"

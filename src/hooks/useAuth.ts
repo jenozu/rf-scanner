@@ -142,6 +142,10 @@ export function useAuth() {
     };
 
     const updatedUsers = [...authState.users, newUser];
+    
+    // IMPORTANT: Save to localStorage immediately
+    localStorage.setItem("rf_users", JSON.stringify(updatedUsers));
+    
     setAuthState(prev => ({ ...prev, users: updatedUsers }));
 
     logActivity("User created", `Created user: ${user.username}`);
@@ -157,6 +161,9 @@ export function useAuth() {
     const updatedUsers = authState.users.map(u =>
       u.id === userId ? { ...u, ...updates } : u
     );
+
+    // Save to localStorage immediately
+    localStorage.setItem("rf_users", JSON.stringify(updatedUsers));
 
     setAuthState(prev => ({
       ...prev,
@@ -182,6 +189,10 @@ export function useAuth() {
     }
 
     const updatedUsers = authState.users.filter(u => u.id !== userId);
+    
+    // Save to localStorage immediately
+    localStorage.setItem("rf_users", JSON.stringify(updatedUsers));
+    
     setAuthState(prev => ({ ...prev, users: updatedUsers }));
 
     logActivity("User deleted", `Deleted user ID: ${userId}`);

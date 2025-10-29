@@ -337,6 +337,7 @@ export function clearAllData() {
   localStorage.removeItem("rf_bins");
   localStorage.removeItem("rf_cycle_counts");
   localStorage.removeItem("rf_active");
+  localStorage.removeItem("rf_master"); // Clear master inventory too
   console.log("🗑️ All data cleared");
 }
 

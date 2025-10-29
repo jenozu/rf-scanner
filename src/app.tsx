@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import HomePage from "./pages/home-page";
+import TransactionsPage from "./pages/transactions-page";
 import ScanPage from "./pages/scan-page";
 import ReceivePage from "./pages/receive-page";
 import PickPage from "./pages/pick-page";
@@ -15,16 +16,30 @@ import { PageType } from "./types";
 export default function App() {
   // Check if data is initialized
   const [isInitialized, setIsInitialized] = useState(false);
-  const [page, setPage] = useState<PageType>("setup");
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [page, setPage] = useState<PageType>("settings");
   const [showNumpad, setShowNumpad] = useState(false);
   const [activeItem, setActiveItem] = useState<string | null>(null);
 
-  // Check if sample data exists on mount
+  // Check login status and data on mount
   useEffect(() => {
-    const hasData = localStorage.getItem("rf_purchase_orders") !== null;
-    if (hasData) {
-      setIsInitialized(true);
-      setPage("home");
+    const currentUserId = localStorage.getItem("rf_current_user_id");
+    const loggedIn = !!currentUserId;
+    setIsLoggedIn(loggedIn);
+    
+    if (loggedIn) {
+      // User is logged in, check for data
+      const hasData = localStorage.getItem("rf_active") !== null;
+      if (hasData) {
+        setIsInitialized(true);
+        setPage("home");
+      } else {
+        // Logged in but no data - go to setup
+        setPage("setup");
+      }
+    } else {
+      // Not logged in - show login (settings page)
+      setPage("settings");
     }
   }, []);
 
@@ -45,25 +60,39 @@ export default function App() {
     setIsInitialized(true);
     setPage("home");
   };
+  
+  // Handle successful login
+  const handleLogin = () => {
+    setIsLoggedIn(true);
+    // Check if data exists after login
+    const hasData = localStorage.getItem("rf_active") !== null;
+    if (hasData) {
+      setIsInitialized(true);
+      setPage("home");
+    } else {
+      setPage("setup");
+    }
+  };
 
   return (
     <div className="flex flex-col min-h-screen bg-gray-50 text-gray-900">
       <Header />
 
       <main className="flex-1 p-4 pb-20">
-        {page === "setup" && <SetupPage setPage={setPage} onSetupComplete={handleSetupComplete} />}
-        {page === "home" && <HomePage setPage={setPage} />}
-        {page === "receive" && <ReceivePage setPage={setPage} />}
-        {page === "scan" && (
+        {page === "settings" && <SettingsPage setPage={setPage} onLogin={handleLogin} />}
+        {page === "setup" && isLoggedIn && <SetupPage setPage={setPage} onSetupComplete={handleSetupComplete} />}
+        {page === "home" && isLoggedIn && <HomePage setPage={setPage} />}
+        {page === "transactions" && isLoggedIn && <TransactionsPage setPage={setPage} />}
+        {page === "receive" && isLoggedIn && <ReceivePage setPage={setPage} />}
+        {page === "scan" && isLoggedIn && (
           <ScanPage setPage={setPage} onAdjustItem={handleAdjust} />
         )}
-        {page === "pick" && <PickPage setPage={setPage} />}
-        {page === "inventory" && <InventoryPage setPage={setPage} />}
-        {page === "export" && <ExportPage setPage={setPage} />}
-        {page === "settings" && <SettingsPage setPage={setPage} />}
+        {page === "pick" && isLoggedIn && <PickPage setPage={setPage} />}
+        {page === "inventory" && isLoggedIn && <InventoryPage setPage={setPage} />}
+        {page === "export" && isLoggedIn && <ExportPage setPage={setPage} />}
       </main>
 
-      {isInitialized && <FooterNav currentPage={page} setPage={setPage} />}
+      {isInitialized && isLoggedIn && <FooterNav currentPage={page} setPage={setPage} />}
 
       {showNumpad && (
         <NumpadModal itemCode={activeItem} onClose={handleCloseNumpad} />

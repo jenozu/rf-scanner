@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { parseCSV } from "../data/csv-utils";
 import useLocalStorage from "../hooks/useLocalStorage";
 import { Item, PageType } from "../types";
@@ -14,6 +14,59 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [data, setData] = useLocalStorage<Item[]>("rf_active", []);
   const [status, setStatus] = useState<string>("");
+  const [isLoadingMaster, setIsLoadingMaster] = useState(false);
+
+  // 🔄 Auto-load master inventory from VPS on mount
+  useEffect(() => {
+    const loadMasterInventory = async () => {
+      // Check if we already have data
+      const existingData = localStorage.getItem("rf_active");
+      if (existingData && JSON.parse(existingData).length > 0) {
+        // Already have data, don't auto-load
+        return;
+      }
+
+      setIsLoadingMaster(true);
+      setStatus("📥 Loading master inventory from server...");
+
+      try {
+        // Try to fetch master inventory file from VPS
+        const response = await fetch("/data/master_inventory.xlsx");
+        
+        if (response.ok) {
+          const blob = await response.blob();
+          const file = new File([blob], "master_inventory.xlsx", { type: blob.type });
+          
+          // Parse the file
+          const parsedData = await parseCSV(file);
+          
+          // Save as both master (read-only) and active (working copy)
+          localStorage.setItem("rf_master", JSON.stringify(parsedData));
+          localStorage.setItem("rf_active", JSON.stringify(parsedData));
+          
+          setData(parsedData);
+          setStatus(`✅ Loaded ${parsedData.length} items from master inventory`);
+          
+          // Auto-complete setup after successful load
+          setTimeout(() => {
+            if (onSetupComplete) {
+              onSetupComplete();
+            }
+          }, 1500);
+        } else {
+          // Master file not found on server, allow manual upload
+          setStatus("No master inventory found. Please upload manually.");
+        }
+      } catch (error) {
+        console.error("Error loading master inventory:", error);
+        setStatus("Could not load master inventory. Please upload manually.");
+      } finally {
+        setIsLoadingMaster(false);
+      }
+    };
+
+    loadMasterInventory();
+  }, []);
 
   // 📥 Handle file upload (CSV or XLSX)
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -29,7 +82,10 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
     try {
       const parsedData = await parseCSV(file);
 
-      // Data is already normalized by parseCSV function
+      // Save as both master (read-only) and active (working copy)
+      localStorage.setItem("rf_master", JSON.stringify(parsedData));
+      localStorage.setItem("rf_active", JSON.stringify(parsedData));
+      
       setData(parsedData);
       setStatus(`✅ Loaded ${parsedData.length} items from ${fileType} file`);
       
