@@ -13,7 +13,12 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host "`n🌐 Deploying to server 72.60.170.192..." -ForegroundColor Yellow
     Write-Host "Please enter your server password when prompted." -ForegroundColor Gray
     
+    # Clean old build files (preserve /data folder)
+    Write-Host "`n🧹 Cleaning old build files (preserving /data folder)..." -ForegroundColor Yellow
+    ssh root@72.60.170.192 "cd /var/www/rf-scanner && find . -mindepth 1 -maxdepth 1 ! -name 'data' -exec rm -rf {} +"
+    
     # Copy files
+    Write-Host "`n📤 Uploading new build..." -ForegroundColor Yellow
     scp -r dist/* root@72.60.170.192:/var/www/rf-scanner/
     
     if ($LASTEXITCODE -eq 0) {

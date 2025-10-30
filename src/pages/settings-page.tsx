@@ -4,8 +4,9 @@ import { useAuth } from "../hooks/useAuth";
 import { 
   LogIn, LogOut, User as UserIcon, Settings as SettingsIcon, 
   Plus, Edit, Trash2, Shield, Eye, Users, Activity,
-  Bell, Volume2, Clock, Moon, Sun
+  Bell, Volume2, Clock, Moon, Sun, AlertTriangle
 } from "lucide-react";
+import { clearAllData } from "../data/sample-data";
 
 interface SettingsPageProps {
   setPage: (page: PageType) => void;
@@ -85,6 +86,17 @@ export default function SettingsPage({ setPage, onLogin }: SettingsPageProps) {
   const handleLogout = () => {
     auth.logout();
     setActiveTab("profile");
+  };
+
+  const handleClearAllData = () => {
+    if (window.confirm("⚠️ Are you sure? This will delete ALL data including inventory, users, and settings. This cannot be undone!")) {
+      // Clear all data from localStorage
+      clearAllData();
+      // Logout current user
+      auth.logout();
+      // Reload the page to show login screen
+      window.location.reload();
+    }
   };
 
   const handleAddUser = () => {
@@ -548,6 +560,31 @@ export default function SettingsPage({ setPage, onLogin }: SettingsPageProps) {
                     className="w-5 h-5"
                   />
                 </label>
+              </div>
+
+              {/* Danger Zone - Clear All Data */}
+              <div className="space-y-3 pt-6 border-t border-gray-200">
+                <h4 className="font-medium flex items-center gap-2 text-red-600">
+                  <AlertTriangle size={18} />
+                  Danger Zone
+                </h4>
+                
+                <div className="p-4 bg-red-50 border border-red-200 rounded-md space-y-3">
+                  <div>
+                    <p className="font-medium text-red-800">Clear All Data</p>
+                    <p className="text-sm text-red-600 mt-1">
+                      This will remove all inventory data, users, activity logs, and settings.
+                      You will be logged out and the app will reload the master inventory on next login.
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleClearAllData}
+                    className="w-full px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors flex items-center justify-center gap-2"
+                  >
+                    <Trash2 size={18} />
+                    Clear All Data
+                  </button>
+                </div>
               </div>
             </div>
           )}

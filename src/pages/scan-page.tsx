@@ -31,6 +31,7 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem }) => {
   const [newBinCode, setNewBinCode] = useState<string>("");
   const [newBinZone, setNewBinZone] = useState<string>("");
   const [toast, setToast] = useState<Toast | null>(null);
+  const [keyboardMode, setKeyboardMode] = useState<"numeric" | "text">("numeric"); // Default to numpad
   const videoRef = useRef<HTMLDivElement>(null);
 
   // Load bins
@@ -51,40 +52,68 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem }) => {
     setToast({ message, type });
   };
 
-  // ✅ Initialize barcode scanner
+  // ✅ Initialize barcode scanner with better permission handling
   useEffect(() => {
-    Quagga.init(
-      {
-        inputStream: {
-          type: "LiveStream",
-          target: videoRef.current!,
-          constraints: {
-            facingMode: "environment",
-          },
-        },
-        decoder: {
-          readers: ["code_128_reader", "ean_reader", "upc_reader"],
-        },
-      },
-      (err) => {
-        if (err) {
-          console.error("Quagga init error:", err);
-          return;
-        }
-        Quagga.start();
-      }
-    );
+    let isInitialized = false;
 
-    Quagga.onDetected((result) => {
-      const code = result.codeResult.code;
-      if (code && code !== scannedCode) {
-        handleScan(code);
+    const initScanner = async () => {
+      // Check if we already have camera permission
+      try {
+        // Try to get camera permission status (modern browsers)
+        if (navigator.permissions && navigator.permissions.query) {
+          const permissionStatus = await navigator.permissions.query({ name: 'camera' as PermissionName });
+          
+          if (permissionStatus.state === 'denied') {
+            showToast("📷 Camera permission denied. Please enable it in your browser settings.", "error");
+            return;
+          }
+        }
+
+        // Initialize Quagga
+        Quagga.init(
+          {
+            inputStream: {
+              type: "LiveStream",
+              target: videoRef.current!,
+              constraints: {
+                facingMode: "environment",
+              },
+            },
+            decoder: {
+              readers: ["code_128_reader", "ean_reader", "upc_reader"],
+            },
+          },
+          (err) => {
+            if (err) {
+              console.error("Quagga init error:", err);
+              if (err.name === 'NotAllowedError') {
+                showToast("📷 Camera access denied", "error");
+              }
+              return;
+            }
+            isInitialized = true;
+            Quagga.start();
+          }
+        );
+
+        Quagga.onDetected((result) => {
+          const code = result.codeResult.code;
+          if (code && code !== scannedCode) {
+            handleScan(code);
+          }
+        });
+      } catch (error) {
+        console.error("Scanner initialization error:", error);
       }
-    });
+    };
+
+    initScanner();
 
     return () => {
-      Quagga.stop();
-      Quagga.offDetected(() => {});
+      if (isInitialized) {
+        Quagga.stop();
+        Quagga.offDetected(() => {});
+      }
     };
   }, []);
 
@@ -205,11 +234,19 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem }) => {
 
       {/* Manual Lookup */}
       <div className="mb-6 bg-white rounded-lg shadow p-4">
-        <label className="block text-sm font-medium mb-2">Manual Lookup</label>
+        <div className="flex items-center justify-between mb-2">
+          <label className="block text-sm font-medium">Manual Lookup</label>
+          <button
+            onClick={() => setKeyboardMode(keyboardMode === "numeric" ? "text" : "numeric")}
+            className="text-xs px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
+          >
+            {keyboardMode === "numeric" ? "🔤 ABC" : "🔢 123"}
+          </button>
+        </div>
         <div className="flex gap-2">
           <input
             type="text"
-            inputMode="numeric"
+            inputMode={keyboardMode}
             value={manualCode}
             onChange={(e) => setManualCode(e.target.value.toUpperCase())}
             onKeyPress={(e) => e.key === "Enter" && handleManualLookup()}
@@ -360,12 +397,12 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem }) => {
                 </div>
               </div>
 
-              <div className="space-y-2 max-h-96 overflow-y-auto">
+              <div className="space-y-2 max-h-96 overflow-y-auto overscroll-contain" style={{ WebkitOverflowScrolling: 'touch' }}>
                 {scanResult.matches.map((item) => (
                   <button
                     key={item.ItemCode}
                     onClick={() => handleSelectMatch(item)}
-                    className="w-full text-left bg-gray-50 hover:bg-blue-50 p-4 rounded-md transition border-2 border-transparent hover:border-blue-200"
+                    className="w-full text-left bg-gray-50 hover:bg-blue-50 p-4 rounded-md transition border-2 border-transparent hover:border-blue-200 flex-shrink-0"
                   >
                     <div className="flex justify-between items-start">
                       <div className="flex-1">
@@ -378,7 +415,7 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem }) => {
                           </span>
                         </div>
                       </div>
-                      <div className="text-right ml-4">
+                      <div className="text-right ml-4 flex-shrink-0">
                         <p className="text-sm text-gray-500">Expected</p>
                         <p className="text-xl font-bold text-blue-600">{item.ExpectedQty}</p>
                       </div>

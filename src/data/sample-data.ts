@@ -18,9 +18,9 @@ export const samplePurchaseOrders: PurchaseOrder[] = [
     status: "pending",
     expectedDate: "2025-10-28",
     items: [
-      { ItemCode: "MOUSE-001", Description: "Wireless Mouse", OrderedQty: 50, ReceivedQty: 0 },
-      { ItemCode: "KEYB-001", Description: "Mechanical Keyboard", OrderedQty: 30, ReceivedQty: 0 },
-      { ItemCode: "MON-001", Description: "24\" LED Monitor", OrderedQty: 20, ReceivedQty: 0 },
+      { ItemCode: "MOUSE-001", Description: "Wireless Mouse", OrderedQty: 50, ReceivedQty: 0, RequiresLotSerial: false },
+      { ItemCode: "KEYB-001", Description: "Mechanical Keyboard", OrderedQty: 30, ReceivedQty: 0, RequiresLotSerial: false },
+      { ItemCode: "MON-001", Description: "24\" LED Monitor", OrderedQty: 20, ReceivedQty: 0, RequiresLotSerial: false },
     ],
   },
   {
@@ -30,8 +30,8 @@ export const samplePurchaseOrders: PurchaseOrder[] = [
     status: "receiving",
     expectedDate: "2025-10-27",
     items: [
-      { ItemCode: "DESK-001", Description: "Standing Desk", OrderedQty: 15, ReceivedQty: 10, BinCode: "A-01-01" },
-      { ItemCode: "CHAIR-001", Description: "Ergonomic Chair", OrderedQty: 25, ReceivedQty: 15, BinCode: "A-01-02" },
+      { ItemCode: "DESK-001", Description: "Standing Desk", OrderedQty: 15, ReceivedQty: 10, BinCode: "A-01-01", RequiresLotSerial: false },
+      { ItemCode: "CHAIR-001", Description: "Ergonomic Chair", OrderedQty: 25, ReceivedQty: 15, BinCode: "A-01-02", RequiresLotSerial: false },
     ],
   },
   {
@@ -41,8 +41,8 @@ export const samplePurchaseOrders: PurchaseOrder[] = [
     status: "pending",
     expectedDate: "2025-10-29",
     items: [
-      { ItemCode: "LAPTOP-001", Description: "Business Laptop", OrderedQty: 10, ReceivedQty: 0 },
-      { ItemCode: "TABLET-001", Description: "10\" Tablet", OrderedQty: 20, ReceivedQty: 0 },
+      { ItemCode: "LAPTOP-001", Description: "Business Laptop", OrderedQty: 10, ReceivedQty: 0, RequiresLotSerial: true },
+      { ItemCode: "TABLET-001", Description: "10\" Tablet", OrderedQty: 20, ReceivedQty: 0, RequiresLotSerial: true },
     ],
   },
 ];
