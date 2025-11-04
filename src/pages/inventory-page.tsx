@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
-import { CycleCount, BinLocation, CycleCountTransaction, BinItem } from "../types";
-import { ClipboardCheck, Camera, AlertCircle, CheckCircle2, Plus } from "lucide-react";
+import { CycleCount, BinLocation, CycleCountTransaction, BinItem, InventorySession, TemporaryLocation, TemporaryLocationItem } from "../types";
+import { ClipboardCheck, Camera, AlertCircle, CheckCircle2, Plus, FolderOpen, MapPin, X, Save, Play } from "lucide-react";
 import Quagga from "@ericblade/quagga2";
 
 interface InventoryPageProps {
@@ -21,12 +21,53 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
   const [newItemQty, setNewItemQty] = useState<number>(0);
   const videoRef = useRef<HTMLDivElement>(null);
 
+  // Session management
+  const [sessions, setSessions] = useState<InventorySession[]>([]);
+  const [currentSession, setCurrentSession] = useState<InventorySession | null>(null);
+  const [showSessionModal, setShowSessionModal] = useState(false);
+  const [showCreateSessionModal, setShowCreateSessionModal] = useState(false);
+  const [newSessionName, setNewSessionName] = useState<string>("");
+
+  // Temporary locations
+  const [temporaryLocations, setTemporaryLocations] = useState<TemporaryLocation[]>([]);
+  const [showTempLocationModal, setShowTempLocationModal] = useState(false);
+  const [showCreateTempLocationModal, setShowCreateTempLocationModal] = useState(false);
+  const [newTempLocationTitle, setNewTempLocationTitle] = useState<string>("");
+  const [newTempLocationDescription, setNewTempLocationDescription] = useState<string>("");
+  const [showMoveToTempLocationModal, setShowMoveToTempLocationModal] = useState(false);
+  const [moveItemQty, setMoveItemQty] = useState<number>(0);
+
   // Load data
   useEffect(() => {
     const countsData = JSON.parse(localStorage.getItem("rf_cycle_counts") || "[]");
     const binsData = JSON.parse(localStorage.getItem("rf_bins") || "[]");
+    const sessionsData = JSON.parse(localStorage.getItem("rf_inventory_sessions") || "[]");
+    const tempLocationsData = JSON.parse(localStorage.getItem("rf_temporary_locations") || "[]");
+    const currentSessionId = localStorage.getItem("rf_current_inventory_session");
+    
     setCycleCounts(countsData);
     setBins(binsData);
+    setSessions(sessionsData);
+    setTemporaryLocations(tempLocationsData);
+
+    // Restore current session if exists
+    if (currentSessionId) {
+      const session = sessionsData.find((s: InventorySession) => s.id === currentSessionId);
+      if (session && session.status !== "completed") {
+        setCurrentSession(session);
+        // Restore current cycle count if exists
+        if (session.currentCycleCountId) {
+          const count = countsData.find((c: CycleCount) => c.id === session.currentCycleCountId);
+          if (count) {
+            setSelectedCount(count);
+            setCountedQty(count.CountedQty || 0);
+            setScannedCode(count.BinCode);
+          }
+        }
+      } else {
+        localStorage.removeItem("rf_current_inventory_session");
+      }
+    }
 
     // Check if we came from bin scan (Start Count button)
     const startBinCode = sessionStorage.getItem("rf_start_count_bin");
@@ -57,6 +98,27 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
           const updatedCounts = [...countsData, newCount];
           localStorage.setItem("rf_cycle_counts", JSON.stringify(updatedCounts));
           setCycleCounts(updatedCounts);
+          
+          // Add to current session if exists
+          const currentSessionId = localStorage.getItem("rf_current_inventory_session");
+          if (currentSessionId) {
+            const session = sessionsData.find((s: InventorySession) => s.id === currentSessionId);
+            if (session) {
+              const updatedSession: InventorySession = {
+                ...session,
+                cycleCountIds: [...session.cycleCountIds, newCount.id],
+                currentCycleCountId: newCount.id,
+                lastAccessedDate: new Date().toISOString(),
+              };
+              const updatedSessions = sessionsData.map((s: InventorySession) => 
+                s.id === session.id ? updatedSession : s
+              );
+              localStorage.setItem("rf_inventory_sessions", JSON.stringify(updatedSessions));
+              setCurrentSession(updatedSession);
+              setSessions(updatedSessions);
+            }
+          }
+          
           setSelectedCount(newCount);
           setCountedQty(0);
           setScannedCode(newCount.BinCode);
@@ -79,6 +141,177 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
 
   const showToast = (message: string, type: "success" | "error" | "info" = "info") => {
     setToast({ message, type });
+  };
+
+  // Session management functions
+  const createSession = () => {
+    if (!newSessionName.trim()) {
+      showToast("⚠️ Please enter a session name", "error");
+      return;
+    }
+
+    const newSession: InventorySession = {
+      id: `session-${Date.now()}`,
+      name: newSessionName.trim(),
+      createdDate: new Date().toISOString(),
+      lastAccessedDate: new Date().toISOString(),
+      status: "active",
+      cycleCountIds: [],
+    };
+
+    const updatedSessions = [...sessions, newSession];
+    setSessions(updatedSessions);
+    setCurrentSession(newSession);
+    localStorage.setItem("rf_inventory_sessions", JSON.stringify(updatedSessions));
+    localStorage.setItem("rf_current_inventory_session", newSession.id);
+    
+    showToast(`✅ Created session: ${newSession.name}`, "success");
+    setShowCreateSessionModal(false);
+    setNewSessionName("");
+  };
+
+  const resumeSession = (session: InventorySession) => {
+    const updatedSession: InventorySession = {
+      ...session,
+      status: "active",
+      lastAccessedDate: new Date().toISOString(),
+    };
+
+    const updatedSessions = sessions.map((s) => (s.id === session.id ? updatedSession : s));
+    setSessions(updatedSessions);
+    setCurrentSession(updatedSession);
+    localStorage.setItem("rf_inventory_sessions", JSON.stringify(updatedSessions));
+    localStorage.setItem("rf_current_inventory_session", session.id);
+
+    // Restore cycle counts from session
+    if (session.cycleCountIds.length > 0) {
+      const sessionCounts = cycleCounts.filter((c) => session.cycleCountIds.includes(c.id));
+      if (sessionCounts.length > 0) {
+        const pendingCounts = sessionCounts.filter((c) => c.Status === "pending");
+        if (pendingCounts.length > 0) {
+          showToast(`✅ Resumed session: ${session.name} (${pendingCounts.length} pending counts)`, "success");
+        } else {
+          showToast(`✅ Resumed session: ${session.name}`, "success");
+        }
+      }
+    } else {
+      showToast(`✅ Resumed session: ${session.name}`, "success");
+    }
+
+    setShowSessionModal(false);
+  };
+
+  const pauseSession = () => {
+    if (!currentSession) return;
+
+    const updatedSession: InventorySession = {
+      ...currentSession,
+      status: "paused",
+      lastAccessedDate: new Date().toISOString(),
+      currentCycleCountId: selectedCount?.id,
+    };
+
+    const updatedSessions = sessions.map((s) => (s.id === currentSession.id ? updatedSession : s));
+    setSessions(updatedSessions);
+    setCurrentSession(updatedSession);
+    localStorage.setItem("rf_inventory_sessions", JSON.stringify(updatedSessions));
+
+    showToast(`⏸️ Session paused: ${currentSession.name}`, "info");
+  };
+
+  const completeSession = () => {
+    if (!currentSession) return;
+
+    const updatedSession: InventorySession = {
+      ...currentSession,
+      status: "completed",
+      lastAccessedDate: new Date().toISOString(),
+    };
+
+    const updatedSessions = sessions.map((s) => (s.id === currentSession.id ? updatedSession : s));
+    setSessions(updatedSessions);
+    setCurrentSession(null);
+    localStorage.setItem("rf_inventory_sessions", JSON.stringify(updatedSessions));
+    localStorage.removeItem("rf_current_inventory_session");
+
+    showToast(`✅ Session completed: ${currentSession.name}`, "success");
+  };
+
+  // Temporary location functions
+  const createTemporaryLocation = () => {
+    if (!newTempLocationTitle.trim()) {
+      showToast("⚠️ Please enter a title", "error");
+      return;
+    }
+
+    const newLocation: TemporaryLocation = {
+      id: `temp-${Date.now()}`,
+      title: newTempLocationTitle.trim(),
+      description: newTempLocationDescription.trim(),
+      createdDate: new Date().toISOString(),
+      items: [],
+    };
+
+    const updatedLocations = [...temporaryLocations, newLocation];
+    setTemporaryLocations(updatedLocations);
+    localStorage.setItem("rf_temporary_locations", JSON.stringify(updatedLocations));
+    
+    showToast(`✅ Created temporary location: ${newLocation.title}`, "success");
+    setShowCreateTempLocationModal(false);
+    setNewTempLocationTitle("");
+    setNewTempLocationDescription("");
+  };
+
+  const moveItemToTemporaryLocation = (tempLocationId: string) => {
+    if (!selectedCount || !binItem || moveItemQty <= 0) return;
+
+    const tempLocation = temporaryLocations.find((tl) => tl.id === tempLocationId);
+    if (!tempLocation) return;
+
+    if (moveItemQty > countedQty) {
+      showToast("⚠️ Cannot move more than counted quantity", "error");
+      return;
+    }
+
+    const tempItem: TemporaryLocationItem = {
+      itemCode: selectedCount.ItemCode,
+      description: binItem.Description,
+      quantity: moveItemQty,
+      sourceBin: selectedCount.BinCode,
+      movedDate: new Date().toISOString(),
+    };
+
+    const updatedLocations = temporaryLocations.map((tl) => {
+      if (tl.id === tempLocationId) {
+        // Check if item already exists, if so add to quantity
+        const existingItem = tl.items.find((i) => i.itemCode === selectedCount.ItemCode);
+        if (existingItem) {
+          return {
+            ...tl,
+            items: tl.items.map((i) =>
+              i.itemCode === selectedCount.ItemCode
+                ? { ...i, quantity: i.quantity + moveItemQty }
+                : i
+            ),
+          };
+        }
+        return {
+          ...tl,
+          items: [...tl.items, tempItem],
+        };
+      }
+      return tl;
+    });
+
+    setTemporaryLocations(updatedLocations);
+    localStorage.setItem("rf_temporary_locations", JSON.stringify(updatedLocations));
+
+    // Update counted quantity (subtract moved quantity)
+    setCountedQty(countedQty - moveItemQty);
+
+    showToast(`✅ Moved ${moveItemQty} ${selectedCount.ItemCode} to ${tempLocation.title}`, "success");
+    setShowMoveToTempLocationModal(false);
+    setMoveItemQty(0);
   };
 
   // Initialize scanner when scan mode is enabled
@@ -143,8 +376,24 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
   // Select count task manually
   const handleSelectCount = (count: CycleCount) => {
     setSelectedCount(count);
-    setCountedQty(0);
+    setCountedQty(count.CountedQty || 0);
     setScannedCode(count.BinCode);
+
+    // Update current session if exists
+    if (currentSession) {
+      const updatedSession: InventorySession = {
+        ...currentSession,
+        lastAccessedDate: new Date().toISOString(),
+        currentCycleCountId: count.id,
+        cycleCountIds: currentSession.cycleCountIds.includes(count.id)
+          ? currentSession.cycleCountIds
+          : [...currentSession.cycleCountIds, count.id],
+      };
+      const updatedSessions = sessions.map((s) => (s.id === currentSession.id ? updatedSession : s));
+      setSessions(updatedSessions);
+      setCurrentSession(updatedSession);
+      localStorage.setItem("rf_inventory_sessions", JSON.stringify(updatedSessions));
+    }
   };
 
   // Submit count
@@ -164,6 +413,22 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     const updatedCounts = cycleCounts.map((c) =>
       c.id === selectedCount.id ? updatedCount : c
     );
+
+    // Update current session if exists
+    if (currentSession) {
+      const updatedSession: InventorySession = {
+        ...currentSession,
+        lastAccessedDate: new Date().toISOString(),
+        cycleCountIds: currentSession.cycleCountIds.includes(selectedCount.id)
+          ? currentSession.cycleCountIds
+          : [...currentSession.cycleCountIds, selectedCount.id],
+        currentCycleCountId: undefined,
+      };
+      const updatedSessions = sessions.map((s) => (s.id === currentSession.id ? updatedSession : s));
+      setSessions(updatedSessions);
+      setCurrentSession(updatedSession);
+      localStorage.setItem("rf_inventory_sessions", JSON.stringify(updatedSessions));
+    }
 
     // Update bin inventory (always update, even if variance is 0 for accuracy)
     const bin = bins.find((b) => b.BinCode === selectedCount.BinCode);
@@ -223,10 +488,41 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
   if (!selectedCount) {
     return (
       <div className="p-4 max-w-4xl mx-auto">
-        <h1 className="text-2xl font-bold mb-4 flex items-center gap-2">
-          <ClipboardCheck className="text-blue-600" />
-          Cycle Counting
-        </h1>
+        <div className="flex justify-between items-center mb-4">
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            <ClipboardCheck className="text-blue-600" />
+            Cycle Counting
+          </h1>
+          <div className="flex gap-2">
+            {currentSession && (
+              <div className="bg-blue-50 px-3 py-1 rounded-md text-sm flex items-center gap-2">
+                <FolderOpen size={16} className="text-blue-600" />
+                <span className="font-medium text-blue-700">{currentSession.name}</span>
+                <button
+                  onClick={pauseSession}
+                  className="text-blue-600 hover:text-blue-800"
+                  title="Pause Session"
+                >
+                  <Save size={14} />
+                </button>
+              </div>
+            )}
+            <button
+              onClick={() => setShowSessionModal(true)}
+              className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 text-sm flex items-center gap-2"
+            >
+              <FolderOpen size={16} />
+              {currentSession ? "Switch Session" : "Start Session"}
+            </button>
+            <button
+              onClick={() => setShowTempLocationModal(true)}
+              className="bg-purple-600 text-white px-4 py-2 rounded-md hover:bg-purple-700 text-sm flex items-center gap-2"
+            >
+              <MapPin size={16} />
+              Temp Locations
+            </button>
+          </div>
+        </div>
 
         {/* Toast */}
         {toast && (
@@ -274,11 +570,22 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
         <div className="mb-4 flex justify-between items-center">
           <h2 className="text-lg font-semibold">Pending Counts</h2>
           <span className="text-sm text-gray-600">
-            {cycleCounts.filter((c) => c.Status === "pending").length} tasks
+            {(() => {
+              const pendingCounts = currentSession
+                ? cycleCounts.filter((c) => c.Status === "pending" && currentSession.cycleCountIds.includes(c.id))
+                : cycleCounts.filter((c) => c.Status === "pending");
+              return pendingCounts.length;
+            })()}{" "}
+            tasks
           </span>
         </div>
 
-        {cycleCounts.filter((c) => c.Status === "pending").length === 0 ? (
+        {(() => {
+          const pendingCounts = currentSession
+            ? cycleCounts.filter((c) => c.Status === "pending" && currentSession.cycleCountIds.includes(c.id))
+            : cycleCounts.filter((c) => c.Status === "pending");
+          return pendingCounts.length === 0;
+        })() ? (
           <div className="text-center py-12 text-gray-500">
             <CheckCircle2 size={48} className="mx-auto mb-4 opacity-50 text-green-500" />
             <p>All cycle counts completed!</p>
@@ -291,8 +598,12 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
           </div>
         ) : (
           <div className="space-y-3">
-            {cycleCounts
-              .filter((c) => c.Status === "pending")
+            {(() => {
+              const pendingCounts = currentSession
+                ? cycleCounts.filter((c) => c.Status === "pending" && currentSession.cycleCountIds.includes(c.id))
+                : cycleCounts.filter((c) => c.Status === "pending");
+              return pendingCounts;
+            })()
               .map((count) => {
                 const bin = bins.find((b) => b.BinCode === count.BinCode);
 
@@ -331,12 +642,21 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
         )}
 
         {/* Completed Counts */}
-        {cycleCounts.filter((c) => c.Status === "completed").length > 0 && (
+        {(() => {
+          const completedCounts = currentSession
+            ? cycleCounts.filter((c) => c.Status === "completed" && currentSession.cycleCountIds.includes(c.id))
+            : cycleCounts.filter((c) => c.Status === "completed");
+          return completedCounts.length > 0;
+        })() && (
           <div className="mt-8">
             <h2 className="text-lg font-semibold mb-3">Completed Counts</h2>
             <div className="space-y-2">
-              {cycleCounts
-                .filter((c) => c.Status === "completed")
+              {(() => {
+                const completedCounts = currentSession
+                  ? cycleCounts.filter((c) => c.Status === "completed" && currentSession.cycleCountIds.includes(c.id))
+                  : cycleCounts.filter((c) => c.Status === "completed");
+                return completedCounts;
+              })()
                 .map((count) => (
                   <div
                     key={count.id}
@@ -365,6 +685,216 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
                     </div>
                   </div>
                 ))}
+            </div>
+          </div>
+        )}
+
+        {/* Session Management Modal */}
+        {showSessionModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 max-h-[80vh] overflow-y-auto">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-xl font-bold">Sessions</h3>
+                <button
+                  onClick={() => {
+                    setShowSessionModal(false);
+                    setShowCreateSessionModal(false);
+                  }}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              {!showCreateSessionModal ? (
+                <>
+                  <div className="mb-4">
+                    <button
+                      onClick={() => setShowCreateSessionModal(true)}
+                      className="w-full bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700 mb-4"
+                    >
+                      + Create New Session
+                    </button>
+                  </div>
+
+                  {sessions.length === 0 ? (
+                    <p className="text-gray-500 text-center py-8">No sessions yet. Create one to get started!</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {sessions.map((session) => (
+                        <div
+                          key={session.id}
+                          className={`border rounded-lg p-3 ${
+                            currentSession?.id === session.id ? "bg-blue-50 border-blue-300" : "bg-white"
+                          }`}
+                        >
+                          <div className="flex justify-between items-start">
+                            <div className="flex-1">
+                              <h4 className="font-semibold">{session.name}</h4>
+                              <p className="text-sm text-gray-600">
+                                Status: <span className="capitalize">{session.status}</span>
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                Created: {new Date(session.createdDate).toLocaleDateString()}
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                {session.cycleCountIds.length} counts in session
+                              </p>
+                            </div>
+                            {session.status !== "completed" && (
+                              <button
+                                onClick={() => resumeSession(session)}
+                                className="bg-blue-600 text-white px-3 py-1 rounded-md hover:bg-blue-700 text-sm flex items-center gap-1"
+                              >
+                                <Play size={14} />
+                                Resume
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div>
+                  <h4 className="font-semibold mb-3">Create New Session</h4>
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium mb-1">Session Name</label>
+                    <input
+                      type="text"
+                      value={newSessionName}
+                      onChange={(e) => setNewSessionName(e.target.value)}
+                      placeholder="e.g., Morning Count - Zone A"
+                      className="w-full border border-gray-300 rounded-md px-3 py-2"
+                      autoFocus
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={createSession}
+                      className="flex-1 bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700"
+                    >
+                      Create
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowCreateSessionModal(false);
+                        setNewSessionName("");
+                      }}
+                      className="px-4 bg-gray-200 text-gray-700 py-2 rounded-md hover:bg-gray-300"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Temporary Locations Modal */}
+        {showTempLocationModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 max-h-[80vh] overflow-y-auto">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-xl font-bold">Temporary Locations</h3>
+                <button
+                  onClick={() => {
+                    setShowTempLocationModal(false);
+                    setShowCreateTempLocationModal(false);
+                  }}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              {!showCreateTempLocationModal ? (
+                <>
+                  <div className="mb-4">
+                    <button
+                      onClick={() => setShowCreateTempLocationModal(true)}
+                      className="w-full bg-purple-600 text-white py-2 rounded-md hover:bg-purple-700 mb-4"
+                    >
+                      + Create New Temporary Location
+                    </button>
+                  </div>
+
+                  {temporaryLocations.length === 0 ? (
+                    <p className="text-gray-500 text-center py-8">No temporary locations yet. Create one to hold misplaced items!</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {temporaryLocations.map((location) => (
+                        <div key={location.id} className="border rounded-lg p-3 bg-white">
+                          <h4 className="font-semibold mb-1">{location.title}</h4>
+                          {location.description && (
+                            <p className="text-sm text-gray-600 mb-2">{location.description}</p>
+                          )}
+                          <p className="text-xs text-gray-500 mb-2">
+                            {location.items.length} item{location.items.length !== 1 ? "s" : ""} stored
+                          </p>
+                          {location.items.length > 0 && (
+                            <div className="bg-gray-50 rounded p-2 text-xs">
+                              {location.items.map((item, idx) => (
+                                <div key={idx} className="flex justify-between">
+                                  <span>{item.itemCode}</span>
+                                  <span className="font-medium">Qty: {item.quantity}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div>
+                  <h4 className="font-semibold mb-3">Create Temporary Location</h4>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Title *</label>
+                      <input
+                        type="text"
+                        value={newTempLocationTitle}
+                        onChange={(e) => setNewTempLocationTitle(e.target.value)}
+                        placeholder="e.g., Holding Area - Aisle 5"
+                        className="w-full border border-gray-300 rounded-md px-3 py-2"
+                        autoFocus
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Description</label>
+                      <textarea
+                        value={newTempLocationDescription}
+                        onChange={(e) => setNewTempLocationDescription(e.target.value)}
+                        placeholder="Brief description of this temporary location"
+                        className="w-full border border-gray-300 rounded-md px-3 py-2"
+                        rows={3}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex gap-2 mt-6">
+                    <button
+                      onClick={createTemporaryLocation}
+                      className="flex-1 bg-purple-600 text-white py-2 rounded-md hover:bg-purple-700"
+                    >
+                      Create
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowCreateTempLocationModal(false);
+                        setNewTempLocationTitle("");
+                        setNewTempLocationDescription("");
+                      }}
+                      className="px-4 bg-gray-200 text-gray-700 py-2 rounded-md hover:bg-gray-300"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -461,6 +991,15 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
           >
             Submit Count
           </button>
+          {countedQty > 0 && temporaryLocations.length > 0 && (
+            <button
+              onClick={() => setShowMoveToTempLocationModal(true)}
+              className="px-4 bg-purple-600 text-white py-3 rounded-md hover:bg-purple-700 font-medium flex items-center gap-2"
+            >
+              <MapPin size={18} />
+              Move to Temp
+            </button>
+          )}
           <button
             onClick={() => {
               setSelectedCount(null);
@@ -605,6 +1144,76 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
                 Cancel
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Move to Temporary Location Modal */}
+      {showMoveToTempLocationModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-bold">Move Item to Temporary Location</h3>
+              <button
+                onClick={() => {
+                  setShowMoveToTempLocationModal(false);
+                  setMoveItemQty(0);
+                }}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="mb-4">
+              <p className="text-sm text-gray-600 mb-2">
+                Item: <span className="font-medium">{selectedCount.ItemCode}</span>
+              </p>
+              <p className="text-sm text-gray-600 mb-4">
+                Counted Qty: <span className="font-medium">{countedQty}</span>
+              </p>
+              <label className="block text-sm font-medium mb-1">Quantity to Move</label>
+              <input
+                type="number"
+                value={moveItemQty}
+                onChange={(e) => setMoveItemQty(Number(e.target.value))}
+                min="1"
+                max={countedQty}
+                placeholder="Enter quantity"
+                className="w-full border border-gray-300 rounded-md px-3 py-2"
+                autoFocus
+              />
+            </div>
+            <div className="mb-4">
+              <label className="block text-sm font-medium mb-2">Select Temporary Location</label>
+              {temporaryLocations.length === 0 ? (
+                <p className="text-sm text-gray-500 mb-2">No temporary locations available.</p>
+              ) : (
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {temporaryLocations.map((location) => (
+                    <button
+                      key={location.id}
+                      onClick={() => moveItemToTemporaryLocation(location.id)}
+                      disabled={moveItemQty <= 0 || moveItemQty > countedQty}
+                      className="w-full text-left border rounded-lg p-3 hover:bg-purple-50 hover:border-purple-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <div className="font-semibold">{location.title}</div>
+                      {location.description && (
+                        <div className="text-sm text-gray-600">{location.description}</div>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <button
+              onClick={() => {
+                setShowMoveToTempLocationModal(false);
+                setMoveItemQty(0);
+              }}
+              className="w-full bg-gray-200 text-gray-700 py-2 rounded-md hover:bg-gray-300"
+            >
+              Cancel
+            </button>
           </div>
         </div>
       )}

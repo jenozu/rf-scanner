@@ -19,6 +19,7 @@ export interface PurchaseOrder {
   id: string;
   poNumber: string;
   vendor: string;
+  cardCode?: string; // Vendor code (SAP CardCode)
   items: POItem[];
   status: "pending" | "receiving" | "completed";
   expectedDate: string;
@@ -26,6 +27,7 @@ export interface PurchaseOrder {
 }
 
 export interface POItem {
+  LineNumber?: number; // Line number for sorting
   ItemCode: string;
   Description: string;
   OrderedQty: number;
@@ -66,6 +68,32 @@ export interface OrderItem {
   OrderedQty: number;
   PickedQty: number;
   BinCode: string;
+}
+
+/**
+ * Sales Order (outbound) for picking workflow
+ * Imported from CSV with multiple SO numbers in one file
+ */
+export interface SalesOrder {
+  id: string;
+  soNumber: string;
+  customer: string;
+  cardCode: string; // Customer code
+  items: SOItem[];
+  status: "pending" | "picking" | "picked" | "shipped";
+  createdDate: string;
+  shippedDate?: string;
+}
+
+export interface SOItem {
+  LineNumber: number;
+  ItemCode: string;
+  Description: string;
+  OrderedQty: number;
+  DeliveredQty: number;
+  /** Remaining quantity to pick/ship */
+  RemainingQty?: number;
+  BinCode?: string; // Suggested bin for picking
 }
 
 /**
@@ -193,6 +221,38 @@ export interface TransferTransaction {
   destinationBin: string;
   qty: number;
   timestamp: string;
+}
+
+/**
+ * Inventory Session for managing counting sessions
+ */
+export interface InventorySession {
+  id: string;
+  name: string;
+  createdDate: string;
+  lastAccessedDate: string;
+  status: "active" | "paused" | "completed";
+  cycleCountIds: string[]; // IDs of cycle counts in this session
+  currentCycleCountId?: string; // Currently active count
+}
+
+/**
+ * Temporary Location for holding misplaced items
+ */
+export interface TemporaryLocation {
+  id: string;
+  title: string;
+  description: string;
+  createdDate: string;
+  items: TemporaryLocationItem[];
+}
+
+export interface TemporaryLocationItem {
+  itemCode: string;
+  description: string;
+  quantity: number;
+  sourceBin?: string; // Where it came from
+  movedDate: string;
 }
 
 /**

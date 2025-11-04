@@ -13,6 +13,20 @@
   - Removed scan verification (items don't have barcodes)
   - Added numpad modal for mobile-friendly quantity entry
   - Made bin selection optional (uses PO's bin or staging if blank)
+  - **Multi-PO Upload Enhanced**: Multiple POs per CSV file with improvements
+    - RemainingQty auto-calculation (OrderedQty - ReceivedQty)
+    - LineNumber sorting for items
+    - CardCode vendor tracking
+    - Better upload status messages
+- ✅ **Sales Order Upload (NEW!):**
+  - CSV/XLSX upload with multiple SOs in one file
+  - Blank line separator support between orders
+  - Auto-grouping by SO number with line item sorting
+  - Flexible column name recognition (SAP Business One compatible)
+  - Auto-status determination (pending/picking/picked/shipped)
+  - RemainingQty calculation per line item
+  - Duplicate SO prevention on upload
+  - Storage in localStorage: `rf_sales_orders`
 - ✅ **Transaction Logs:**
   - CSV export for receiving and cycle count transactions
   - Export page with dedicated download buttons
@@ -116,17 +130,22 @@
 
 ## Phase 3 — Picking (Guided with scan validation)
 - Tasks
+  - [x] Sales Order CSV upload functionality (multiple SOs per file)
   - [ ] Task selection (SO/Wave)
+  - [ ] Integrate SO selection into Pick page
   - [ ] Directed path (bin sequence by strategy)
   - [ ] Enforce scan order: bin → item → qty
   - [ ] Carton assignment before shipping
   - [ ] Progress and short-pick handling
 
 - Data Model Updates
+  - [x] `SalesOrder` and `SOItem` entities with status tracking
   - [ ] `Carton`/`ShipmentContainer` entity
   - [ ] Pick transaction log (bin, item, qty)
 
 - Acceptance Criteria
+  - [x] Sales orders can be uploaded via CSV/Excel with multi-SO support
+  - [ ] Users can select SOs for picking
   - [ ] Users must scan correct bin and item before qty entry
   - [ ] Carton assigned to contents and persisted
 

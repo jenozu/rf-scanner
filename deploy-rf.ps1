@@ -15,7 +15,7 @@ if ($LASTEXITCODE -eq 0) {
     
     # Clean old build files (preserve /data folder)
     Write-Host "`n🧹 Cleaning old build files (preserving /data folder)..." -ForegroundColor Yellow
-    ssh root@72.60.170.192 "cd /var/www/rf-scanner && find . -mindepth 1 -maxdepth 1 ! -name 'data' -exec rm -rf {} +"
+    ssh root@72.60.170.192 "cd /var/www/rf-scanner; find . -mindepth 1 -maxdepth 1 ! -name 'data' -exec rm -rf {} +"
     
     # Copy files
     Write-Host "`n📤 Uploading new build..." -ForegroundColor Yellow

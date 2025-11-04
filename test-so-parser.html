@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sales Order CSV Parser Test</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    .container {
+      background: white;
+      border-radius: 12px;
+      padding: 30px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    h1 {
+      color: #2563eb;
+      margin-bottom: 10px;
+    }
+    .subtitle {
+      color: #666;
+      margin-bottom: 30px;
+    }
+    .upload-area {
+      border: 3px dashed #22c55e;
+      border-radius: 8px;
+      padding: 40px;
+      text-align: center;
+      background: #f0fdf4;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+    .upload-area:hover {
+      border-color: #16a34a;
+      background: #dcfce7;
+    }
+    .upload-area.dragover {
+      border-color: #16a34a;
+      background: #bbf7d0;
+    }
+    input[type="file"] {
+      display: none;
+    }
+    .btn {
+      background: #22c55e;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 6px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+    .btn:hover {
+      background: #16a34a;
+    }
+    .results {
+      margin-top: 30px;
+    }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 15px;
+      margin-bottom: 30px;
+    }
+    .stat-card {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 20px;
+      border-radius: 8px;
+      text-align: center;
+    }
+    .stat-card.green {
+      background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+    }
+    .stat-card.blue {
+      background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+    }
+    .stat-card.orange {
+      background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+    }
+    .stat-label {
+      font-size: 14px;
+      opacity: 0.9;
+    }
+    .stat-value {
+      font-size: 32px;
+      font-weight: bold;
+      margin-top: 5px;
+    }
+    .order-card {
+      background: white;
+      border: 1px solid #e5e7eb;
+      border-left: 4px solid #3b82f6;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 15px;
+      transition: box-shadow 0.3s;
+    }
+    .order-card:hover {
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+    .order-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: start;
+      margin-bottom: 15px;
+    }
+    .order-number {
+      font-size: 20px;
+      font-weight: bold;
+      color: #1f2937;
+    }
+    .status-badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .status-pending {
+      background: #e5e7eb;
+      color: #4b5563;
+    }
+    .status-picking {
+      background: #fef3c7;
+      color: #92400e;
+    }
+    .status-shipped {
+      background: #d1fae5;
+      color: #065f46;
+    }
+    .customer-info {
+      color: #6b7280;
+      font-size: 14px;
+      margin-bottom: 10px;
+    }
+    .items-list {
+      background: #f9fafb;
+      border-radius: 6px;
+      padding: 15px;
+      margin-top: 15px;
+    }
+    .item-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid #e5e7eb;
+      font-size: 13px;
+    }
+    .item-row:last-child {
+      border-bottom: none;
+    }
+    .item-code {
+      font-weight: 600;
+      color: #1f2937;
+    }
+    .item-desc {
+      color: #6b7280;
+      flex: 1;
+      margin: 0 15px;
+    }
+    .item-qty {
+      font-weight: 600;
+      color: #3b82f6;
+    }
+    .bin-code {
+      color: #059669;
+      font-size: 11px;
+      margin-left: 10px;
+    }
+    pre {
+      background: #1f2937;
+      color: #10b981;
+      padding: 20px;
+      border-radius: 8px;
+      overflow-x: auto;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .section-title {
+      font-size: 18px;
+      font-weight: bold;
+      color: #1f2937;
+      margin: 30px 0 15px 0;
+      padding-bottom: 10px;
+      border-bottom: 2px solid #e5e7eb;
+    }
+    .alert {
+      background: #fef3c7;
+      border-left: 4px solid #f59e0b;
+      padding: 15px;
+      border-radius: 6px;
+      margin-bottom: 20px;
+    }
+    .success {
+      background: #d1fae5;
+      border-left-color: #10b981;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🛒 Sales Order CSV Parser Test</h1>
+    <p class="subtitle">Test the SO upload functionality with your CSV file</p>
+
+    <div class="upload-area" id="uploadArea">
+      <div style="font-size: 48px; margin-bottom: 10px;">📤</div>
+      <label for="fileInput" class="btn">Choose CSV File</label>
+      <input type="file" id="fileInput" accept=".csv" />
+      <p style="margin-top: 15px; color: #6b7280;">
+        or drag and drop your CSV file here
+      </p>
+      <p style="font-size: 12px; color: #9ca3af; margin-top: 10px;">
+        Expected: SO_429803_429840_...csv with multiple sales orders
+      </p>
+    </div>
+
+    <div id="results" class="results" style="display: none;">
+      <div class="alert success" id="successMessage"></div>
+      
+      <div class="stats" id="stats"></div>
+      
+      <h2 class="section-title">📦 Sales Orders</h2>
+      <div id="ordersList"></div>
+      
+      <h2 class="section-title">📋 Raw JSON Output</h2>
+      <pre id="jsonOutput"></pre>
+    </div>
+  </div>
+
+  <script>
+    const fileInput = document.getElementById('fileInput');
+    const uploadArea = document.getElementById('uploadArea');
+    const results = document.getElementById('results');
+    const successMessage = document.getElementById('successMessage');
+    const stats = document.getElementById('stats');
+    const ordersList = document.getElementById('ordersList');
+    const jsonOutput = document.getElementById('jsonOutput');
+
+    // File input change
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) parseFile(file);
+    });
+
+    // Drag and drop
+    uploadArea.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      uploadArea.classList.add('dragover');
+    });
+
+    uploadArea.addEventListener('dragleave', () => {
+      uploadArea.classList.remove('dragover');
+    });
+
+    uploadArea.addEventListener('drop', (e) => {
+      e.preventDefault();
+      uploadArea.classList.remove('dragover');
+      const file = e.dataTransfer.files[0];
+      if (file && file.name.endsWith('.csv')) {
+        parseFile(file);
+      } else {
+        alert('Please drop a CSV file');
+      }
+    });
+
+    // Parse CSV file
+    function parseFile(file) {
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        complete: (results) => {
+          try {
+            const salesOrders = normalizeSOData(results.data);
+            displayResults(salesOrders);
+          } catch (err) {
+            alert('Error parsing file: ' + err.message);
+            console.error(err);
+          }
+        },
+        error: (error) => {
+          alert('Error reading file: ' + error.message);
+        }
+      });
+    }
+
+    // Normalize and group by SO number (same logic as your app)
+    function normalizeSOData(rawData) {
+      const soMap = new Map();
+
+      rawData.forEach((row) => {
+        const soNumber = (row.soNumber || row.SONumber || '').toString().trim();
+        if (!soNumber) return;
+
+        const customer = (row.customer || row.Customer || '').toString().trim();
+        const cardCode = (row.CardCode || row.cardCode || '').toString().trim();
+
+        if (!soMap.has(soNumber)) {
+          soMap.set(soNumber, {
+            soNumber,
+            customer: customer || 'Unknown Customer',
+            cardCode: cardCode || '',
+            items: []
+          });
+        }
+
+        const so = soMap.get(soNumber);
+        const lineNumber = parseInt(row.LineNumber || '0') || 0;
+        const itemCode = (row.ItemCode || '').toString().trim();
+        const description = (row.Description || '').toString().trim();
+        const orderedQty = parseFloat(row.OrderedQty || '0') || 0;
+        const deliveredQty = parseFloat(row.DeliveredQty || '0') || 0;
+        const binCode = (row.BinCode || '').toString().trim() || undefined;
+
+        if (itemCode && orderedQty > 0) {
+          so.items.push({
+            LineNumber: lineNumber,
+            ItemCode: itemCode,
+            Description: description || itemCode,
+            OrderedQty: orderedQty,
+            DeliveredQty: deliveredQty,
+            RemainingQty: orderedQty - deliveredQty,
+            BinCode: binCode
+          });
+        }
+      });
+
+      // Convert to array and set status
+      const salesOrders = Array.from(soMap.values()).map((so, index) => {
+        so.items.sort((a, b) => a.LineNumber - b.LineNumber);
+        
+        const allShipped = so.items.every(item => item.DeliveredQty >= item.OrderedQty);
+        const somePicked = so.items.some(item => item.DeliveredQty > 0);
+        
+        return {
+          id: `so-${Date.now()}-${index}`,
+          soNumber: so.soNumber,
+          customer: so.customer,
+          cardCode: so.cardCode,
+          items: so.items,
+          status: allShipped ? 'shipped' : somePicked ? 'picking' : 'pending',
+          createdDate: new Date().toISOString().split('T')[0]
+        };
+      });
+
+      return salesOrders;
+    }
+
+    // Display results
+    function displayResults(salesOrders) {
+      results.style.display = 'block';
+      
+      // Success message
+      const totalItems = salesOrders.reduce((sum, so) => sum + so.items.length, 0);
+      successMessage.textContent = `✅ Successfully parsed ${salesOrders.length} sales orders with ${totalItems} total line items`;
+      
+      // Stats
+      const pendingCount = salesOrders.filter(so => so.status === 'pending').length;
+      const pickingCount = salesOrders.filter(so => so.status === 'picking').length;
+      const shippedCount = salesOrders.filter(so => so.status === 'shipped').length;
+      
+      stats.innerHTML = `
+        <div class="stat-card blue">
+          <div class="stat-label">Total Orders</div>
+          <div class="stat-value">${salesOrders.length}</div>
+        </div>
+        <div class="stat-card orange">
+          <div class="stat-label">Pending</div>
+          <div class="stat-value">${pendingCount}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Picking</div>
+          <div class="stat-value">${pickingCount}</div>
+        </div>
+        <div class="stat-card green">
+          <div class="stat-label">Shipped</div>
+          <div class="stat-value">${shippedCount}</div>
+        </div>
+      `;
+      
+      // Orders list
+      ordersList.innerHTML = salesOrders.map(so => `
+        <div class="order-card">
+          <div class="order-header">
+            <div>
+              <div class="order-number">SO #${so.soNumber}</div>
+              <div class="customer-info">
+                👤 ${so.customer} (${so.cardCode})
+              </div>
+              <div class="customer-info">
+                📅 Created: ${new Date(so.createdDate).toLocaleDateString()}
+              </div>
+            </div>
+            <span class="status-badge status-${so.status}">${so.status}</span>
+          </div>
+          
+          <div style="color: #6b7280; font-size: 14px; margin-bottom: 10px;">
+            ${so.items.length} line items • 
+            ${so.items.reduce((sum, item) => sum + item.OrderedQty, 0)} total units
+          </div>
+          
+          <div class="items-list">
+            ${so.items.map(item => `
+              <div class="item-row">
+                <span class="item-code">${item.ItemCode}</span>
+                <span class="item-desc">${item.Description}</span>
+                <span class="item-qty">
+                  ${item.DeliveredQty}/${item.OrderedQty}
+                  ${item.BinCode ? `<span class="bin-code">@ ${item.BinCode}</span>` : ''}
+                </span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `).join('');
+      
+      // JSON output
+      jsonOutput.textContent = JSON.stringify(salesOrders, null, 2);
+      
+      // Scroll to results
+      results.scrollIntoView({ behavior: 'smooth' });
+    }
+  </script>
+</body>
+</html>
+

@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Purchase Order CSV Parser Test</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    .container {
+      background: white;
+      border-radius: 12px;
+      padding: 30px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    h1 {
+      color: #7c3aed;
+      margin-bottom: 10px;
+    }
+    .subtitle {
+      color: #666;
+      margin-bottom: 30px;
+    }
+    .upload-area {
+      border: 3px dashed #a78bfa;
+      border-radius: 8px;
+      padding: 40px;
+      text-align: center;
+      background: #f5f3ff;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+    .upload-area:hover {
+      border-color: #7c3aed;
+      background: #ede9fe;
+    }
+    .upload-area.dragover {
+      border-color: #7c3aed;
+      background: #ddd6fe;
+    }
+    input[type="file"] {
+      display: none;
+    }
+    .btn {
+      background: #7c3aed;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 6px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+    .btn:hover {
+      background: #6d28d9;
+    }
+    .results {
+      margin-top: 30px;
+    }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 15px;
+      margin-bottom: 30px;
+    }
+    .stat-card {
+      background: linear-gradient(135deg, #a78bfa 0%, #7c3aed 100%);
+      color: white;
+      padding: 20px;
+      border-radius: 8px;
+      text-align: center;
+    }
+    .stat-card.orange {
+      background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+    }
+    .stat-card.blue {
+      background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
+    }
+    .stat-card.green {
+      background: linear-gradient(135deg, #34d399 0%, #10b981 100%);
+    }
+    .stat-label {
+      font-size: 14px;
+      opacity: 0.9;
+    }
+    .stat-value {
+      font-size: 32px;
+      font-weight: bold;
+      margin-top: 5px;
+    }
+    .po-card {
+      background: white;
+      border: 1px solid #e5e7eb;
+      border-left: 4px solid #7c3aed;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 15px;
+      transition: box-shadow 0.3s;
+    }
+    .po-card:hover {
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+    .po-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: start;
+      margin-bottom: 15px;
+    }
+    .po-number {
+      font-size: 20px;
+      font-weight: bold;
+      color: #1f2937;
+    }
+    .status-badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .status-pending {
+      background: #e5e7eb;
+      color: #4b5563;
+    }
+    .status-receiving {
+      background: #fef3c7;
+      color: #92400e;
+    }
+    .status-completed {
+      background: #d1fae5;
+      color: #065f46;
+    }
+    .vendor-info {
+      color: #6b7280;
+      font-size: 14px;
+      margin-bottom: 10px;
+    }
+    .items-list {
+      background: #f9fafb;
+      border-radius: 6px;
+      padding: 15px;
+      margin-top: 15px;
+    }
+    .item-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid #e5e7eb;
+      font-size: 13px;
+    }
+    .item-row:last-child {
+      border-bottom: none;
+    }
+    .item-code {
+      font-weight: 600;
+      color: #1f2937;
+    }
+    .item-desc {
+      color: #6b7280;
+      flex: 1;
+      margin: 0 15px;
+    }
+    .item-qty {
+      font-weight: 600;
+      color: #7c3aed;
+    }
+    .bin-code {
+      color: #059669;
+      font-size: 11px;
+      margin-left: 10px;
+    }
+    pre {
+      background: #1f2937;
+      color: #a78bfa;
+      padding: 20px;
+      border-radius: 8px;
+      overflow-x: auto;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .section-title {
+      font-size: 18px;
+      font-weight: bold;
+      color: #1f2937;
+      margin: 30px 0 15px 0;
+      padding-bottom: 10px;
+      border-bottom: 2px solid #e5e7eb;
+    }
+    .alert {
+      background: #f5f3ff;
+      border-left: 4px solid #7c3aed;
+      padding: 15px;
+      border-radius: 6px;
+      margin-bottom: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>📦 Purchase Order CSV Parser Test</h1>
+    <p class="subtitle">Test the multi-PO upload functionality with your CSV file</p>
+
+    <div class="upload-area" id="uploadArea">
+      <div style="font-size: 48px; margin-bottom: 10px;">📤</div>
+      <label for="fileInput" class="btn">Choose CSV File</label>
+      <input type="file" id="fileInput" accept=".csv" />
+      <p style="margin-top: 15px; color: #6b7280;">
+        or drag and drop your CSV file here
+      </p>
+      <p style="font-size: 12px; color: #9ca3af; margin-top: 10px;">
+        Expected: PO_409844_409850_...csv with multiple purchase orders
+      </p>
+    </div>
+
+    <div id="results" class="results" style="display: none;">
+      <div class="alert" id="successMessage"></div>
+      
+      <div class="stats" id="stats"></div>
+      
+      <h2 class="section-title">📦 Purchase Orders</h2>
+      <div id="poList"></div>
+      
+      <h2 class="section-title">📋 Raw JSON Output</h2>
+      <pre id="jsonOutput"></pre>
+    </div>
+  </div>
+
+  <script>
+    const fileInput = document.getElementById('fileInput');
+    const uploadArea = document.getElementById('uploadArea');
+    const results = document.getElementById('results');
+    const successMessage = document.getElementById('successMessage');
+    const stats = document.getElementById('stats');
+    const poList = document.getElementById('poList');
+    const jsonOutput = document.getElementById('jsonOutput');
+
+    // File input change
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) parseFile(file);
+    });
+
+    // Drag and drop
+    uploadArea.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      uploadArea.classList.add('dragover');
+    });
+
+    uploadArea.addEventListener('dragleave', () => {
+      uploadArea.classList.remove('dragover');
+    });
+
+    uploadArea.addEventListener('drop', (e) => {
+      e.preventDefault();
+      uploadArea.classList.remove('dragover');
+      const file = e.dataTransfer.files[0];
+      if (file && file.name.endsWith('.csv')) {
+        parseFile(file);
+      } else {
+        alert('Please drop a CSV file');
+      }
+    });
+
+    // Parse CSV file
+    function parseFile(file) {
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        complete: (results) => {
+          try {
+            const purchaseOrders = normalizePOData(results.data);
+            displayResults(purchaseOrders);
+          } catch (err) {
+            alert('Error parsing file: ' + err.message);
+            console.error(err);
+          }
+        },
+        error: (error) => {
+          alert('Error reading file: ' + error.message);
+        }
+      });
+    }
+
+    // Normalize and group by PO number (same logic as your app)
+    function normalizePOData(rawData) {
+      const poMap = new Map();
+
+      rawData.forEach((row) => {
+        const poNumber = (row.poNumber || row.PONumber || '').toString().trim();
+        if (!poNumber) return;
+
+        const vendorName = (row.vendor || row.Vendor || '').toString().trim();
+        const cardCode = (row.CardCode || row.cardCode || '').toString().trim();
+        const vendor = vendorName || cardCode || 'Unknown Vendor';
+
+        let expectedDate = (row.expectedDate || row.ExpectedDate || '').toString().trim();
+        if (expectedDate) {
+          const parsed = new Date(expectedDate);
+          if (!isNaN(parsed.getTime())) {
+            expectedDate = parsed.toISOString().split('T')[0];
+          }
+        }
+
+        if (!poMap.has(poNumber)) {
+          poMap.set(poNumber, {
+            poNumber,
+            vendor,
+            cardCode: cardCode || '',
+            expectedDate: expectedDate || new Date().toISOString().split('T')[0],
+            items: []
+          });
+        }
+
+        const po = poMap.get(poNumber);
+        const lineNumber = parseInt(row.LineNumber || '0') || 0;
+        const itemCode = (row.ItemCode || '').toString().trim();
+        const description = (row.Description || '').toString().trim();
+        const orderedQty = parseFloat(row.OrderedQty || '0') || 0;
+        const receivedQty = parseFloat(row.ReceivedQty || '0') || 0;
+        const binCode = (row.BinCode || '').toString().trim() || undefined;
+
+        if (itemCode && orderedQty > 0) {
+          po.items.push({
+            LineNumber: lineNumber,
+            ItemCode: itemCode,
+            Description: description || itemCode,
+            OrderedQty: orderedQty,
+            ReceivedQty: receivedQty,
+            RemainingQty: orderedQty - receivedQty,
+            BinCode: binCode
+          });
+        }
+      });
+
+      // Convert to array and determine status
+      const purchaseOrders = Array.from(poMap.values()).map((po, index) => {
+        po.items.sort((a, b) => a.LineNumber - b.LineNumber);
+        
+        const allReceived = po.items.every(item => item.ReceivedQty >= item.OrderedQty);
+        const someReceived = po.items.some(item => item.ReceivedQty > 0);
+        
+        return {
+          id: `po-${Date.now()}-${index}`,
+          poNumber: po.poNumber,
+          vendor: po.vendor,
+          cardCode: po.cardCode || undefined,
+          items: po.items,
+          status: allReceived ? 'completed' : someReceived ? 'receiving' : 'pending',
+          expectedDate: po.expectedDate
+        };
+      });
+
+      return purchaseOrders;
+    }
+
+    // Display results
+    function displayResults(purchaseOrders) {
+      results.style.display = 'block';
+      
+      // Success message
+      const totalItems = purchaseOrders.reduce((sum, po) => sum + po.items.length, 0);
+      successMessage.textContent = `✅ Successfully parsed ${purchaseOrders.length} purchase orders with ${totalItems} total line items`;
+      
+      // Stats
+      const pendingCount = purchaseOrders.filter(po => po.status === 'pending').length;
+      const receivingCount = purchaseOrders.filter(po => po.status === 'receiving').length;
+      const completedCount = purchaseOrders.filter(po => po.status === 'completed').length;
+      
+      stats.innerHTML = `
+        <div class="stat-card blue">
+          <div class="stat-label">Total POs</div>
+          <div class="stat-value">${purchaseOrders.length}</div>
+        </div>
+        <div class="stat-card orange">
+          <div class="stat-label">Pending</div>
+          <div class="stat-value">${pendingCount}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Receiving</div>
+          <div class="stat-value">${receivingCount}</div>
+        </div>
+        <div class="stat-card green">
+          <div class="stat-label">Completed</div>
+          <div class="stat-value">${completedCount}</div>
+        </div>
+      `;
+      
+      // PO list
+      poList.innerHTML = purchaseOrders.map(po => `
+        <div class="po-card">
+          <div class="po-header">
+            <div>
+              <div class="po-number">PO #${po.poNumber}</div>
+              <div class="vendor-info">
+                🏢 ${po.vendor} ${po.cardCode ? `(${po.cardCode})` : ''}
+              </div>
+              <div class="vendor-info">
+                📅 Expected: ${new Date(po.expectedDate).toLocaleDateString()}
+              </div>
+            </div>
+            <span class="status-badge status-${po.status}">${po.status}</span>
+          </div>
+          
+          <div style="color: #6b7280; font-size: 14px; margin-bottom: 10px;">
+            ${po.items.length} line items • 
+            ${po.items.reduce((sum, item) => sum + item.OrderedQty, 0)} total units ordered •
+            ${po.items.reduce((sum, item) => sum + item.RemainingQty, 0)} remaining to receive
+          </div>
+          
+          <div class="items-list">
+            ${po.items.map(item => `
+              <div class="item-row">
+                <span class="item-code">${item.ItemCode}</span>
+                <span class="item-desc">${item.Description}</span>
+                <span class="item-qty">
+                  ${item.ReceivedQty}/${item.OrderedQty}
+                  ${item.BinCode ? `<span class="bin-code">→ ${item.BinCode}</span>` : ''}
+                </span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `).join('');
+      
+      // JSON output
+      jsonOutput.textContent = JSON.stringify(purchaseOrders, null, 2);
+      
+      // Scroll to results
+      results.scrollIntoView({ behavior: 'smooth' });
+    }
+  </script>
+</body>
+</html>
+

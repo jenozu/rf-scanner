@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { parseCSV, parsePOFile } from "../data/csv-utils";
+import { parseCSV, parsePOFile, parseSalesOrderFile } from "../data/csv-utils";
 import useLocalStorage from "../hooks/useLocalStorage";
-import { Item, PageType, PurchaseOrder } from "../types";
+import { Item, PageType, PurchaseOrder, SalesOrder } from "../types";
 import { initializeSampleData, clearAllData } from "../data/sample-data";
-import { Database, Upload, Play, Trash2, Package } from "lucide-react";
+import { Database, Upload, Play, Trash2, Package, ShoppingCart } from "lucide-react";
 
 interface SetupPageProps {
   setPage: (page: PageType) => void;
@@ -155,11 +155,50 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
       const mergedPOs = [...existingPOs, ...uniqueNewPOs];
       localStorage.setItem("rf_purchase_orders", JSON.stringify(mergedPOs));
       
-      setStatus(`✅ Loaded ${uniqueNewPOs.length} purchase order(s) from ${fileType} file`);
+      const totalItems = uniqueNewPOs.reduce((sum, po) => sum + po.items.length, 0);
+      setStatus(`✅ Loaded ${uniqueNewPOs.length} purchase order(s) with ${totalItems} total line items from ${fileType} file`);
       e.target.value = "";
     } catch (err) {
       console.error("Error parsing PO file:", err);
       setStatus(`❌ Error reading PO ${fileType} file. Please check format. Required columns: poNumber, vendor, expectedDate, ItemCode, Description, OrderedQty`);
+      e.target.value = "";
+    }
+  };
+
+  // 📥 Handle Sales Order file upload
+  const handleSOFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const fileType = file.name.toLowerCase().endsWith('.xlsx') || file.name.toLowerCase().endsWith('.xls') 
+      ? 'Excel' 
+      : 'CSV';
+    setStatus(`⏳ Parsing Sales Order ${fileType} file...`);
+
+    try {
+      const newSOs = await parseSalesOrderFile(file);
+      
+      // Get existing SOs or create empty array
+      const existingSOs = JSON.parse(localStorage.getItem("rf_sales_orders") || "[]") as SalesOrder[];
+      const existingSONumbers = new Set(existingSOs.map(so => so.soNumber));
+      
+      // Filter out duplicates
+      const uniqueNewSOs = newSOs.filter(so => !existingSONumbers.has(so.soNumber));
+      
+      if (uniqueNewSOs.length === 0) {
+        setStatus("⚠️ All Sales Orders in file already exist. No new SOs added.");
+        e.target.value = "";
+        return;
+      }
+
+      const mergedSOs = [...existingSOs, ...uniqueNewSOs];
+      localStorage.setItem("rf_sales_orders", JSON.stringify(mergedSOs));
+      
+      setStatus(`✅ Loaded ${uniqueNewSOs.length} sales order(s) with ${newSOs.reduce((sum, so) => sum + so.items.length, 0)} total line items from ${fileType} file`);
+      e.target.value = "";
+    } catch (err) {
+      console.error("Error parsing Sales Order file:", err);
+      setStatus(`❌ Error reading Sales Order ${fileType} file. Please check format. Required columns: soNumber, customer, CardCode, ItemCode, Description, OrderedQty, DeliveredQty`);
       e.target.value = "";
     }
   };
@@ -253,7 +292,38 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
             <code>ItemCode</code>, <code>Description</code>, <code>OrderedQty</code>
           </p>
           <p className="text-xs text-gray-500 mt-1">
-            Optional: <code>ReceivedQty</code>, <code>BinCode</code>
+            Supports multiple purchase orders in one file (separated by blank lines)
+          </p>
+          <p className="text-xs text-gray-500">
+            Optional: <code>ReceivedQty</code>, <code>BinCode</code>, <code>CardCode</code>, <code>LineNumber</code>
+          </p>
+        </div>
+
+        {/* 🛒 Sales Order Upload Section */}
+        <div className="text-center border-2 border-dashed border-green-300 rounded-lg p-6 mb-4 hover:border-green-400 transition bg-green-50">
+          <ShoppingCart className="mx-auto mb-2 text-green-500" size={32} />
+          <label
+            htmlFor="soFile"
+            className="cursor-pointer text-green-600 font-medium"
+          >
+            Upload Sales Orders (CSV or Excel)
+          </label>
+          <input
+            id="soFile"
+            type="file"
+            accept=".csv,.xlsx,.xls"
+            onChange={handleSOFileUpload}
+            className="hidden"
+          />
+          <p className="text-xs text-gray-600 mt-2">
+            Required columns: <code>soNumber</code>, <code>customer</code>, <code>CardCode</code>,{" "}
+            <code>ItemCode</code>, <code>Description</code>, <code>OrderedQty</code>, <code>DeliveredQty</code>
+          </p>
+          <p className="text-xs text-gray-500 mt-1">
+            Supports multiple sales orders in one file (separated by blank lines)
+          </p>
+          <p className="text-xs text-gray-500">
+            Optional: <code>LineNumber</code>, <code>BinCode</code>
           </p>
         </div>
 
