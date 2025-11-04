@@ -1,0 +1,13 @@
+# Run these commands from Windows PowerShell (NOT from the VPS)
+
+# Step 1: Navigate to your project folder (optional, but helpful)
+cd "C:\Users\andel\Desktop\Marind\rf scanner"
+
+# Step 2: Upload all CSV files from your PO folder
+scp "C:\Users\andel\Desktop\Marind\rf scanner\PO\*.csv" root@72.60.170.192:/var/www/rf-scanner/data/pos/
+
+# Step 3: Upload all XLSX files (if you have any)
+scp "C:\Users\andel\Desktop\Marind\rf scanner\PO\*.xlsx" root@72.60.170.192:/var/www/rf-scanner/data/pos/
+
+# You'll be prompted for password: kxRAKCee8-QVPM-
+

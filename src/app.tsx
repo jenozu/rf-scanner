@@ -49,6 +49,14 @@ export default function App() {
     setShowNumpad(true);
   };
 
+  // Start cycle count from bin scan
+  const handleStartCount = (binCode: string) => {
+    setPage("inventory");
+    // The inventory page will handle finding/create cycle count tasks for this bin
+    // Store the bin code in localStorage for the inventory page to pick up
+    sessionStorage.setItem("rf_start_count_bin", binCode);
+  };
+
   // Close modal
   const handleCloseNumpad = () => {
     setShowNumpad(false);
@@ -85,7 +93,7 @@ export default function App() {
         {page === "transactions" && isLoggedIn && <TransactionsPage setPage={setPage} />}
         {page === "receive" && isLoggedIn && <ReceivePage setPage={setPage} />}
         {page === "scan" && isLoggedIn && (
-          <ScanPage setPage={setPage} onAdjustItem={handleAdjust} />
+          <ScanPage setPage={setPage} onAdjustItem={handleAdjust} onStartCount={handleStartCount} />
         )}
         {page === "pick" && isLoggedIn && <PickPage setPage={setPage} />}
         {page === "inventory" && isLoggedIn && <InventoryPage setPage={setPage} />}

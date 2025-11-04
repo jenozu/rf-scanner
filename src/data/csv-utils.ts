@@ -1,6 +1,6 @@
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
-import { Item } from "../types";
+import { Item, PurchaseOrder, POItem, ReceivingTransaction, CycleCountTransaction } from "../types";
 
 /**
  * 📥 Parse CSV or XLSX file and return structured data
@@ -215,6 +215,96 @@ export function exportCSV(data: Item[], filename = "rf_inventory_results.csv") {
 }
 
 /**
+ * 📤 Export Receiving transactions as CSV
+ */
+export function exportReceivingTxnsCSV(transactions: ReceivingTransaction[], filename = "receiving_transactions.csv") {
+  if (!transactions || transactions.length === 0) {
+    alert("No receiving transactions to export.");
+    return;
+  }
+
+  const cleaned = transactions.map((t) => ({
+    id: t.id,
+    timestamp: t.timestamp,
+    poNumber: t.poNumber,
+    itemCode: t.itemCode,
+    description: t.description,
+    qty: t.qty,
+    binCode: t.binCode,
+    lots: t.lots ? t.lots.map((l) => `${l.lotCode}:${l.qty}`).join("|") : "",
+    serials: t.serials ? t.serials.join("|") : "",
+  }));
+
+  const csv = Papa.unparse(cleaned, {
+    columns: [
+      "id",
+      "timestamp",
+      "poNumber",
+      "itemCode",
+      "description",
+      "qty",
+      "binCode",
+      "lots",
+      "serials",
+    ],
+  });
+
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.setAttribute("download", filename);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * 📤 Export Cycle Count transactions as CSV
+ */
+export function exportCycleCountTxnsCSV(transactions: CycleCountTransaction[], filename = "cycle_count_transactions.csv") {
+  if (!transactions || transactions.length === 0) {
+    alert("No cycle count transactions to export.");
+    return;
+  }
+
+  const cleaned = transactions.map((t) => ({
+    id: t.id,
+    timestamp: t.timestamp,
+    binCode: t.binCode,
+    itemCode: t.itemCode,
+    description: t.description,
+    expectedQty: t.expectedQty,
+    countedQty: t.countedQty,
+    variance: (t.countedQty - t.expectedQty),
+  }));
+
+  const csv = Papa.unparse(cleaned, {
+    columns: [
+      "id",
+      "timestamp",
+      "binCode",
+      "itemCode",
+      "description",
+      "expectedQty",
+      "countedQty",
+      "variance",
+    ],
+  });
+
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.setAttribute("download", filename);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+/**
  * 🧹 Optional utility to merge new CSV uploads with saved session
  */
 export function mergeCSVData(oldData: Item[], newData: Item[]): Item[] {
@@ -229,4 +319,280 @@ export function mergeCSVData(oldData: Item[], newData: Item[]): Item[] {
       : newItem;
   });
   return merged;
+}
+
+/**
+ * 📥 Parse Purchase Order CSV or XLSX file
+ * Expected columns:
+ * poNumber, vendor, expectedDate, ItemCode, Description, OrderedQty, ReceivedQty (optional), BinCode (optional)
+ * 
+ * Automatically groups rows by poNumber into single PO objects
+ */
+export async function parsePOFile(file: File): Promise<PurchaseOrder[]> {
+  const fileName = file.name.toLowerCase();
+  
+  // Check if it's an Excel file
+  if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+    return parsePOExcel(file);
+  }
+  
+  // Default to CSV parsing
+  return parsePOCSV(file);
+}
+
+/**
+ * Parse PO CSV file using PapaParse
+ */
+async function parsePOCSV(file: File): Promise<PurchaseOrder[]> {
+  return new Promise((resolve, reject) => {
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        try {
+          const data = normalizePOData(results.data);
+          resolve(data);
+        } catch (err) {
+          reject(err);
+        }
+      },
+      error: (error) => reject(error),
+    });
+  });
+}
+
+/**
+ * Parse PO Excel file using SheetJS (xlsx)
+ */
+async function parsePOExcel(file: File): Promise<PurchaseOrder[]> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    
+    reader.onload = (e) => {
+      try {
+        const data = e.target?.result;
+        if (!data) {
+          reject(new Error("Failed to read file"));
+          return;
+        }
+        
+        // Read the workbook
+        const workbook = XLSX.read(data, { type: "binary" });
+        
+        // Get the first worksheet (or look for "PO_Lines" sheet)
+        let sheetName = workbook.SheetNames.find(name => 
+          name.toLowerCase().includes('po') || name.toLowerCase().includes('purchase')
+        ) || workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        
+        // Convert to JSON
+        const jsonData = XLSX.utils.sheet_to_json(worksheet, { 
+          header: 1,
+          defval: "",
+        });
+        
+        // Convert array of arrays to array of objects
+        if (jsonData.length === 0) {
+          reject(new Error("Excel file is empty"));
+          return;
+        }
+        
+        const headers = jsonData[0] as string[];
+        const rows = jsonData.slice(1) as any[][];
+        
+        const objects = rows
+          .filter(row => row.some(cell => cell !== "" && cell !== null && cell !== undefined))
+          .map(row => {
+            const obj: any = {};
+            headers.forEach((header, index) => {
+              obj[header] = row[index] !== undefined ? row[index] : "";
+            });
+            return obj;
+          });
+        
+        const normalizedData = normalizePOData(objects);
+        resolve(normalizedData);
+      } catch (err) {
+        console.error("Error parsing PO Excel file:", err);
+        reject(err);
+      }
+    };
+    
+    reader.onerror = () => reject(new Error("Failed to read file"));
+    reader.readAsBinaryString(file);
+  });
+}
+
+/**
+ * Normalize PO data and group by poNumber
+ * Supports various column name variations
+ */
+function normalizePOData(rawData: any[]): PurchaseOrder[] {
+  // Group rows by poNumber
+  const poMap = new Map<string, {
+    poNumber: string;
+    vendor: string;
+    expectedDate: string;
+    items: POItem[];
+  }>();
+
+  rawData.forEach((row: any) => {
+    // Normalize column names (case-insensitive, various formats)
+    // SAP Business One: DocNum
+    // Standard formats: poNumber, PONumber, etc.
+    const poNumber = (
+      row.DocNum ||           // SAP Business One standard
+      row.DocEntry ||         // SAP alternative (entry number)
+      row.poNumber || 
+      row.PONumber || 
+      row.po_number || 
+      row.PO_Number ||
+      row["PO Number"] ||
+      row["Purchase Order"] ||
+      row.PONum ||
+      ""
+    ).toString().trim();
+
+    if (!poNumber) {
+      console.warn("Skipping row with missing PO Number:", row);
+      return;
+    }
+
+    // SAP Business One: CardCode (vendor code) or CardName (vendor name)
+    // Prefer CardName if available, otherwise CardCode, otherwise standard vendor field
+    const vendor = (
+      row.CardName ||         // SAP Business One: Vendor Name
+      row.CardCode ||         // SAP Business One: Vendor Code
+      row.vendor || 
+      row.Vendor || 
+      row.VendorName ||
+      row["Vendor Name"] ||
+      row.supplier ||
+      row.Supplier ||
+      ""
+    ).toString().trim();
+
+    // Parse date - support various formats
+    // SAP Business One: ReqDate (required/expected date) or DocDueDate (due date)
+    let expectedDate = (
+      row.ReqDate ||          // SAP Business One: Required Date
+      row.DocDueDate ||       // SAP Business One: Document Due Date
+      row.DocDate ||          // SAP Business One: Document Date (fallback)
+      row.expectedDate || 
+      row.ExpectedDate || 
+      row.expected_date ||
+      row["Expected Date"] ||
+      row.dueDate ||
+      row.DueDate ||
+      ""
+    ).toString().trim();
+
+    // Try to parse and format date
+    if (expectedDate) {
+      const parsed = new Date(expectedDate);
+      if (!isNaN(parsed.getTime())) {
+        expectedDate = parsed.toISOString().split('T')[0]; // YYYY-MM-DD
+      }
+    }
+
+    // Create PO if it doesn't exist
+    if (!poMap.has(poNumber)) {
+      poMap.set(poNumber, {
+        poNumber,
+        vendor: vendor || "Unknown Vendor",
+        expectedDate: expectedDate || new Date().toISOString().split('T')[0],
+        items: [],
+      });
+    }
+
+    const po = poMap.get(poNumber)!;
+
+    // Add item to PO
+    // SAP Business One uses ItemCode (standard)
+    const itemCode = (
+      row.ItemCode ||         // SAP Business One & standard
+      row.itemcode || 
+      row.item_code || 
+      row.Item || 
+      row.SKU || 
+      row.sku ||
+      ""
+    ).toString().trim();
+
+    // SAP Business One: Dscription (note: "Dscription" not "Description" - SAP typo!)
+    const description = (
+      row.Dscription ||       // SAP Business One: Description (note the typo in SAP!)
+      row.Description || 
+      row.description || 
+      row.desc || 
+      row.ItemName ||
+      row.Item_Name ||
+      ""
+    ).toString().trim();
+
+    // SAP Business One: Quantity (ordered qty), OpenQty (remaining to receive)
+    // ReceivedQty = Quantity - OpenQty
+    const orderedQty = parseFloat(
+      row.Quantity ||         // SAP Business One: Ordered Quantity
+      row.OrderedQty || 
+      row.orderedqty || 
+      row.ordered_qty || 
+      row.quantity ||
+      row.Qty || 
+      row.qty ||
+      "0"
+    ) || 0;
+
+    const openQty = parseFloat(
+      row.OpenQty ||          // SAP Business One: Open Quantity (remaining to receive)
+      row.OpenQuantity ||
+      "0"
+    ) || 0;
+
+    // Calculate received quantity: Ordered - Open
+    // If ReceivedQty is explicitly provided, use it; otherwise calculate from OpenQty
+    const receivedQty = row.ReceivedQty !== undefined && row.ReceivedQty !== ""
+      ? parseFloat(row.ReceivedQty) || 0
+      : orderedQty > 0 && openQty >= 0
+        ? orderedQty - openQty  // Calculate: Ordered - Open = Received
+        : 0;
+
+    // SAP Business One: WhsCode (warehouse code) - bin location might be in separate table
+    // For now, use standard bin code fields
+    const binCode = (
+      row.BinCode || 
+      row.bincode || 
+      row.bin_code || 
+      row.Bin || 
+      row.PutawayLocation ||
+      row.WhsCode ||          // SAP Business One: Warehouse Code (if used as bin)
+      ""
+    ).toString().trim() || undefined;
+
+    if (itemCode && orderedQty > 0) {
+      po.items.push({
+        ItemCode: itemCode,
+        Description: description || itemCode,
+        OrderedQty: orderedQty,
+        ReceivedQty: receivedQty,
+        BinCode: binCode,
+      });
+    }
+  });
+
+  // Convert to PurchaseOrder array with unique IDs
+  const purchaseOrders: PurchaseOrder[] = Array.from(poMap.values()).map((po, index) => ({
+    id: `po-${Date.now()}-${index}`,
+    poNumber: po.poNumber,
+    vendor: po.vendor,
+    items: po.items,
+    status: po.items.every(item => item.ReceivedQty >= item.OrderedQty) 
+      ? "completed" 
+      : po.items.some(item => item.ReceivedQty > 0) 
+        ? "receiving" 
+        : "pending",
+    expectedDate: po.expectedDate,
+  }));
+
+  return purchaseOrders;
 }

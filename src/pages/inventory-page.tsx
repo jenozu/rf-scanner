@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
-import { CycleCount, BinLocation } from "../types";
-import { ClipboardCheck, Camera, AlertCircle, CheckCircle2 } from "lucide-react";
+import { CycleCount, BinLocation, CycleCountTransaction, BinItem } from "../types";
+import { ClipboardCheck, Camera, AlertCircle, CheckCircle2, Plus } from "lucide-react";
 import Quagga from "@ericblade/quagga2";
 
 interface InventoryPageProps {
@@ -15,6 +15,10 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
   const [scanMode, setScanMode] = useState<boolean>(false);
   const [scannedCode, setScannedCode] = useState<string>("");
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
+  const [showAddItemModal, setShowAddItemModal] = useState(false);
+  const [newItemCode, setNewItemCode] = useState<string>("");
+  const [newItemDescription, setNewItemDescription] = useState<string>("");
+  const [newItemQty, setNewItemQty] = useState<number>(0);
   const videoRef = useRef<HTMLDivElement>(null);
 
   // Load data
@@ -23,6 +27,46 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     const binsData = JSON.parse(localStorage.getItem("rf_bins") || "[]");
     setCycleCounts(countsData);
     setBins(binsData);
+
+    // Check if we came from bin scan (Start Count button)
+    const startBinCode = sessionStorage.getItem("rf_start_count_bin");
+    if (startBinCode) {
+      sessionStorage.removeItem("rf_start_count_bin");
+      // Try to find existing pending count for this bin
+      const existingCount = countsData.find(
+        (c: CycleCount) => c.BinCode === startBinCode && c.Status === "pending"
+      );
+      if (existingCount) {
+        setSelectedCount(existingCount);
+        setCountedQty(0);
+        setScannedCode(existingCount.BinCode);
+        showToast(`✅ Found pending count for bin ${startBinCode}`, "success");
+      } else {
+        // Find bin and create a count task for the first item
+        const bin = binsData.find((b: BinLocation) => b.BinCode === startBinCode);
+        if (bin && bin.Items.length > 0) {
+          // Create a cycle count task for the first item
+          const firstItem = bin.Items[0];
+          const newCount: CycleCount = {
+            id: `cc-${Date.now()}`,
+            BinCode: startBinCode,
+            ItemCode: firstItem.ItemCode,
+            ExpectedQty: firstItem.Quantity,
+            Status: "pending",
+          };
+          const updatedCounts = [...countsData, newCount];
+          localStorage.setItem("rf_cycle_counts", JSON.stringify(updatedCounts));
+          setCycleCounts(updatedCounts);
+          setSelectedCount(newCount);
+          setCountedQty(0);
+          setScannedCode(newCount.BinCode);
+          showToast(`✅ Created count task for ${firstItem.ItemCode} in ${startBinCode}`, "success");
+        } else {
+          showToast(`ℹ️ Bin ${startBinCode} is empty. Add items first.`, "info");
+        }
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Toast auto-dismiss
@@ -121,25 +165,39 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
       c.id === selectedCount.id ? updatedCount : c
     );
 
-    // Update bin inventory if there's a variance
-    let updatedBins = bins;
-    if (variance !== 0) {
-      updatedBins = bins.map((bin) => {
-        if (bin.BinCode === selectedCount.BinCode) {
-          const updatedItems = bin.Items.map((item) => {
-            if (item.ItemCode === selectedCount.ItemCode) {
-              return {
-                ...item,
-                Quantity: countedQty,
-              };
-            }
-            return item;
-          });
-          return { ...bin, Items: updatedItems };
-        }
-        return bin;
-      });
-    }
+    // Update bin inventory (always update, even if variance is 0 for accuracy)
+    const bin = bins.find((b) => b.BinCode === selectedCount.BinCode);
+    const binItem = bin?.Items.find((i) => i.ItemCode === selectedCount.ItemCode);
+    
+    const updatedBins = bins.map((bin) => {
+      if (bin.BinCode === selectedCount.BinCode) {
+        const updatedItems = bin.Items.map((item) => {
+          if (item.ItemCode === selectedCount.ItemCode) {
+            return {
+              ...item,
+              Quantity: countedQty,
+            };
+          }
+          return item;
+        });
+        return { ...bin, Items: updatedItems };
+      }
+      return bin;
+    });
+
+    // Write CycleCountTransaction
+    const txn: CycleCountTransaction = {
+      id: `CC-${Date.now()}`,
+      binCode: selectedCount.BinCode,
+      itemCode: selectedCount.ItemCode,
+      description: binItem?.Description || selectedCount.ItemCode,
+      expectedQty: selectedCount.ExpectedQty,
+      countedQty: countedQty,
+      variance: variance,
+      timestamp: new Date().toISOString(),
+    };
+    const existingTxns: CycleCountTransaction[] = JSON.parse(localStorage.getItem("rf_cycle_count_txns") || "[]");
+    localStorage.setItem("rf_cycle_count_txns", JSON.stringify([txn, ...existingTxns]));
 
     // Save to localStorage
     localStorage.setItem("rf_cycle_counts", JSON.stringify(updatedCounts));
@@ -417,25 +475,136 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
       </div>
 
       {/* Bin Contents Summary */}
-      {bin && bin.Items.length > 0 && (
+      {bin && (
         <div className="mt-6 bg-white rounded-lg shadow p-4">
-          <h3 className="font-semibold mb-3">Current Bin Contents</h3>
-          <div className="space-y-2">
-            {bin.Items.map((item) => (
-              <div
-                key={item.ItemCode}
-                className={`flex justify-between p-2 rounded ${
-                  item.ItemCode === selectedCount.ItemCode
-                    ? "bg-blue-50 border border-blue-200"
-                    : "bg-gray-50"
-                }`}
-              >
-                <span className="text-sm">
-                  {item.ItemCode} - {item.Description}
-                </span>
-                <span className="text-sm font-medium">{item.Quantity}</span>
+          <div className="flex justify-between items-center mb-3">
+            <h3 className="font-semibold">Bin Contents ({bin.Items.length} items)</h3>
+            <button
+              onClick={() => setShowAddItemModal(true)}
+              className="text-blue-600 hover:text-blue-700 text-sm flex items-center gap-1"
+            >
+              <Plus size={16} /> Add Missing Item
+            </button>
+          </div>
+          {bin.Items.length === 0 ? (
+            <p className="text-gray-500 text-center py-4">Empty bin - Add items to count</p>
+          ) : (
+            <div className="space-y-2">
+              {bin.Items.map((item) => (
+                <div
+                  key={item.ItemCode}
+                  className={`flex justify-between p-2 rounded ${
+                    item.ItemCode === selectedCount.ItemCode
+                      ? "bg-blue-50 border border-blue-200"
+                      : "bg-gray-50"
+                  }`}
+                >
+                  <span className="text-sm">
+                    {item.ItemCode} - {item.Description}
+                  </span>
+                  <span className="text-sm font-medium">{item.Quantity}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Add Missing Item Modal */}
+      {showAddItemModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <h3 className="text-xl font-bold mb-4">Add Missing Item to Bin</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Item Code</label>
+                <input
+                  type="text"
+                  value={newItemCode}
+                  onChange={(e) => setNewItemCode(e.target.value.toUpperCase())}
+                  placeholder="Scan or enter item code"
+                  className="w-full border border-gray-300 rounded-md px-3 py-2"
+                />
               </div>
-            ))}
+              <div>
+                <label className="block text-sm font-medium mb-1">Description</label>
+                <input
+                  type="text"
+                  value={newItemDescription}
+                  onChange={(e) => setNewItemDescription(e.target.value)}
+                  placeholder="Item description"
+                  className="w-full border border-gray-300 rounded-md px-3 py-2"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Quantity</label>
+                <input
+                  type="number"
+                  value={newItemQty}
+                  onChange={(e) => setNewItemQty(Number(e.target.value))}
+                  min="0"
+                  placeholder="Enter quantity"
+                  className="w-full border border-gray-300 rounded-md px-3 py-2"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 mt-6">
+              <button
+                onClick={() => {
+                  if (!newItemCode.trim() || !newItemDescription.trim() || newItemQty <= 0) {
+                    showToast("⚠️ Please fill all fields with valid values", "error");
+                    return;
+                  }
+                  if (!bin) return;
+                  
+                  // Check if item already exists in bin
+                  if (bin.Items.some((i) => i.ItemCode === newItemCode)) {
+                    showToast("⚠️ Item already exists in this bin", "error");
+                    return;
+                  }
+
+                  // Add item to bin
+                  const newItem: BinItem = {
+                    ItemCode: newItemCode,
+                    Description: newItemDescription,
+                    Quantity: newItemQty,
+                  };
+
+                  const updatedBins = bins.map((b) => {
+                    if (b.BinCode === selectedCount.BinCode) {
+                      return {
+                        ...b,
+                        Items: [...b.Items, newItem],
+                      };
+                    }
+                    return b;
+                  });
+
+                  localStorage.setItem("rf_bins", JSON.stringify(updatedBins));
+                  setBins(updatedBins);
+                  
+                  showToast(`✅ Added ${newItemCode} to bin`, "success");
+                  setShowAddItemModal(false);
+                  setNewItemCode("");
+                  setNewItemDescription("");
+                  setNewItemQty(0);
+                }}
+                className="flex-1 bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700"
+              >
+                Add Item
+              </button>
+              <button
+                onClick={() => {
+                  setShowAddItemModal(false);
+                  setNewItemCode("");
+                  setNewItemDescription("");
+                  setNewItemQty(0);
+                }}
+                className="px-4 bg-gray-200 text-gray-700 py-2 rounded-md hover:bg-gray-300"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}

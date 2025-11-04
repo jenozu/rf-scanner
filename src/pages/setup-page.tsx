@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { parseCSV } from "../data/csv-utils";
+import { parseCSV, parsePOFile } from "../data/csv-utils";
 import useLocalStorage from "../hooks/useLocalStorage";
-import { Item, PageType } from "../types";
+import { Item, PageType, PurchaseOrder } from "../types";
 import { initializeSampleData, clearAllData } from "../data/sample-data";
-import { Database, Upload, Play, Trash2 } from "lucide-react";
+import { Database, Upload, Play, Trash2, Package } from "lucide-react";
 
 interface SetupPageProps {
   setPage: (page: PageType) => void;
@@ -126,6 +126,44 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
     }
   };
 
+  // 📥 Handle PO file upload
+  const handlePOFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const fileType = file.name.toLowerCase().endsWith('.xlsx') || file.name.toLowerCase().endsWith('.xls') 
+      ? 'Excel' 
+      : 'CSV';
+    setStatus(`⏳ Parsing PO ${fileType} file...`);
+
+    try {
+      const newPOs = await parsePOFile(file);
+      
+      // Get existing POs or create empty array
+      const existingPOs = JSON.parse(localStorage.getItem("rf_purchase_orders") || "[]") as PurchaseOrder[];
+      const existingPONumbers = new Set(existingPOs.map(po => po.poNumber));
+      
+      // Filter out duplicates
+      const uniqueNewPOs = newPOs.filter(po => !existingPONumbers.has(po.poNumber));
+      
+      if (uniqueNewPOs.length === 0) {
+        setStatus("⚠️ All POs in file already exist. No new POs added.");
+        e.target.value = "";
+        return;
+      }
+
+      const mergedPOs = [...existingPOs, ...uniqueNewPOs];
+      localStorage.setItem("rf_purchase_orders", JSON.stringify(mergedPOs));
+      
+      setStatus(`✅ Loaded ${uniqueNewPOs.length} purchase order(s) from ${fileType} file`);
+      e.target.value = "";
+    } catch (err) {
+      console.error("Error parsing PO file:", err);
+      setStatus(`❌ Error reading PO ${fileType} file. Please check format. Required columns: poNumber, vendor, expectedDate, ItemCode, Description, OrderedQty`);
+      e.target.value = "";
+    }
+  };
+
   // 🗑️ Clear all data
   const handleClearData = () => {
     if (confirm("Are you sure you want to clear all data? This cannot be undone.")) {
@@ -191,6 +229,31 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
           </p>
           <p className="text-xs text-gray-400 mt-1">
             (Column names are flexible - will auto-detect similar names)
+          </p>
+        </div>
+
+        {/* 📦 Purchase Order Upload Section */}
+        <div className="text-center border-2 border-dashed border-purple-300 rounded-lg p-6 mb-4 hover:border-purple-400 transition bg-purple-50">
+          <Package className="mx-auto mb-2 text-purple-400" size={32} />
+          <label
+            htmlFor="poFile"
+            className="cursor-pointer text-purple-600 font-medium"
+          >
+            Upload Purchase Orders (CSV or Excel)
+          </label>
+          <input
+            id="poFile"
+            type="file"
+            accept=".csv,.xlsx,.xls"
+            onChange={handlePOFileUpload}
+            className="hidden"
+          />
+          <p className="text-xs text-gray-600 mt-2">
+            Required columns: <code>poNumber</code>, <code>vendor</code>, <code>expectedDate</code>,{" "}
+            <code>ItemCode</code>, <code>Description</code>, <code>OrderedQty</code>
+          </p>
+          <p className="text-xs text-gray-500 mt-1">
+            Optional: <code>ReceivedQty</code>, <code>BinCode</code>
           </p>
         </div>
 

@@ -1,7 +1,7 @@
 import React from "react";
-import { exportCSV } from "../data/csv-utils";
+import { exportCSV, exportReceivingTxnsCSV, exportCycleCountTxnsCSV } from "../data/csv-utils";
 import useLocalStorage from "../hooks/useLocalStorage";
-import { Item } from "../types";
+import { Item, ReceivingTransaction, CycleCountTransaction } from "../types";
 
 interface ExportPageProps {
   setPage: (page: "home" | "scan" | "export") => void;
@@ -9,6 +9,8 @@ interface ExportPageProps {
 
 export default function ExportPage({ setPage }: ExportPageProps) {
   const [data] = useLocalStorage<Item[]>("rf_active", []);
+  const receivingTxns: ReceivingTransaction[] = JSON.parse(localStorage.getItem("rf_receiving_txns") || "[]");
+  const cycleCountTxns: CycleCountTransaction[] = JSON.parse(localStorage.getItem("rf_cycle_count_txns") || "[]");
 
   const handleExport = () => {
     if (!data || data.length === 0) {
@@ -18,13 +20,19 @@ export default function ExportPage({ setPage }: ExportPageProps) {
     exportCSV(data, "rf_inventory_results.csv");
   };
 
+  const handleExportReceivingTxns = () => {
+    exportReceivingTxnsCSV(receivingTxns, "receiving_transactions.csv");
+  };
+
+  const handleExportCycleCountTxns = () => {
+    exportCycleCountTxnsCSV(cycleCountTxns, "cycle_count_transactions.csv");
+  };
+
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 text-gray-900 px-6 text-center">
       <div className="w-full max-w-md bg-white rounded-xl shadow p-8 space-y-6">
-        <h2 className="text-2xl font-bold text-green-600">✅ Counting Complete</h2>
-        <p className="text-gray-600">
-          You can now export your updated inventory results as a CSV file.
-        </p>
+        <h2 className="text-2xl font-bold text-green-600">✅ Exports</h2>
+        <p className="text-gray-600">Download inventory results and transaction logs.</p>
 
         <div className="space-y-4 mt-6">
           <button
@@ -32,6 +40,20 @@ export default function ExportPage({ setPage }: ExportPageProps) {
             className="w-full bg-primary text-white py-3 rounded-lg font-medium shadow hover:bg-blue-700 transition"
           >
             ⬇ Download Updated CSV
+          </button>
+
+          <button
+            onClick={handleExportReceivingTxns}
+            className="w-full bg-blue-600 text-white py-3 rounded-lg font-medium shadow hover:bg-blue-700 transition"
+          >
+            ⬇ Download Receiving Log CSV {receivingTxns.length > 0 ? `(${receivingTxns.length})` : ""}
+          </button>
+
+          <button
+            onClick={handleExportCycleCountTxns}
+            className="w-full bg-indigo-600 text-white py-3 rounded-lg font-medium shadow hover:bg-indigo-700 transition"
+          >
+            ⬇ Download Cycle Count Log CSV {cycleCountTxns.length > 0 ? `(${cycleCountTxns.length})` : ""}
           </button>
 
           <button

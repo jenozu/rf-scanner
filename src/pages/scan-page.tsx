@@ -1,13 +1,14 @@
 import React, { useEffect, useRef, useState } from "react";
 import Quagga from "@ericblade/quagga2";
 import { Item, BinLocation } from "../types";
-import { Package, MapPin, Plus, Search } from "lucide-react";
+import { Package, MapPin, Plus, Search, ClipboardCheck, Tag } from "lucide-react";
 import { displayBinCode, normalizeBinInput } from "../utils/bin-utils";
 import { smartSearch } from "../utils/search-utils";
 
 interface ScanPageProps {
   setPage: (page: any) => void;
   onAdjustItem?: (itemCode: string) => void;
+  onStartCount?: (binCode: string) => void;
 }
 
 interface Toast {
@@ -22,7 +23,7 @@ type ScanResult = {
   matches?: Item[];
 };
 
-const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem }) => {
+const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem, onStartCount }) => {
   const [scannedCode, setScannedCode] = useState<string>("");
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
   const [manualCode, setManualCode] = useState<string>("");
@@ -301,27 +302,82 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem }) => {
                     {scanResult.bin.Items.map((item) => (
                       <div
                         key={item.ItemCode}
-                        className="flex justify-between items-center bg-gray-50 p-3 rounded-md"
+                        className="bg-gray-50 p-3 rounded-md border border-gray-200"
                       >
-                        <div>
-                          <p className="font-medium">{item.ItemCode}</p>
-                          <p className="text-sm text-gray-600">{item.Description}</p>
+                        <div className="flex justify-between items-start mb-2">
+                          <div className="flex-1">
+                            <p className="font-medium">{item.ItemCode}</p>
+                            <p className="text-sm text-gray-600">{item.Description}</p>
+                          </div>
+                          <span className="text-lg font-bold text-blue-600 ml-2">
+                            Qty: {item.Quantity}
+                          </span>
                         </div>
-                        <span className="text-lg font-bold text-blue-600">
-                          {item.Quantity}
-                        </span>
+                        
+                        {/* Lot/Serial Info */}
+                        {(item.Lots && item.Lots.length > 0) || (item.Serials && item.Serials.length > 0) ? (
+                          <div className="mt-2 pt-2 border-t border-gray-200">
+                            {item.Lots && item.Lots.length > 0 && (
+                              <div className="mb-2">
+                                <p className="text-xs text-gray-500 mb-1 flex items-center gap-1">
+                                  <Tag size={12} /> Lots:
+                                </p>
+                                <div className="flex flex-wrap gap-1">
+                                  {item.Lots.map((lot, idx) => (
+                                    <span key={idx} className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
+                                      {lot.lotCode}: {lot.qty}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {item.Serials && item.Serials.length > 0 && (
+                              <div>
+                                <p className="text-xs text-gray-500 mb-1 flex items-center gap-1">
+                                  <Tag size={12} /> Serials ({item.Serials.length}):
+                                </p>
+                                <div className="flex flex-wrap gap-1">
+                                  {item.Serials.slice(0, 5).map((serial, idx) => (
+                                    <span key={idx} className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">
+                                      {serial}
+                                    </span>
+                                  ))}
+                                  {item.Serials.length > 5 && (
+                                    <span className="text-xs text-gray-500">+{item.Serials.length - 5} more</span>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ) : null}
                       </div>
                     ))}
                   </div>
                 )}
               </div>
 
-              <button
-                onClick={handleClearScan}
-                className="w-full mt-4 bg-gray-200 text-gray-700 py-2 rounded-md hover:bg-gray-300"
-              >
-                Clear
-              </button>
+              <div className="flex gap-2 mt-4">
+                {onStartCount && (
+                  <button
+                    onClick={() => {
+                      if (onStartCount) {
+                        onStartCount(scanResult.bin.BinCode);
+                        handleClearScan();
+                      }
+                    }}
+                    className="flex-1 bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700 font-medium flex items-center justify-center gap-2"
+                  >
+                    <ClipboardCheck size={18} />
+                    Start Count on This Bin
+                  </button>
+                )}
+                <button
+                  onClick={handleClearScan}
+                  className="px-4 bg-gray-200 text-gray-700 py-2 rounded-md hover:bg-gray-300"
+                >
+                  Clear
+                </button>
+              </div>
             </div>
           )}
 

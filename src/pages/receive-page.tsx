@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { PurchaseOrder, POItem, BinLocation, LicensePlate, LicensePlateItem, ReceivingTransaction } from "../types";
-import { Package, Check, AlertCircle, Plus, ScanLine, Printer } from "lucide-react";
-import { generateLicensePlateId, getStagingBinCode } from "../utils/config";
+import { PurchaseOrder, POItem, BinLocation, ReceivingTransaction } from "../types";
+import { Package, Check, AlertCircle, Plus, Upload, Search as SearchIcon, Download, Calculator } from "lucide-react";
+import { getStagingBinCode } from "../utils/config";
+import { parsePOFile } from "../data/csv-utils";
+import QuantityNumpad from "../components/quantity-numpad";
 
 interface ReceivePageProps {
   setPage: (page: any) => void;
@@ -17,11 +19,17 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
   const [newBinCode, setNewBinCode] = useState<string>("");
   const [showNewBinModal, setShowNewBinModal] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
-  const [scanCode, setScanCode] = useState<string>("");
+  const [showNumpad, setShowNumpad] = useState(false);
   const [lotMode, setLotMode] = useState<"none" | "lots" | "serials">("none");
   const [lots, setLots] = useState<Array<{ lotCode: string; qty: number }>>([]);
   const [serials, setSerials] = useState<string[]>([]);
-  const [lastCreatedLP, setLastCreatedLP] = useState<LicensePlate | null>(null);
+  // Local PO search
+  const [poSearch, setPoSearch] = useState<string>("");
+  // Server PO listing/search
+  const [serverSearch, setServerSearch] = useState<string>("");
+  const [serverFiles, setServerFiles] = useState<string[]>([]);
+  const [serverLoading, setServerLoading] = useState<boolean>(false);
+  const [serverError, setServerError] = useState<string>("");
 
   // Load data
   useEffect(() => {
@@ -54,8 +62,8 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
   const handleReceiveItem = (item: POItem) => {
     setReceivingItem(item);
     setReceivedQty(item.OrderedQty - item.ReceivedQty); // Default to remaining qty
-    setSelectedBin(getStagingBinCode());
-    setScanCode("");
+    // Pre-fill with PO's bin if available, otherwise staging
+    setSelectedBin(item.BinCode || getStagingBinCode());
     setLots([]);
     setSerials([]);
     setLotMode(item.RequiresLotSerial ? "lots" : "none");
@@ -64,16 +72,9 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
   // Save received quantity
   const handleSaveReceive = () => {
     if (!selectedPO || !receivingItem) return;
-    // Enforce scan-to-validate
-    if (scanCode.trim() !== receivingItem.ItemCode) {
-      showToast("⚠️ Scan the item barcode to validate before receiving", "error");
-      return;
-    }
 
-    if (!selectedBin) {
-      showToast("⚠️ Please select a bin location", "error");
-      return;
-    }
+    // Bin is optional - use PO's bin or skip assignment if blank
+    const finalBin = selectedBin || receivingItem.BinCode || getStagingBinCode();
 
     if (receivedQty <= 0) {
       showToast("⚠️ Received quantity must be greater than 0", "error");
@@ -100,7 +101,7 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
             return {
               ...item,
               ReceivedQty: newReceivedQty,
-              BinCode: selectedBin,
+              BinCode: finalBin,
               RemainingQty: Math.max(0, item.OrderedQty - newReceivedQty),
               Lots: lotMode === "lots" ? lots : item.Lots,
               Serials: lotMode === "serials" ? serials : item.Serials,
@@ -124,10 +125,9 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
       return po;
     });
 
-    // Update bin location (stage to STAGING bin)
-    const stagingBinCode = selectedBin || getStagingBinCode();
+    // Update bin location (use final bin determined above)
     const updatedBins = bins.map((bin) => {
-      if (bin.BinCode === stagingBinCode) {
+      if (bin.BinCode === finalBin) {
         const existingItemIndex = bin.Items.findIndex(
           (i) => i.ItemCode === receivingItem.ItemCode
         );
@@ -176,30 +176,25 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
       return bin;
     });
 
-    // Create LP if line is complete after this receipt
-    let createdLP: LicensePlate | null = null;
-    const updatedPoRef = updatedPOs.find((p) => p.id === selectedPO.id)!;
-    const updatedLine = updatedPoRef.items.find((i) => i.ItemCode === receivingItem.ItemCode)!;
-    const lineCompleteNow = updatedLine.ReceivedQty >= updatedLine.OrderedQty;
-    if (lineCompleteNow) {
-      const lpId = generateLicensePlateId();
-      const lpItem: LicensePlateItem = {
-        ItemCode: updatedLine.ItemCode,
-        Description: updatedLine.Description,
-        qty: receivedQty,
-        Lots: lotMode === "lots" ? lots : undefined,
-        Serials: lotMode === "serials" ? serials : undefined,
+    // Ensure bin exists, create if it doesn't (with the item already in it)
+    let finalBins = updatedBins;
+    const binExists = finalBins.find(b => b.BinCode === finalBin);
+    if (!binExists) {
+      const newBin: BinLocation = {
+        BinCode: finalBin,
+        Zone: "Main",
+        Status: "active",
+        Items: [
+          {
+            ItemCode: receivingItem.ItemCode,
+            Description: receivingItem.Description,
+            Quantity: receivedQty,
+            Lots: lotMode === "lots" ? lots : undefined,
+            Serials: lotMode === "serials" ? serials : undefined,
+          },
+        ],
       };
-      createdLP = {
-        lpId,
-        items: [lpItem],
-        createdAt: new Date().toISOString(),
-        binCode: stagingBinCode,
-        labels: [],
-      };
-      const existingLPs: LicensePlate[] = JSON.parse(localStorage.getItem("rf_lps") || "[]");
-      localStorage.setItem("rf_lps", JSON.stringify([...existingLPs, createdLP]));
-      setLastCreatedLP(createdLP);
+      finalBins = [...finalBins, newBin];
     }
 
     // Write receiving transaction
@@ -209,8 +204,7 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
       itemCode: receivingItem.ItemCode,
       description: receivingItem.Description,
       qty: receivedQty,
-      binCode: stagingBinCode,
-      lpId: createdLP?.lpId,
+      binCode: finalBin,
       lots: lotMode === "lots" ? lots : undefined,
       serials: lotMode === "serials" ? serials : undefined,
       timestamp: new Date().toISOString(),
@@ -220,24 +214,19 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
 
     // Save to localStorage
     localStorage.setItem("rf_purchase_orders", JSON.stringify(updatedPOs));
-    localStorage.setItem("rf_bins", JSON.stringify(updatedBins));
+    localStorage.setItem("rf_bins", JSON.stringify(finalBins));
 
     // Update state
     setPurchaseOrders(updatedPOs);
-    setBins(updatedBins);
+    setBins(finalBins);
     setSelectedPO(updatedPOs.find((po) => po.id === selectedPO.id) || null);
     setReceivingItem(null);
     setReceivedQty(0);
     setSelectedBin("");
-    setScanCode("");
     setLots([]);
     setSerials([]);
 
-    if (createdLP) {
-      showToast(`✅ Received ${receivedQty} of ${receivingItem.Description}. LP ${createdLP.lpId} created in STAGING.`, "success");
-    } else {
-      showToast(`✅ Received ${receivedQty} of ${receivingItem.Description} to STAGING`, "success");
-    }
+    showToast(`✅ Received ${receivedQty} of ${receivingItem.Description} → Bin: ${finalBin}`, "success");
   };
 
   // Create new bin
@@ -270,6 +259,88 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
     showToast(`✅ Created new bin: ${newBin.BinCode}`, "success");
   };
 
+  // Fetch server PO file index from /data/pos/ (nginx autoindex)
+  const fetchServerPOIndex = async () => {
+    setServerError("");
+    setServerLoading(true);
+    try {
+      const res = await fetch("/data/pos/");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const html = await res.text();
+      // Extract links to .csv/.xlsx files
+      const links = Array.from(html.matchAll(/href=\"([^\"]+)\"/g))
+        .map(m => m[1])
+        .filter(href => /\.(csv|xlsx|xls)$/i.test(href))
+        // Remove parent directory links and anchors
+        .filter(href => !href.startsWith("?"))
+        .map(href => decodeURIComponent(href.replace(/^\/?/,'').replace(/#.*/,'').replace(/\?.*/,'')));
+      // Deduplicate
+      const unique = Array.from(new Set(links));
+      setServerFiles(unique);
+    } catch (e: any) {
+      setServerError(`Failed to load server PO list: ${e.message || e}`);
+    } finally {
+      setServerLoading(false);
+    }
+  };
+
+  // Import a PO file from server by filename
+  const handleImportServerPO = async (filename: string) => {
+    try {
+      showToast(`⏳ Loading ${filename}...`, "info");
+      const url = `/data/pos/${encodeURIComponent(filename)}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const file = new File([blob], filename, { type: blob.type || (filename.toLowerCase().endsWith('.csv') ? 'text/csv' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') });
+      const newPOs = await parsePOFile(file);
+      const existingPOs = JSON.parse(localStorage.getItem("rf_purchase_orders") || "[]") as PurchaseOrder[];
+      const existingPONumbers = new Set(existingPOs.map(po => po.poNumber));
+      const uniqueNewPOs = newPOs.filter(po => !existingPONumbers.has(po.poNumber));
+      const merged = [...existingPOs, ...uniqueNewPOs];
+      localStorage.setItem("rf_purchase_orders", JSON.stringify(merged));
+      setPurchaseOrders(merged);
+      showToast(`✅ Imported ${uniqueNewPOs.length} PO(s) from server file`, "success");
+    } catch (e: any) {
+      showToast(`❌ Import failed: ${e.message || e}`, "error");
+    }
+  };
+
+  // Handle PO file upload
+  const handlePOFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    showToast("⏳ Parsing PO file...", "info");
+
+    try {
+      const newPOs = await parsePOFile(file);
+      
+      // Merge with existing POs (don't duplicate if PO number exists)
+      const existingPOs = JSON.parse(localStorage.getItem("rf_purchase_orders") || "[]") as PurchaseOrder[];
+      const existingPONumbers = new Set(existingPOs.map(po => po.poNumber));
+      
+      const uniqueNewPOs = newPOs.filter(po => !existingPONumbers.has(po.poNumber));
+      
+      if (uniqueNewPOs.length === 0) {
+        showToast("⚠️ All POs in file already exist. No new POs added.", "info");
+        e.target.value = ""; // Reset file input
+        return;
+      }
+
+      const mergedPOs = [...existingPOs, ...uniqueNewPOs];
+      localStorage.setItem("rf_purchase_orders", JSON.stringify(mergedPOs));
+      setPurchaseOrders(mergedPOs);
+      
+      showToast(`✅ Loaded ${uniqueNewPOs.length} purchase order(s) from ${file.name}`, "success");
+      e.target.value = ""; // Reset file input
+    } catch (err) {
+      console.error("Error parsing PO file:", err);
+      showToast("❌ Error reading file. Please check PO file format.", "error");
+      e.target.value = ""; // Reset file input
+    }
+  };
+
   // Render PO list
   if (!selectedPO) {
     return (
@@ -294,6 +365,74 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
           </div>
         )}
 
+        {/* Upload PO File Button */}
+        <div className="mb-6 bg-gradient-to-br from-blue-50 to-blue-100 border-2 border-blue-300 rounded-lg p-4">
+          <div className="flex items-center gap-3 mb-2">
+            <Upload className="text-blue-600" size={20} />
+            <h3 className="font-semibold text-blue-900">Upload Purchase Orders</h3>
+          </div>
+          <p className="text-sm text-gray-700 mb-3">
+            Upload a CSV or XLSX file with PO data. Required columns: <code className="text-xs bg-white px-1 rounded">poNumber</code>, <code className="text-xs bg-white px-1 rounded">vendor</code>, <code className="text-xs bg-white px-1 rounded">expectedDate</code>, <code className="text-xs bg-white px-1 rounded">ItemCode</code>, <code className="text-xs bg-white px-1 rounded">Description</code>, <code className="text-xs bg-white px-1 rounded">OrderedQty</code>
+          </p>
+          <label className="cursor-pointer inline-block bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors">
+            <Upload size={16} className="inline mr-2" />
+            Upload PO File (CSV/XLSX)
+            <input
+              type="file"
+              accept=".csv,.xlsx,.xls"
+              onChange={handlePOFileUpload}
+              className="hidden"
+            />
+          </label>
+        </div>
+
+        {/* Search & Import from Server */}
+        <div className="mb-6 bg-gradient-to-br from-purple-50 to-purple-100 border-2 border-purple-300 rounded-lg p-4">
+          <div className="flex items-center gap-3 mb-2">
+            <Download className="text-purple-600" size={20} />
+            <h3 className="font-semibold text-purple-900">Load POs from Server (/data/pos)</h3>
+          </div>
+          <div className="flex gap-2">
+            <input
+              value={serverSearch}
+              onChange={(e) => setServerSearch(e.target.value)}
+              placeholder="Search by PO number or filename..."
+              className="flex-1 border border-gray-300 rounded-md px-3 py-2"
+            />
+            <button onClick={fetchServerPOIndex} className="px-3 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700">Fetch</button>
+          </div>
+          {serverError && <p className="text-sm text-red-600 mt-2">{serverError}</p>}
+          {serverLoading && <p className="text-sm text-gray-600 mt-2">Loading...</p>}
+          {!serverLoading && serverFiles.length > 0 && (
+            <div className="mt-3 max-h-56 overflow-auto border rounded-md bg-white">
+              {serverFiles
+                .filter(name => serverSearch ? name.toLowerCase().includes(serverSearch.toLowerCase()) : true)
+                .map(name => (
+                  <div key={name} className="flex items-center justify-between px-3 py-2 border-b last:border-b-0">
+                    <span className="text-sm text-gray-800 truncate mr-3">{name}</span>
+                    <button onClick={() => handleImportServerPO(name)} className="text-sm px-2 py-1 bg-purple-600 text-white rounded hover:bg-purple-700">Import</button>
+                  </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Local PO search */}
+        <div className="mb-4">
+          <label className="block text-sm font-medium mb-1">Search POs</label>
+          <div className="flex gap-2">
+            <input
+              value={poSearch}
+              onChange={(e) => setPoSearch(e.target.value)}
+              placeholder="Search PO number or vendor..."
+              className="flex-1 border border-gray-300 rounded-md px-3 py-2"
+            />
+            <div className="px-3 py-2 border rounded-md bg-gray-50 text-gray-700 text-sm flex items-center gap-1">
+              <SearchIcon size={14} /> {purchaseOrders.filter(po => !poSearch || po.poNumber.toLowerCase().includes(poSearch.toLowerCase()) || po.vendor.toLowerCase().includes(poSearch.toLowerCase())).length}
+            </div>
+          </div>
+        </div>
+
         {purchaseOrders.length === 0 ? (
           <div className="text-center py-12 text-gray-500">
             <Package size={48} className="mx-auto mb-4 opacity-50" />
@@ -307,7 +446,9 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
           </div>
         ) : (
           <div className="space-y-3">
-            {purchaseOrders.map((po) => (
+            {purchaseOrders
+              .filter(po => !poSearch || po.poNumber.toLowerCase().includes(poSearch.toLowerCase()) || po.vendor.toLowerCase().includes(poSearch.toLowerCase()))
+              .map((po) => (
               <div
                 key={po.id}
                 onClick={() => handleSelectPO(po)}
@@ -417,34 +558,24 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
               {/* Receiving Form */}
               {isReceiving && (
                 <div className="mt-4 pt-4 border-t space-y-3">
-                  {/* Scan to validate */}
                   <div>
-                    <label className="block text-sm font-medium mb-1 flex items-center gap-2">
-                      <ScanLine size={16} /> Scan Item to Validate
-                    </label>
-                    <input
-                      type="text"
-                      value={scanCode}
-                      onChange={(e) => setScanCode(e.target.value.toUpperCase())}
-                      placeholder={`Scan ${item.ItemCode}`}
-                      className="w-full border border-gray-300 rounded-md px-3 py-2"
-                    />
-                    {scanCode && scanCode !== item.ItemCode && (
-                      <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
-                        <AlertCircle size={12} /> Scanned code does not match this PO line
-                      </p>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium mb-1">
-                      Quantity Received
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-sm font-medium">
+                        Quantity Received
+                      </label>
+                      <button
+                        onClick={() => setShowNumpad(true)}
+                        className="text-blue-600 text-sm flex items-center gap-1 hover:underline"
+                      >
+                        <Calculator size={16} /> Numpad
+                      </button>
+                    </div>
                     <input
                       type="number"
                       value={receivedQty}
                       onChange={(e) => setReceivedQty(Number(e.target.value))}
                       max={remaining}
+                      min={0}
                       className="w-full border border-gray-300 rounded-md px-3 py-2"
                     />
                     <p className="text-xs text-gray-500 mt-1">
@@ -452,11 +583,12 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
                     </p>
                   </div>
 
-                  {/* Staging bin selection (fixed to staging by default) */}
+                  {/* Bin location selection (optional - uses PO's bin if available) */}
                   <div>
                     <div className="flex justify-between items-center mb-1">
                       <label className="block text-sm font-medium">
-                        Staging Bin (default)
+                        Bin Location {item.BinCode && `(PO: ${item.BinCode})`}
+                        <span className="text-gray-500 text-xs ml-1">(optional)</span>
                       </label>
                       <button
                         onClick={() => setShowNewBinModal(true)}
@@ -470,6 +602,7 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
                       onChange={(e) => setSelectedBin(e.target.value)}
                       className="w-full border border-gray-300 rounded-md px-3 py-2"
                     >
+                      <option value="">-- Leave blank to use PO bin or skip --</option>
                       {bins
                         .filter((bin) => bin.Status === "active")
                         .map((bin) => (
@@ -478,7 +611,11 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
                           </option>
                         ))}
                     </select>
-                    <p className="text-xs text-gray-500 mt-1">Items are staged first; putaway happens later.</p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {item.BinCode 
+                        ? `Will use "${item.BinCode}" from PO if left blank.` 
+                        : "Leave blank to skip bin assignment (staging area)."}
+                    </p>
                   </div>
 
                   {/* Lot/Serial Capture */}
@@ -587,25 +724,6 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
         })}
       </div>
 
-      {/* Print LP Stub (shows when an LP was created) */}
-      {lastCreatedLP && (
-        <div className="fixed bottom-6 right-6">
-          <button
-            onClick={() => {
-              const w = window.open("", "_blank");
-              if (w) {
-                w.document.write(`<pre>LP: ${lastCreatedLP.lpId}\nBin: ${lastCreatedLP.binCode}\nItems:\n${lastCreatedLP.items.map(i => `- ${i.ItemCode} ${i.Description} x ${i.qty}`).join("\n")}\n</pre>`);
-                w.document.close();
-                w.focus();
-              }
-            }}
-            className="flex items-center gap-2 bg-white shadow-lg border px-4 py-2 rounded-md hover:bg-gray-50"
-          >
-            <Printer size={16} /> Print LP {lastCreatedLP.lpId}
-          </button>
-        </div>
-      )}
-
       {/* New Bin Modal */}
       {showNewBinModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -637,6 +755,17 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Quantity Numpad Modal */}
+      {showNumpad && receivingItem && (
+        <QuantityNumpad
+          value={receivedQty}
+          onChange={(value) => setReceivedQty(value)}
+          onClose={() => setShowNumpad(false)}
+          max={receivingItem.OrderedQty - receivingItem.ReceivedQty}
+          label={`Enter Quantity for ${receivingItem.Description}`}
+        />
       )}
     </div>
   );

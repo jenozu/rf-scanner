@@ -11,10 +11,3 @@ export function setStagingBinCode(binCode: string) {
   localStorage.setItem("rf_config_staging_bin", binCode.toUpperCase());
 }
 
-export function generateLicensePlateId(): string {
-  const ts = new Date().toISOString().replace(/[-:T.Z]/g, "");
-  const rand = Math.floor(Math.random() * 10000).toString().padStart(4, "0");
-  return `LP-${ts}-${rand}`;
-}
-
-

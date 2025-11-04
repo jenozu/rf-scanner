@@ -154,25 +154,6 @@ export interface AppSettings {
 }
 
 /**
- * License Plate (LP) entity for grouping received items
- */
-export interface LicensePlateItem {
-  ItemCode: string;
-  Description: string;
-  qty: number;
-  Lots?: Array<{ lotCode: string; qty: number }>;
-  Serials?: string[];
-}
-
-export interface LicensePlate {
-  lpId: string;
-  items: LicensePlateItem[];
-  createdAt: string;
-  binCode: string; // typically STAGING initially
-  labels?: string[]; // URLs or identifiers for printed labels (stub)
-}
-
-/**
  * Receiving transaction log entry
  */
 export interface ReceivingTransaction {
@@ -182,9 +163,35 @@ export interface ReceivingTransaction {
   description: string;
   qty: number;
   binCode: string; // where staged
-  lpId?: string;
   lots?: Array<{ lotCode: string; qty: number }>;
   serials?: string[];
+  timestamp: string;
+}
+
+/**
+ * Cycle Count transaction log entry
+ */
+export interface CycleCountTransaction {
+  id: string;
+  binCode: string;
+  itemCode: string;
+  description: string;
+  expectedQty: number;
+  countedQty: number;
+  variance: number;
+  timestamp: string;
+}
+
+/**
+ * Inventory Transfer transaction log entry
+ */
+export interface TransferTransaction {
+  id: string;
+  itemCode: string;
+  description: string;
+  sourceBin: string;
+  destinationBin: string;
+  qty: number;
   timestamp: string;
 }
 
