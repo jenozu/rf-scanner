@@ -62,7 +62,7 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
   const handleReceiveItem = (item: POItem) => {
     setReceivingItem(item);
     setReceivedQty(item.OrderedQty - item.ReceivedQty); // Default to remaining qty
-    // Pre-fill with PO's bin if available, otherwise staging
+    // Pre-fill with PO's bin code as default
     setSelectedBin(item.BinCode || getStagingBinCode());
     setLots([]);
     setSerials([]);
@@ -583,38 +583,22 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
                     </p>
                   </div>
 
-                  {/* Bin location selection (optional - uses PO's bin if available) */}
+                  {/* Bin location input (optional - defaults to PO's bin if available) */}
                   <div>
-                    <div className="flex justify-between items-center mb-1">
-                      <label className="block text-sm font-medium">
-                        Bin Location {item.BinCode && `(PO: ${item.BinCode})`}
-                        <span className="text-gray-500 text-xs ml-1">(optional)</span>
-                      </label>
-                      <button
-                        onClick={() => setShowNewBinModal(true)}
-                        className="text-blue-600 text-sm flex items-center gap-1 hover:underline"
-                      >
-                        <Plus size={16} /> New Bin
-                      </button>
-                    </div>
-                    <select
+                    <label className="block text-xs font-medium mb-1 text-gray-600">
+                      Bin Location {item.BinCode && `(default: ${item.BinCode})`}
+                    </label>
+                    <input
+                      type="text"
                       value={selectedBin}
-                      onChange={(e) => setSelectedBin(e.target.value)}
-                      className="w-full border border-gray-300 rounded-md px-3 py-2"
-                    >
-                      <option value="">-- Leave blank to use PO bin or skip --</option>
-                      {bins
-                        .filter((bin) => bin.Status === "active")
-                        .map((bin) => (
-                          <option key={bin.BinCode} value={bin.BinCode}>
-                            {bin.BinCode} - {bin.Zone}
-                          </option>
-                        ))}
-                    </select>
-                    <p className="text-xs text-gray-500 mt-1">
+                      onChange={(e) => setSelectedBin(e.target.value.toUpperCase())}
+                      placeholder={item.BinCode || "Enter bin location (optional)"}
+                      className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
+                    />
+                    <p className="text-xs text-gray-500 mt-0.5">
                       {item.BinCode 
                         ? `Will use "${item.BinCode}" from PO if left blank.` 
-                        : "Leave blank to skip bin assignment (staging area)."}
+                        : "Leave blank to use staging area."}
                     </p>
                   </div>
 

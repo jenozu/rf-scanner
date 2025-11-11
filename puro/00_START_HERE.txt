@@ -1,0 +1,71 @@
+============================================================
+   PUROLATOR RF SCANNER INTEGRATION - START HERE
+============================================================
+
+📂 This folder contains everything you need to integrate
+   Purolator shipping into your RF scanning tool.
+
+============================================================
+   READ FIRST (in this order):
+============================================================
+
+1. README.md
+   ↓ Quick overview and checklist
+
+2. RF_INTEGRATION_SUMMARY.md  ⭐ START HERE
+   ↓ 5-minute read - tells you what you have
+
+3. INTEGRATION_GUIDE.md
+   ↓ Complete technical documentation (30 min)
+
+4. FILES_FOR_RF_INTEGRATION.md
+   ↓ What each file does (10 min)
+
+============================================================
+   FILES TO COPY TO YOUR RF PROJECT:
+============================================================
+
+✅ purolator_utils.py       - Parsing utilities
+✅ batch_shipping_app.py    - Shipment engine
+✅ requirements.txt         - Dependencies
+
+============================================================
+   TESTING:
+============================================================
+
+✅ test_production_auto.py  - Test your production API
+
+============================================================
+   YOUR PRODUCTION CREDENTIALS:
+============================================================
+
+Username: 714d0583f90941ada8d2175bdc4452bb
+Password: 6qDJZ0Ph
+Account:  7254525
+Status:   ✅ ACTIVE & TESTED
+
+Test shipment created: PIN 520138418055
+
+============================================================
+   QUICK START:
+============================================================
+
+1. Read RF_INTEGRATION_SUMMARY.md (5 min)
+2. Copy 3 code files to your project
+3. Create .env with credentials
+4. pip install -r requirements.txt
+5. python test_production_auto.py
+6. Choose integration pattern from guide
+7. Implement & test!
+
+============================================================
+   NEED HELP?
+============================================================
+
+All documentation is in this folder.
+Start with RF_INTEGRATION_SUMMARY.md
+
+Everything is production-ready! 🚀
+
+============================================================
+

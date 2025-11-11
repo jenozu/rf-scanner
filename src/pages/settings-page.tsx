@@ -66,9 +66,18 @@ export default function SettingsPage({ setPage, onLogin }: SettingsPageProps) {
     setShowLogin(!auth.isLoggedIn);
   }, [auth.isLoggedIn]);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    const success = auth.login(username, password);
+    // Trim inputs before sending
+    const trimmedUsername = username.trim();
+    const trimmedPassword = password.trim();
+    
+    if (!trimmedUsername || !trimmedPassword) {
+      setLoginError("Please enter both username and password");
+      return;
+    }
+    
+    const success = await auth.login(trimmedUsername, trimmedPassword);
     if (success) {
       setLoginError("");
       setUsername("");
@@ -99,13 +108,31 @@ export default function SettingsPage({ setPage, onLogin }: SettingsPageProps) {
     }
   };
 
-  const handleAddUser = () => {
-    if (!newUser.username || !newUser.password || !newUser.fullName) {
+  const handleAddUser = async () => {
+    // Trim all inputs
+    const trimmedUser = {
+      ...newUser,
+      username: newUser.username.trim(),
+      password: newUser.password.trim(),
+      fullName: newUser.fullName.trim(),
+    };
+    
+    if (!trimmedUser.username || !trimmedUser.password || !trimmedUser.fullName) {
       alert("Please fill in all required fields");
       return;
     }
 
-    const success = auth.addUser(newUser);
+    if (trimmedUser.username.length < 2) {
+      alert("Username must be at least 2 characters");
+      return;
+    }
+
+    if (trimmedUser.password.length < 3) {
+      alert("Password must be at least 3 characters");
+      return;
+    }
+
+    const success = await auth.addUser(trimmedUser);
     if (success) {
       setNewUser({
         username: "",
@@ -121,8 +148,8 @@ export default function SettingsPage({ setPage, onLogin }: SettingsPageProps) {
     }
   };
 
-  const handleUpdateUser = (userId: string, updates: Partial<User>) => {
-    const success = auth.updateUser(userId, updates);
+  const handleUpdateUser = async (userId: string, updates: Partial<User>) => {
+    const success = await auth.updateUser(userId, updates);
     if (success) {
       setEditingUser(null);
       alert("User updated successfully!");
@@ -131,9 +158,9 @@ export default function SettingsPage({ setPage, onLogin }: SettingsPageProps) {
     }
   };
 
-  const handleDeleteUser = (userId: string, username: string) => {
+  const handleDeleteUser = async (userId: string, username: string) => {
     if (confirm(`Are you sure you want to delete user "${username}"?`)) {
-      const success = auth.deleteUser(userId);
+      const success = await auth.deleteUser(userId);
       if (success) {
         alert("User deleted successfully!");
       } else {
@@ -356,6 +383,15 @@ export default function SettingsPage({ setPage, onLogin }: SettingsPageProps) {
                   <Plus size={18} />
                   Add User
                 </button>
+              </div>
+              
+              {/* Info about user storage */}
+              <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-gray-700 mb-4">
+                <p className="font-medium text-green-900 mb-1">✅ Server-Side User Management</p>
+                <p className="text-gray-600">
+                  Users are now stored on the server and accessible to all devices/browsers. 
+                  When you create a user, they can immediately log in from any device!
+                </p>
               </div>
 
               {/* Add User Form */}

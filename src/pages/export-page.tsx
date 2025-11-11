@@ -1,6 +1,6 @@
 import React from "react";
 import { exportCSV, exportReceivingTxnsCSV, exportCycleCountTxnsCSV } from "../data/csv-utils";
-import useLocalStorage from "../hooks/useLocalStorage";
+import useServerStorage from "../hooks/useServerStorage";
 import { Item, ReceivingTransaction, CycleCountTransaction } from "../types";
 
 interface ExportPageProps {
@@ -8,9 +8,9 @@ interface ExportPageProps {
 }
 
 export default function ExportPage({ setPage }: ExportPageProps) {
-  const [data] = useLocalStorage<Item[]>("rf_active", []);
-  const receivingTxns: ReceivingTransaction[] = JSON.parse(localStorage.getItem("rf_receiving_txns") || "[]");
-  const cycleCountTxns: CycleCountTransaction[] = JSON.parse(localStorage.getItem("rf_cycle_count_txns") || "[]");
+  const [data] = useServerStorage<Item[]>("rf_active", []);
+  const [receivingTxns] = useServerStorage<ReceivingTransaction[]>("rf_receiving_txns", []);
+  const [cycleCountTxns] = useServerStorage<CycleCountTransaction[]>("rf_cycle_count_txns", []);
 
   const handleExport = () => {
     if (!data || data.length === 0) {

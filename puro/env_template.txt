@@ -1,0 +1,20 @@
+# Purolator API Credentials
+PUROLATOR_API_USERNAME=714d0583f90941ada8d2175bdc4452bb
+PUROLATOR_API_PASSWORD=6qDJZ0Ph
+PUROLATOR_API_ACCOUNT=7254525
+
+# Default Sender Information (Your Warehouse)
+DEFAULT_SENDER_NAME=Your Warehouse Name
+DEFAULT_SENDER_STREET=123 Your Street
+DEFAULT_SENDER_CITY=Toronto
+DEFAULT_SENDER_PROVINCE=ON
+DEFAULT_SENDER_POSTAL=M5J2R8
+DEFAULT_SENDER_PHONE=416-555-1234
+
+# Email Configuration (Optional - for automated label emails)
+EMAIL_FROM=andel.tools@gmail.com
+EMAIL_PASSWORD=
+EMAIL_TO=aobryan@marind.ca
+EMAIL_SMTP_SERVER=smtp.gmail.com
+EMAIL_SMTP_PORT=587
+

@@ -1,10 +1,33 @@
 import React, { useState, useEffect, useRef } from "react";
-import { CycleCount, BinLocation, CycleCountTransaction, BinItem, InventorySession, TemporaryLocation, TemporaryLocationItem } from "../types";
-import { ClipboardCheck, Camera, AlertCircle, CheckCircle2, Plus, FolderOpen, MapPin, X, Save, Play } from "lucide-react";
+import { CycleCount, BinLocation, CycleCountTransaction, BinItem, InventorySession, TemporaryLocation, TemporaryLocationItem, SessionItem } from "../types";
+import { ClipboardCheck, Camera, AlertCircle, CheckCircle2, Plus, FolderOpen, MapPin, X, Save, Play, ChevronRight, ChevronLeft, SkipForward, Download, List } from "lucide-react";
 import Quagga from "@ericblade/quagga2";
 
 interface InventoryPageProps {
   setPage: (page: any) => void;
+}
+
+// Sequential count item for bin range counting
+interface SequentialCountItem {
+  binCode: string;
+  zone: string;
+  itemCode: string;
+  description: string;
+  expectedQty: number;
+}
+
+// Enhanced session count log entry
+interface SessionCountLog {
+  sessionId: string;
+  sessionName: string;
+  username: string;
+  timestamp: string;
+  binCode: string;
+  itemCode: string;
+  description: string;
+  expectedQty: number;
+  countedQty: number;
+  variance: number;
 }
 
 export default function InventoryPage({ setPage }: InventoryPageProps) {
@@ -37,18 +60,60 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
   const [showMoveToTempLocationModal, setShowMoveToTempLocationModal] = useState(false);
   const [moveItemQty, setMoveItemQty] = useState<number>(0);
 
+  // Session tracking form
+  const [showSessionTrackingForm, setShowSessionTrackingForm] = useState(false);
+  const [selectedSessionForTracking, setSelectedSessionForTracking] = useState<InventorySession | null>(null);
+  const [sessionTrackingItemCode, setSessionTrackingItemCode] = useState<string>("");
+  const [sessionTrackingQty, setSessionTrackingQty] = useState<number>(0);
+  const [sessionTrackingScanMode, setSessionTrackingScanMode] = useState<boolean>(false);
+  const sessionTrackingVideoRef = useRef<HTMLDivElement>(null);
+
+  // Temporary location tracking form
+  const [showTempLocationTrackingForm, setShowTempLocationTrackingForm] = useState(false);
+  const [selectedTempLocationForTracking, setSelectedTempLocationForTracking] = useState<TemporaryLocation | null>(null);
+  const [tempTrackingItemCode, setTempTrackingItemCode] = useState<string>("");
+  const [tempTrackingQty, setTempTrackingQty] = useState<number>(0);
+  const [tempTrackingScanMode, setTempTrackingScanMode] = useState<boolean>(false);
+  const tempTrackingVideoRef = useRef<HTMLDivElement>(null);
+
+  // Temporary location detail view
+  const [selectedTempLocationDetail, setSelectedTempLocationDetail] = useState<TemporaryLocation | null>(null);
+  const [detailViewItemCode, setDetailViewItemCode] = useState<string>("");
+  const [detailViewQty, setDetailViewQty] = useState<number>(0);
+  const [detailViewScanMode, setDetailViewScanMode] = useState<boolean>(false);
+  const detailViewVideoRef = useRef<HTMLDivElement>(null);
+
+  // Sequential counting mode state
+  const [countingMode, setCountingMode] = useState<"cycle" | "sequential">("cycle");
+  const [showBinRangeModal, setShowBinRangeModal] = useState(false);
+  const [startBinFilter, setStartBinFilter] = useState<string>("");
+  const [endBinFilter, setEndBinFilter] = useState<string>("");
+  const [sequentialItems, setSequentialItems] = useState<SequentialCountItem[]>([]);
+  const [currentItemIndex, setCurrentItemIndex] = useState<number>(0);
+  const [sessionCountLogs, setSessionCountLogs] = useState<SessionCountLog[]>([]);
+  const [showNumpad, setShowNumpad] = useState(false);
+  const [numpadValue, setNumpadValue] = useState<string>("");
+
   // Load data
   useEffect(() => {
     const countsData = JSON.parse(localStorage.getItem("rf_cycle_counts") || "[]");
     const binsData = JSON.parse(localStorage.getItem("rf_bins") || "[]");
-    const sessionsData = JSON.parse(localStorage.getItem("rf_inventory_sessions") || "[]");
+    const sessionsDataRaw = JSON.parse(localStorage.getItem("rf_inventory_sessions") || "[]");
     const tempLocationsData = JSON.parse(localStorage.getItem("rf_temporary_locations") || "[]");
     const currentSessionId = localStorage.getItem("rf_current_inventory_session");
+    const logsData = JSON.parse(localStorage.getItem("rf_session_count_logs") || "[]");
+    
+    // Ensure backward compatibility: initialize items array for existing sessions
+    const sessionsData = sessionsDataRaw.map((s: InventorySession) => ({
+      ...s,
+      items: s.items || [],
+    }));
     
     setCycleCounts(countsData);
     setBins(binsData);
     setSessions(sessionsData);
     setTemporaryLocations(tempLocationsData);
+    setSessionCountLogs(logsData);
 
     // Restore current session if exists
     if (currentSessionId) {
@@ -157,6 +222,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
       lastAccessedDate: new Date().toISOString(),
       status: "active",
       cycleCountIds: [],
+      items: [],
     };
 
     const updatedSessions = [...sessions, newSession];
@@ -168,6 +234,10 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     showToast(`✅ Created session: ${newSession.name}`, "success");
     setShowCreateSessionModal(false);
     setNewSessionName("");
+    
+    // Open tracking form
+    setSelectedSessionForTracking(newSession);
+    setShowSessionTrackingForm(true);
   };
 
   const resumeSession = (session: InventorySession) => {
@@ -175,6 +245,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
       ...session,
       status: "active",
       lastAccessedDate: new Date().toISOString(),
+      items: session.items || [],
     };
 
     const updatedSessions = sessions.map((s) => (s.id === session.id ? updatedSession : s));
@@ -260,6 +331,10 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     setShowCreateTempLocationModal(false);
     setNewTempLocationTitle("");
     setNewTempLocationDescription("");
+    
+    // Open tracking form
+    setSelectedTempLocationForTracking(newLocation);
+    setShowTempLocationTrackingForm(true);
   };
 
   const moveItemToTemporaryLocation = (tempLocationId: string) => {
@@ -314,6 +389,371 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     setMoveItemQty(0);
   };
 
+  // Add item to session
+  const addItemToSession = () => {
+    if (!selectedSessionForTracking || !sessionTrackingItemCode.trim() || sessionTrackingQty <= 0) {
+      showToast("⚠️ Please enter item code and quantity", "error");
+      return;
+    }
+
+    // Try to find item description from bins
+    let description = "";
+    const bin = bins.find((b) => b.Items.some((i) => i.ItemCode === sessionTrackingItemCode.trim()));
+    if (bin) {
+      const item = bin.Items.find((i) => i.ItemCode === sessionTrackingItemCode.trim());
+      if (item) {
+        description = item.Description;
+      }
+    }
+
+    const newItem: SessionItem = {
+      itemCode: sessionTrackingItemCode.trim(),
+      description: description || undefined,
+      quantity: sessionTrackingQty,
+      addedDate: new Date().toISOString(),
+    };
+
+    const updatedSession: InventorySession = {
+      ...selectedSessionForTracking,
+      items: [...(selectedSessionForTracking.items || []), newItem],
+    };
+
+    const updatedSessions = sessions.map((s) => (s.id === selectedSessionForTracking.id ? updatedSession : s));
+    setSessions(updatedSessions);
+    setSelectedSessionForTracking(updatedSession);
+    if (currentSession?.id === updatedSession.id) {
+      setCurrentSession(updatedSession);
+    }
+    localStorage.setItem("rf_inventory_sessions", JSON.stringify(updatedSessions));
+
+    showToast(`✅ Added ${sessionTrackingItemCode} (${sessionTrackingQty}) to session`, "success");
+    setSessionTrackingItemCode("");
+    setSessionTrackingQty(0);
+    setSessionTrackingScanMode(false);
+  };
+
+  // Add item to temporary location (from tracking form)
+  const addItemToTempLocationTracking = () => {
+    if (!selectedTempLocationForTracking || !tempTrackingItemCode.trim() || tempTrackingQty <= 0) {
+      showToast("⚠️ Please enter item code and quantity", "error");
+      return;
+    }
+
+    // Try to find item description from bins
+    let description = "";
+    const bin = bins.find((b) => b.Items.some((i) => i.ItemCode === tempTrackingItemCode.trim()));
+    if (bin) {
+      const item = bin.Items.find((i) => i.ItemCode === tempTrackingItemCode.trim());
+      if (item) {
+        description = item.Description;
+      }
+    }
+
+    const newItem: TemporaryLocationItem = {
+      itemCode: tempTrackingItemCode.trim(),
+      description: description || tempTrackingItemCode.trim(),
+      quantity: tempTrackingQty,
+      movedDate: new Date().toISOString(),
+    };
+
+    const updatedLocation: TemporaryLocation = {
+      ...selectedTempLocationForTracking,
+      items: [...selectedTempLocationForTracking.items, newItem],
+    };
+
+    const updatedLocations = temporaryLocations.map((tl) => (tl.id === selectedTempLocationForTracking.id ? updatedLocation : tl));
+    setTemporaryLocations(updatedLocations);
+    setSelectedTempLocationForTracking(updatedLocation);
+    localStorage.setItem("rf_temporary_locations", JSON.stringify(updatedLocations));
+
+    showToast(`✅ Added ${tempTrackingItemCode} (${tempTrackingQty}) to location`, "success");
+    setTempTrackingItemCode("");
+    setTempTrackingQty(0);
+    setTempTrackingScanMode(false);
+  };
+
+  // Add item to temporary location (from detail view)
+  const addItemToTempLocationDetail = () => {
+    if (!selectedTempLocationDetail || !detailViewItemCode.trim() || detailViewQty <= 0) {
+      showToast("⚠️ Please enter item code and quantity", "error");
+      return;
+    }
+
+    // Try to find item description from bins
+    let description = "";
+    const bin = bins.find((b) => b.Items.some((i) => i.ItemCode === detailViewItemCode.trim()));
+    if (bin) {
+      const item = bin.Items.find((i) => i.ItemCode === detailViewItemCode.trim());
+      if (item) {
+        description = item.Description;
+      }
+    }
+
+    const newItem: TemporaryLocationItem = {
+      itemCode: detailViewItemCode.trim(),
+      description: description || detailViewItemCode.trim(),
+      quantity: detailViewQty,
+      movedDate: new Date().toISOString(),
+    };
+
+    const updatedLocation: TemporaryLocation = {
+      ...selectedTempLocationDetail,
+      items: [...selectedTempLocationDetail.items, newItem],
+    };
+
+    const updatedLocations = temporaryLocations.map((tl) => (tl.id === selectedTempLocationDetail.id ? updatedLocation : tl));
+    setTemporaryLocations(updatedLocations);
+    setSelectedTempLocationDetail(updatedLocation);
+    localStorage.setItem("rf_temporary_locations", JSON.stringify(updatedLocations));
+
+    showToast(`✅ Added ${detailViewItemCode} (${detailViewQty}) to location`, "success");
+    setDetailViewItemCode("");
+    setDetailViewQty(0);
+    setDetailViewScanMode(false);
+  };
+
+  // Remove item from temporary location
+  const removeItemFromTempLocation = (locationId: string, itemIndex: number) => {
+    const location = temporaryLocations.find((tl) => tl.id === locationId);
+    if (!location) return;
+
+    const updatedItems = location.items.filter((_, idx) => idx !== itemIndex);
+    const updatedLocation: TemporaryLocation = {
+      ...location,
+      items: updatedItems,
+    };
+
+    const updatedLocations = temporaryLocations.map((tl) => (tl.id === locationId ? updatedLocation : tl));
+    setTemporaryLocations(updatedLocations);
+    if (selectedTempLocationDetail?.id === locationId) {
+      setSelectedTempLocationDetail(updatedLocation);
+    }
+    localStorage.setItem("rf_temporary_locations", JSON.stringify(updatedLocations));
+
+    showToast("✅ Item removed", "success");
+  };
+
+  // ========== Sequential Counting Functions ==========
+
+  // Start sequential count with bin range
+  const startSequentialCount = () => {
+    if (!startBinFilter.trim() || !endBinFilter.trim()) {
+      showToast("⚠️ Please enter both start and end bin codes", "error");
+      return;
+    }
+
+    // Sort bins alphabetically
+    const sortedBins = [...bins].sort((a, b) => a.BinCode.localeCompare(b.BinCode));
+    
+    // Filter bins within range (inclusive)
+    const filteredBins = sortedBins.filter((bin) => {
+      return bin.BinCode >= startBinFilter.trim() && bin.BinCode <= endBinFilter.trim();
+    });
+
+    if (filteredBins.length === 0) {
+      showToast("⚠️ No bins found in the specified range", "error");
+      return;
+    }
+
+    // Build sequential items list
+    const items: SequentialCountItem[] = [];
+    filteredBins.forEach((bin) => {
+      bin.Items.forEach((item) => {
+        items.push({
+          binCode: bin.BinCode,
+          zone: bin.Zone,
+          itemCode: item.ItemCode,
+          description: item.Description,
+          expectedQty: item.Quantity,
+        });
+      });
+    });
+
+    if (items.length === 0) {
+      showToast("⚠️ No items found in the specified bin range", "error");
+      return;
+    }
+
+    setSequentialItems(items);
+    setCurrentItemIndex(0);
+    setCountingMode("sequential");
+    setShowBinRangeModal(false);
+    showToast(`✅ Loaded ${items.length} items from ${filteredBins.length} bins`, "success");
+  };
+
+  // Handle sequential count submission
+  const submitSequentialCount = (qty: number) => {
+    if (!currentSession) {
+      showToast("⚠️ No active session. Please start a session first.", "error");
+      return;
+    }
+
+    const currentItem = sequentialItems[currentItemIndex];
+    if (!currentItem) return;
+
+    const variance = qty - currentItem.expectedQty;
+
+    // Get current user info
+    const currentUserId = sessionStorage.getItem("rf_current_user_id");
+    const users = JSON.parse(localStorage.getItem("rf_users") || "[]");
+    const currentUser = users.find((u: any) => u.id === currentUserId);
+    const username = currentUser ? currentUser.username : "Unknown";
+
+    // Create log entry
+    const logEntry: SessionCountLog = {
+      sessionId: currentSession.id,
+      sessionName: currentSession.name,
+      username: username,
+      timestamp: new Date().toISOString(),
+      binCode: currentItem.binCode,
+      itemCode: currentItem.itemCode,
+      description: currentItem.description,
+      expectedQty: currentItem.expectedQty,
+      countedQty: qty,
+      variance: variance,
+    };
+
+    // Add to session logs
+    const updatedLogs = [...sessionCountLogs, logEntry];
+    setSessionCountLogs(updatedLogs);
+    localStorage.setItem("rf_session_count_logs", JSON.stringify(updatedLogs));
+
+    // Update bin inventory
+    const updatedBins = bins.map((bin) => {
+      if (bin.BinCode === currentItem.binCode) {
+        const updatedItems = bin.Items.map((item) => {
+          if (item.ItemCode === currentItem.itemCode) {
+            return { ...item, Quantity: qty };
+          }
+          return item;
+        });
+        return { ...bin, Items: updatedItems };
+      }
+      return bin;
+    });
+    setBins(updatedBins);
+    localStorage.setItem("rf_bins", JSON.stringify(updatedBins));
+
+    // Write to cycle count transaction log (for compatibility)
+    const txn: CycleCountTransaction = {
+      id: `SEQ-${Date.now()}`,
+      binCode: currentItem.binCode,
+      itemCode: currentItem.itemCode,
+      description: currentItem.description,
+      expectedQty: currentItem.expectedQty,
+      countedQty: qty,
+      variance: variance,
+      timestamp: new Date().toISOString(),
+    };
+    const existingTxns: CycleCountTransaction[] = JSON.parse(localStorage.getItem("rf_cycle_count_txns") || "[]");
+    localStorage.setItem("rf_cycle_count_txns", JSON.stringify([txn, ...existingTxns]));
+
+    if (variance === 0) {
+      showToast("✅ Count accurate!", "success");
+    } else {
+      showToast(`⚠️ Variance: ${variance > 0 ? "+" : ""}${variance}`, "info");
+    }
+
+    // Move to next item
+    if (currentItemIndex < sequentialItems.length - 1) {
+      setCurrentItemIndex(currentItemIndex + 1);
+      setCountedQty(0);
+      setNumpadValue("");
+    } else {
+      showToast("🎉 All items in range have been counted!", "success");
+      // Stay on last item, allow export
+    }
+  };
+
+  // Skip current item
+  const skipCurrentItem = () => {
+    if (currentItemIndex < sequentialItems.length - 1) {
+      setCurrentItemIndex(currentItemIndex + 1);
+      setCountedQty(0);
+      setNumpadValue("");
+      showToast("⏭️ Item skipped", "info");
+    }
+  };
+
+  // Go to previous item
+  const goToPreviousItem = () => {
+    if (currentItemIndex > 0) {
+      setCurrentItemIndex(currentItemIndex - 1);
+      setCountedQty(0);
+      setNumpadValue("");
+    }
+  };
+
+  // Export session count logs to CSV
+  const exportSessionLogsToCSV = () => {
+    if (!currentSession) {
+      showToast("⚠️ No active session", "error");
+      return;
+    }
+
+    // Filter logs for current session
+    const sessionLogs = sessionCountLogs.filter((log) => log.sessionId === currentSession.id);
+
+    if (sessionLogs.length === 0) {
+      showToast("⚠️ No counts logged in this session yet", "error");
+      return;
+    }
+
+    // Build CSV content
+    const headers = ["Session ID", "Session Name", "Username", "Timestamp", "Bin Code", "Item Code", "Description", "Expected Qty", "Counted Qty", "Variance"];
+    const rows = sessionLogs.map((log) => [
+      log.sessionId,
+      log.sessionName,
+      log.username,
+      log.timestamp,
+      log.binCode,
+      log.itemCode,
+      log.description,
+      log.expectedQty.toString(),
+      log.countedQty.toString(),
+      log.variance.toString(),
+    ]);
+
+    const csvContent = [headers, ...rows].map((row) => row.join(",")).join("\n");
+
+    // Download CSV
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", `inventory_session_${currentSession.name}_${new Date().toISOString().split("T")[0]}.csv`);
+    link.style.visibility = "hidden";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    showToast(`✅ Exported ${sessionLogs.length} count records`, "success");
+  };
+
+  // Exit sequential mode
+  const exitSequentialMode = () => {
+    setCountingMode("cycle");
+    setSequentialItems([]);
+    setCurrentItemIndex(0);
+    setCountedQty(0);
+    setNumpadValue("");
+  };
+
+  // Numpad functions
+  const handleNumpadClick = (digit: string) => {
+    if (digit === "C") {
+      setNumpadValue("");
+      setCountedQty(0);
+    } else if (digit === "⌫") {
+      setNumpadValue(numpadValue.slice(0, -1));
+      setCountedQty(Number(numpadValue.slice(0, -1)) || 0);
+    } else {
+      const newValue = numpadValue + digit;
+      setNumpadValue(newValue);
+      setCountedQty(Number(newValue));
+    }
+  };;
+
   // Initialize scanner when scan mode is enabled
   useEffect(() => {
     if (scanMode && videoRef.current) {
@@ -353,6 +793,132 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
       };
     }
   }, [scanMode]);
+
+  // Initialize scanner for session tracking form
+  useEffect(() => {
+    if (sessionTrackingScanMode && sessionTrackingVideoRef.current) {
+      Quagga.init(
+        {
+          inputStream: {
+            type: "LiveStream",
+            target: sessionTrackingVideoRef.current,
+            constraints: {
+              facingMode: "environment",
+            },
+          },
+          decoder: {
+            readers: ["code_128_reader", "ean_reader", "upc_reader"],
+          },
+        },
+        (err) => {
+          if (err) {
+            console.error("Quagga init error:", err);
+            showToast("Failed to start camera", "error");
+            return;
+          }
+          Quagga.start();
+        }
+      );
+
+      Quagga.onDetected((result) => {
+        const code = result.codeResult.code;
+        if (code) {
+          setSessionTrackingItemCode(code);
+          setSessionTrackingScanMode(false);
+          showToast(`✅ Scanned: ${code}`, "success");
+        }
+      });
+
+      return () => {
+        Quagga.stop();
+        Quagga.offDetected(() => {});
+      };
+    }
+  }, [sessionTrackingScanMode]);
+
+  // Initialize scanner for temp location tracking form
+  useEffect(() => {
+    if (tempTrackingScanMode && tempTrackingVideoRef.current) {
+      Quagga.init(
+        {
+          inputStream: {
+            type: "LiveStream",
+            target: tempTrackingVideoRef.current,
+            constraints: {
+              facingMode: "environment",
+            },
+          },
+          decoder: {
+            readers: ["code_128_reader", "ean_reader", "upc_reader"],
+          },
+        },
+        (err) => {
+          if (err) {
+            console.error("Quagga init error:", err);
+            showToast("Failed to start camera", "error");
+            return;
+          }
+          Quagga.start();
+        }
+      );
+
+      Quagga.onDetected((result) => {
+        const code = result.codeResult.code;
+        if (code) {
+          setTempTrackingItemCode(code);
+          setTempTrackingScanMode(false);
+          showToast(`✅ Scanned: ${code}`, "success");
+        }
+      });
+
+      return () => {
+        Quagga.stop();
+        Quagga.offDetected(() => {});
+      };
+    }
+  }, [tempTrackingScanMode]);
+
+  // Initialize scanner for detail view
+  useEffect(() => {
+    if (detailViewScanMode && detailViewVideoRef.current) {
+      Quagga.init(
+        {
+          inputStream: {
+            type: "LiveStream",
+            target: detailViewVideoRef.current,
+            constraints: {
+              facingMode: "environment",
+            },
+          },
+          decoder: {
+            readers: ["code_128_reader", "ean_reader", "upc_reader"],
+          },
+        },
+        (err) => {
+          if (err) {
+            console.error("Quagga init error:", err);
+            showToast("Failed to start camera", "error");
+            return;
+          }
+          Quagga.start();
+        }
+      );
+
+      Quagga.onDetected((result) => {
+        const code = result.codeResult.code;
+        if (code) {
+          setDetailViewItemCode(code);
+          setDetailViewScanMode(false);
+          showToast(`✅ Scanned: ${code}`, "success");
+        }
+      });
+
+      return () => {
+        Quagga.stop();
+        Quagga.offDetected(() => {});
+      };
+    }
+  }, [detailViewScanMode]);
 
   // Handle barcode scan
   const handleScan = (code: string) => {
@@ -485,13 +1051,13 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
   };
 
   // Render task list
-  if (!selectedCount) {
+  if (!selectedCount && countingMode === "cycle") {
     return (
       <div className="p-4 max-w-4xl mx-auto">
         <div className="flex justify-between items-center mb-4">
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <ClipboardCheck className="text-blue-600" />
-            Cycle Counting
+            Inventory Counting
           </h1>
           <div className="flex gap-2">
             {currentSession && (
@@ -522,6 +1088,43 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
               Temp Locations
             </button>
           </div>
+        </div>
+
+        {/* Mode Selection */}
+        <div className="mb-6 bg-white rounded-lg shadow p-4">
+          <h2 className="text-lg font-semibold mb-3">Counting Mode</h2>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              onClick={() => {
+                if (!currentSession) {
+                  showToast("⚠️ Please start a session first", "error");
+                  setShowSessionModal(true);
+                  return;
+                }
+                setShowBinRangeModal(true);
+              }}
+              className="bg-green-600 text-white px-4 py-3 rounded-md hover:bg-green-700 font-medium flex items-center justify-center gap-2"
+            >
+              <List size={20} />
+              Sequential Count (Bin Range)
+            </button>
+            <button
+              onClick={() => setCountingMode("cycle")}
+              className="bg-gray-200 text-gray-700 px-4 py-3 rounded-md hover:bg-gray-300 font-medium flex items-center justify-center gap-2"
+            >
+              <ClipboardCheck size={20} />
+              Cycle Count (Task List)
+            </button>
+          </div>
+          {currentSession && sessionCountLogs.filter(l => l.sessionId === currentSession.id).length > 0 && (
+            <button
+              onClick={exportSessionLogsToCSV}
+              className="mt-3 w-full bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 font-medium flex items-center justify-center gap-2"
+            >
+              <Download size={18} />
+              Export Session Log ({sessionCountLogs.filter(l => l.sessionId === currentSession.id).length} counts)
+            </button>
+          )}
         </div>
 
         {/* Toast */}
@@ -793,6 +1396,74 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
           </div>
         )}
 
+        {/* Bin Range Filter Modal */}
+        {showBinRangeModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-xl font-bold">Select Bin Range</h3>
+                <button
+                  onClick={() => {
+                    setShowBinRangeModal(false);
+                    setStartBinFilter("");
+                    setEndBinFilter("");
+                  }}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <p className="text-sm text-gray-600 mb-4">
+                Enter the start and end bin codes to count all items within that range (inclusive).
+              </p>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Start Bin Code</label>
+                  <input
+                    type="text"
+                    value={startBinFilter}
+                    onChange={(e) => setStartBinFilter(e.target.value.toUpperCase())}
+                    placeholder="e.g., A-01-01"
+                    className="w-full border border-gray-300 rounded-md px-3 py-2"
+                    autoFocus
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">End Bin Code</label>
+                  <input
+                    type="text"
+                    value={endBinFilter}
+                    onChange={(e) => setEndBinFilter(e.target.value.toUpperCase())}
+                    placeholder="e.g., A-01-10"
+                    className="w-full border border-gray-300 rounded-md px-3 py-2"
+                  />
+                </div>
+              </div>
+
+              <div className="mt-6 flex gap-2">
+                <button
+                  onClick={startSequentialCount}
+                  className="flex-1 bg-green-600 text-white py-2 rounded-md hover:bg-green-700 font-medium"
+                >
+                  Start Counting
+                </button>
+                <button
+                  onClick={() => {
+                    setShowBinRangeModal(false);
+                    setStartBinFilter("");
+                    setEndBinFilter("");
+                  }}
+                  className="px-4 bg-gray-200 text-gray-700 py-2 rounded-md hover:bg-gray-300"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Temporary Locations Modal */}
         {showTempLocationModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -826,7 +1497,14 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
                   ) : (
                     <div className="space-y-3">
                       {temporaryLocations.map((location) => (
-                        <div key={location.id} className="border rounded-lg p-3 bg-white">
+                        <div 
+                          key={location.id} 
+                          onClick={() => {
+                            setSelectedTempLocationDetail(location);
+                            setShowTempLocationModal(false);
+                          }}
+                          className="border rounded-lg p-3 bg-white cursor-pointer hover:shadow-md transition-shadow hover:border-purple-300"
+                        >
                           <h4 className="font-semibold mb-1">{location.title}</h4>
                           {location.description && (
                             <p className="text-sm text-gray-600 mb-2">{location.description}</p>
@@ -895,6 +1573,214 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Render sequential counting UI
+  if (countingMode === "sequential" && sequentialItems.length > 0) {
+    const currentItem = sequentialItems[currentItemIndex];
+    const progress = ((currentItemIndex + 1) / sequentialItems.length) * 100;
+
+    return (
+      <div className="p-4 max-w-4xl mx-auto">
+        <div className="flex justify-between items-center mb-4">
+          <button
+            onClick={exitSequentialMode}
+            className="text-blue-600 hover:underline flex items-center gap-1"
+          >
+            ← Back to Menu
+          </button>
+          {currentSession && (
+            <div className="bg-blue-50 px-3 py-1 rounded-md text-sm flex items-center gap-2">
+              <FolderOpen size={16} className="text-blue-600" />
+              <span className="font-medium text-blue-700">{currentSession.name}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Toast */}
+        {toast && (
+          <div
+            className={`fixed top-20 left-1/2 transform -translate-x-1/2 z-50 px-6 py-3 rounded-lg shadow-lg ${
+              toast.type === "success"
+                ? "bg-green-500 text-white"
+                : toast.type === "error"
+                ? "bg-red-500 text-white"
+                : "bg-blue-500 text-white"
+            }`}
+          >
+            {toast.message}
+          </div>
+        )}
+
+        {/* Progress Bar */}
+        <div className="mb-6">
+          <div className="flex justify-between items-center mb-2">
+            <span className="text-sm font-medium text-gray-700">
+              Item {currentItemIndex + 1} of {sequentialItems.length}
+            </span>
+            <span className="text-sm font-medium text-gray-700">{Math.round(progress)}%</span>
+          </div>
+          <div className="w-full bg-gray-200 rounded-full h-3">
+            <div
+              className="bg-green-600 h-3 rounded-full transition-all duration-300"
+              style={{ width: `${progress}%` }}
+            ></div>
+          </div>
+        </div>
+
+        {/* Current Item Card */}
+        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+          <div className="flex justify-between items-start mb-4">
+            <div>
+              <h2 className="text-2xl font-bold text-blue-600">{currentItem.binCode}</h2>
+              <p className="text-gray-600">{currentItem.zone}</p>
+            </div>
+            <button
+              onClick={exportSessionLogsToCSV}
+              className="bg-blue-600 text-white px-3 py-2 rounded-md hover:bg-blue-700 text-sm flex items-center gap-2"
+            >
+              <Download size={16} />
+              Export
+            </button>
+          </div>
+
+          <div className="border-t pt-4 mb-4">
+            <h3 className="font-semibold text-lg mb-2">Item Details</h3>
+            <p className="text-gray-700">
+              <span className="font-medium">Item Code:</span> {currentItem.itemCode}
+            </p>
+            <p className="text-gray-700">
+              <span className="font-medium">Description:</span> {currentItem.description}
+            </p>
+          </div>
+
+          <div className="bg-blue-50 rounded-lg p-4 mb-4">
+            <p className="text-center text-sm text-gray-600 mb-1">Expected Quantity</p>
+            <p className="text-center text-4xl font-bold text-blue-600">
+              {currentItem.expectedQty}
+            </p>
+          </div>
+
+          {/* Numpad Display */}
+          <div className="mb-4">
+            <label className="block text-sm font-medium mb-2">Counted Quantity</label>
+            <div className="bg-gray-100 border-2 border-gray-300 rounded-lg p-4 text-center">
+              <p className="text-3xl font-bold text-gray-800">
+                {numpadValue || "0"}
+              </p>
+            </div>
+            {countedQty !== currentItem.expectedQty && countedQty >= 0 && (
+              <div className="mt-2 flex items-center justify-center gap-2 text-sm">
+                <AlertCircle
+                  className={countedQty > currentItem.expectedQty ? "text-yellow-600" : "text-red-600"}
+                  size={16}
+                />
+                <span className="font-medium">
+                  Variance: {countedQty - currentItem.expectedQty > 0 ? "+" : ""}
+                  {countedQty - currentItem.expectedQty}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Numpad */}
+          <div className="grid grid-cols-3 gap-2 mb-4">
+            {["7", "8", "9", "4", "5", "6", "1", "2", "3", "0", "C", "⌫"].map((digit) => (
+              <button
+                key={digit}
+                onClick={() => handleNumpadClick(digit)}
+                className={`py-4 text-xl font-semibold rounded-lg ${
+                  digit === "C" || digit === "⌫"
+                    ? "bg-red-100 text-red-700 hover:bg-red-200"
+                    : "bg-blue-100 text-blue-700 hover:bg-blue-200"
+                }`}
+              >
+                {digit}
+              </button>
+            ))}
+          </div>
+
+          {/* Action Buttons */}
+          <div className="grid grid-cols-2 gap-2 mb-3">
+            <button
+              onClick={() => submitSequentialCount(currentItem.expectedQty)}
+              className="bg-green-600 text-white py-3 rounded-md hover:bg-green-700 font-medium flex items-center justify-center gap-2"
+            >
+              <CheckCircle2 size={18} />
+              Confirm ({currentItem.expectedQty})
+            </button>
+            <button
+              onClick={() => {
+                if (countedQty >= 0) {
+                  submitSequentialCount(countedQty);
+                } else {
+                  showToast("⚠️ Please enter a quantity", "error");
+                }
+              }}
+              disabled={countedQty < 0}
+              className="bg-blue-600 text-white py-3 rounded-md hover:bg-blue-700 font-medium flex items-center justify-center gap-2 disabled:bg-gray-400"
+            >
+              Submit Count
+            </button>
+          </div>
+
+          {/* Navigation Buttons */}
+          <div className="grid grid-cols-3 gap-2">
+            <button
+              onClick={goToPreviousItem}
+              disabled={currentItemIndex === 0}
+              className="bg-gray-200 text-gray-700 py-2 rounded-md hover:bg-gray-300 font-medium flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <ChevronLeft size={18} />
+              Previous
+            </button>
+            <button
+              onClick={skipCurrentItem}
+              disabled={currentItemIndex >= sequentialItems.length - 1}
+              className="bg-yellow-500 text-white py-2 rounded-md hover:bg-yellow-600 font-medium flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <SkipForward size={18} />
+              Skip
+            </button>
+            <button
+              onClick={() => {
+                if (currentItemIndex < sequentialItems.length - 1) {
+                  setCurrentItemIndex(currentItemIndex + 1);
+                  setCountedQty(0);
+                  setNumpadValue("");
+                }
+              }}
+              disabled={currentItemIndex >= sequentialItems.length - 1}
+              className="bg-gray-200 text-gray-700 py-2 rounded-md hover:bg-gray-300 font-medium flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Next
+              <ChevronRight size={18} />
+            </button>
+          </div>
+        </div>
+
+        {/* Session Stats */}
+        {currentSession && (
+          <div className="bg-white rounded-lg shadow p-4">
+            <h3 className="font-semibold mb-2">Session Statistics</h3>
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <p className="text-gray-600">Items Counted</p>
+                <p className="text-2xl font-bold text-blue-600">
+                  {sessionCountLogs.filter((l) => l.sessionId === currentSession.id).length}
+                </p>
+              </div>
+              <div>
+                <p className="text-gray-600">Variances Found</p>
+                <p className="text-2xl font-bold text-yellow-600">
+                  {sessionCountLogs.filter((l) => l.sessionId === currentSession.id && l.variance !== 0).length}
+                </p>
+              </div>
             </div>
           </div>
         )}
@@ -1214,6 +2100,300 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
             >
               Cancel
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Session Tracking Form Modal */}
+      {showSessionTrackingForm && selectedSessionForTracking && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 max-h-[80vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-bold">Track Items - {selectedSessionForTracking.name}</h3>
+              <button
+                onClick={() => {
+                  setShowSessionTrackingForm(false);
+                  setSelectedSessionForTracking(null);
+                  setSessionTrackingItemCode("");
+                  setSessionTrackingQty(0);
+                  setSessionTrackingScanMode(false);
+                }}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Item Code</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={sessionTrackingItemCode}
+                    onChange={(e) => setSessionTrackingItemCode(e.target.value.toUpperCase())}
+                    placeholder="Scan or enter item code"
+                    className="flex-1 border border-gray-300 rounded-md px-3 py-2"
+                  />
+                  <button
+                    onClick={() => setSessionTrackingScanMode(!sessionTrackingScanMode)}
+                    className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 flex items-center gap-2"
+                  >
+                    <Camera size={16} />
+                    {sessionTrackingScanMode ? "Stop" : "Scan"}
+                  </button>
+                </div>
+                {sessionTrackingScanMode && (
+                  <div
+                    ref={sessionTrackingVideoRef}
+                    className="w-full max-w-sm aspect-video bg-black rounded-md overflow-hidden mx-auto mt-2"
+                  ></div>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">Quantity</label>
+                <input
+                  type="number"
+                  value={sessionTrackingQty}
+                  onChange={(e) => setSessionTrackingQty(Number(e.target.value))}
+                  min="1"
+                  placeholder="Enter quantity"
+                  className="w-full border border-gray-300 rounded-md px-3 py-2"
+                />
+              </div>
+
+              <button
+                onClick={addItemToSession}
+                className="w-full bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700"
+              >
+                Add Item
+              </button>
+            </div>
+
+            {/* List of items in session */}
+            {selectedSessionForTracking.items && selectedSessionForTracking.items.length > 0 && (
+              <div className="mt-6">
+                <h4 className="font-semibold mb-3">Items in Session ({selectedSessionForTracking.items.length})</h4>
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {selectedSessionForTracking.items.map((item, idx) => (
+                    <div key={idx} className="bg-gray-50 rounded p-3 flex justify-between items-center">
+                      <div>
+                        <span className="font-medium">{item.itemCode}</span>
+                        {item.description && (
+                          <p className="text-sm text-gray-600">{item.description}</p>
+                        )}
+                      </div>
+                      <span className="font-medium">Qty: {item.quantity}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Temporary Location Tracking Form Modal */}
+      {showTempLocationTrackingForm && selectedTempLocationForTracking && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 max-h-[80vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-bold">Track Items - {selectedTempLocationForTracking.title}</h3>
+              <button
+                onClick={() => {
+                  setShowTempLocationTrackingForm(false);
+                  setSelectedTempLocationForTracking(null);
+                  setTempTrackingItemCode("");
+                  setTempTrackingQty(0);
+                  setTempTrackingScanMode(false);
+                }}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Item Code</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={tempTrackingItemCode}
+                    onChange={(e) => setTempTrackingItemCode(e.target.value.toUpperCase())}
+                    placeholder="Scan or enter item code"
+                    className="flex-1 border border-gray-300 rounded-md px-3 py-2"
+                  />
+                  <button
+                    onClick={() => setTempTrackingScanMode(!tempTrackingScanMode)}
+                    className="bg-purple-600 text-white px-4 py-2 rounded-md hover:bg-purple-700 flex items-center gap-2"
+                  >
+                    <Camera size={16} />
+                    {tempTrackingScanMode ? "Stop" : "Scan"}
+                  </button>
+                </div>
+                {tempTrackingScanMode && (
+                  <div
+                    ref={tempTrackingVideoRef}
+                    className="w-full max-w-sm aspect-video bg-black rounded-md overflow-hidden mx-auto mt-2"
+                  ></div>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">Quantity</label>
+                <input
+                  type="number"
+                  value={tempTrackingQty}
+                  onChange={(e) => setTempTrackingQty(Number(e.target.value))}
+                  min="1"
+                  placeholder="Enter quantity"
+                  className="w-full border border-gray-300 rounded-md px-3 py-2"
+                />
+              </div>
+
+              <button
+                onClick={addItemToTempLocationTracking}
+                className="w-full bg-purple-600 text-white py-2 rounded-md hover:bg-purple-700"
+              >
+                Add Item
+              </button>
+            </div>
+
+            {/* List of items in location */}
+            {selectedTempLocationForTracking.items.length > 0 && (
+              <div className="mt-6">
+                <h4 className="font-semibold mb-3">Items in Location ({selectedTempLocationForTracking.items.length})</h4>
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {selectedTempLocationForTracking.items.map((item, idx) => (
+                    <div key={idx} className="bg-gray-50 rounded p-3 flex justify-between items-center">
+                      <div>
+                        <span className="font-medium">{item.itemCode}</span>
+                        {item.description && (
+                          <p className="text-sm text-gray-600">{item.description}</p>
+                        )}
+                      </div>
+                      <span className="font-medium">Qty: {item.quantity}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Temporary Location Detail View */}
+      {selectedTempLocationDetail && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <div>
+                <h3 className="text-xl font-bold">{selectedTempLocationDetail.title}</h3>
+                {selectedTempLocationDetail.description && (
+                  <p className="text-sm text-gray-600 mt-1">{selectedTempLocationDetail.description}</p>
+                )}
+              </div>
+              <button
+                onClick={() => {
+                  setSelectedTempLocationDetail(null);
+                  setDetailViewItemCode("");
+                  setDetailViewQty(0);
+                  setDetailViewScanMode(false);
+                }}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Add Item Form */}
+            <div className="bg-gray-50 rounded-lg p-4 mb-6">
+              <h4 className="font-semibold mb-4">Add Item</h4>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Item Code</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={detailViewItemCode}
+                      onChange={(e) => setDetailViewItemCode(e.target.value.toUpperCase())}
+                      placeholder="Scan or enter item code"
+                      className="flex-1 border border-gray-300 rounded-md px-3 py-2"
+                    />
+                    <button
+                      onClick={() => setDetailViewScanMode(!detailViewScanMode)}
+                      className="bg-purple-600 text-white px-4 py-2 rounded-md hover:bg-purple-700 flex items-center gap-2"
+                    >
+                      <Camera size={16} />
+                      {detailViewScanMode ? "Stop" : "Scan"}
+                    </button>
+                  </div>
+                  {detailViewScanMode && (
+                    <div
+                      ref={detailViewVideoRef}
+                      className="w-full max-w-sm aspect-video bg-black rounded-md overflow-hidden mx-auto mt-2"
+                    ></div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-1">Quantity</label>
+                  <input
+                    type="number"
+                    value={detailViewQty}
+                    onChange={(e) => setDetailViewQty(Number(e.target.value))}
+                    min="1"
+                    placeholder="Enter quantity"
+                    className="w-full border border-gray-300 rounded-md px-3 py-2"
+                  />
+                </div>
+
+                <button
+                  onClick={addItemToTempLocationDetail}
+                  className="w-full bg-purple-600 text-white py-2 rounded-md hover:bg-purple-700"
+                >
+                  Add Item
+                </button>
+              </div>
+            </div>
+
+            {/* List of items */}
+            <div>
+              <h4 className="font-semibold mb-3">
+                Items ({selectedTempLocationDetail.items.length})
+              </h4>
+              {selectedTempLocationDetail.items.length === 0 ? (
+                <p className="text-gray-500 text-center py-8">No items yet. Add items using the form above.</p>
+              ) : (
+                <div className="space-y-2">
+                  {selectedTempLocationDetail.items.map((item, idx) => (
+                    <div key={idx} className="bg-white border rounded-lg p-3 flex justify-between items-center">
+                      <div className="flex-1">
+                        <span className="font-medium">{item.itemCode}</span>
+                        {item.description && (
+                          <p className="text-sm text-gray-600">{item.description}</p>
+                        )}
+                        {item.sourceBin && (
+                          <p className="text-xs text-gray-500">From: {item.sourceBin}</p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <span className="font-medium">Qty: {item.quantity}</span>
+                        <button
+                          onClick={() => removeItemFromTempLocation(selectedTempLocationDetail.id, idx)}
+                          className="text-red-600 hover:text-red-800"
+                          title="Remove item"
+                        >
+                          <X size={18} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

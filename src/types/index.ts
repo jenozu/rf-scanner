@@ -83,6 +83,14 @@ export interface SalesOrder {
   status: "pending" | "picking" | "picked" | "shipped";
   createdDate: string;
   shippedDate?: string;
+  shipmentPin?: string; // Purolator tracking PIN
+  // Shipping address fields (from SAP export)
+  shipToStreet?: string;
+  shipToCity?: string;
+  shipToProvince?: string;
+  shipToPostal?: string;
+  shipToCountry?: string;
+  shipToPhone?: string;
 }
 
 export interface SOItem {
@@ -234,6 +242,14 @@ export interface InventorySession {
   status: "active" | "paused" | "completed";
   cycleCountIds: string[]; // IDs of cycle counts in this session
   currentCycleCountId?: string; // Currently active count
+  items?: SessionItem[]; // Items tracked in this session
+}
+
+export interface SessionItem {
+  itemCode: string;
+  description?: string;
+  quantity: number;
+  addedDate: string;
 }
 
 /**
@@ -258,5 +274,5 @@ export interface TemporaryLocationItem {
 /**
  * Page navigation type used throughout the app
  */
-export type PageType = "setup" | "home" | "transactions" | "receive" | "scan" | "pick" | "inventory" | "export" | "settings";
+export type PageType = "setup" | "home" | "transactions" | "receive" | "scan" | "pick" | "inventory" | "export" | "shipping" | "settings";
 

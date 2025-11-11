@@ -6,6 +6,7 @@ import ReceivePage from "./pages/receive-page";
 import PickPage from "./pages/pick-page";
 import InventoryPage from "./pages/inventory-page";
 import ExportPage from "./pages/export-page";
+import ShippingPage from "./pages/shipping-page";
 import SetupPage from "./pages/setup-page";
 import SettingsPage from "./pages/settings-page";
 import NumpadModal from "./pages/numpad-modal";
@@ -23,24 +24,36 @@ export default function App() {
 
   // Check login status and data on mount
   useEffect(() => {
-    const currentUserId = localStorage.getItem("rf_current_user_id");
-    const loggedIn = !!currentUserId;
-    setIsLoggedIn(loggedIn);
-    
-    if (loggedIn) {
-      // User is logged in, check for data
-      const hasData = localStorage.getItem("rf_active") !== null;
-      if (hasData) {
-        setIsInitialized(true);
-        setPage("home");
+    const checkInitialState = async () => {
+      const currentUserId = sessionStorage.getItem("rf_current_user_id");
+      const loggedIn = !!currentUserId;
+      setIsLoggedIn(loggedIn);
+      
+      if (loggedIn) {
+        // User is logged in, check for data from API
+        try {
+          const { api } = await import("./services/api");
+          const data = await api.getData("rf_active");
+          const hasData = data && Array.isArray(data) && data.length > 0;
+          if (hasData) {
+            setIsInitialized(true);
+            setPage("home");
+          } else {
+            // Logged in but no data - go to setup
+            setPage("setup");
+          }
+        } catch (error) {
+          // API not available or error, go to setup
+          console.error("Error checking data:", error);
+          setPage("setup");
+        }
       } else {
-        // Logged in but no data - go to setup
-        setPage("setup");
+        // Not logged in - show login (settings page)
+        setPage("settings");
       }
-    } else {
-      // Not logged in - show login (settings page)
-      setPage("settings");
-    }
+    };
+    
+    checkInitialState();
   }, []);
 
   // Open numpad for manual adjustment
@@ -70,14 +83,21 @@ export default function App() {
   };
   
   // Handle successful login
-  const handleLogin = () => {
+  const handleLogin = async () => {
     setIsLoggedIn(true);
     // Check if data exists after login
-    const hasData = localStorage.getItem("rf_active") !== null;
-    if (hasData) {
-      setIsInitialized(true);
-      setPage("home");
-    } else {
+    try {
+      const { api } = await import("./services/api");
+      const data = await api.getData("rf_active");
+      const hasData = data && Array.isArray(data) && data.length > 0;
+      if (hasData) {
+        setIsInitialized(true);
+        setPage("home");
+      } else {
+        setPage("setup");
+      }
+    } catch (error) {
+      console.error("Error checking data after login:", error);
       setPage("setup");
     }
   };
@@ -98,6 +118,7 @@ export default function App() {
         {page === "pick" && isLoggedIn && <PickPage setPage={setPage} />}
         {page === "inventory" && isLoggedIn && <InventoryPage setPage={setPage} />}
         {page === "export" && isLoggedIn && <ExportPage setPage={setPage} />}
+        {page === "shipping" && isLoggedIn && <ShippingPage setPage={setPage} />}
       </main>
 
       {isInitialized && isLoggedIn && <FooterNav currentPage={page} setPage={setPage} />}

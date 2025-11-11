@@ -47,8 +47,19 @@ export function searchItems(query: string, allItems: Item[]): Item[] {
     return false;
   });
 
-  // Sort by relevance
-  return matches.sort((a, b) => {
+  // Deduplicate by ItemCode - keep only one result per unique ItemCode
+  // Use a Map to track unique ItemCodes, keeping the first match for each
+  const uniqueItems = new Map<string, Item>();
+  matches.forEach(item => {
+    const itemCode = item.ItemCode?.toUpperCase() || '';
+    if (!uniqueItems.has(itemCode)) {
+      uniqueItems.set(itemCode, item);
+    }
+  });
+
+  // Convert back to array and sort by relevance
+  const deduplicated = Array.from(uniqueItems.values());
+  return deduplicated.sort((a, b) => {
     // Exact matches first
     if (a.ItemCode === searchTerm) return -1;
     if (b.ItemCode === searchTerm) return 1;

@@ -1,64 +1,95 @@
 import { useState, useEffect } from "react";
 import { User, ActivityLog } from "../types";
+import { api } from "../services/api";
 
 interface AuthState {
   currentUser: User | null;
   users: User[];
   isLoggedIn: boolean;
+  isLoading: boolean;
 }
 
 export function useAuth() {
-  const [authState, setAuthState] = useState<AuthState>(() => {
-    try {
-      const users = JSON.parse(localStorage.getItem("rf_users") || "[]");
-      const currentUserId = localStorage.getItem("rf_current_user_id");
-      const currentUser = currentUserId 
-        ? users.find((u: User) => u.id === currentUserId) || null
-        : null;
-      
-      return {
-        currentUser,
-        users,
-        isLoggedIn: !!currentUser,
-      };
-    } catch (error) {
-      console.error("Error loading auth state:", error);
-      return {
-        currentUser: null,
-        users: [],
-        isLoggedIn: false,
-      };
-    }
+  const [authState, setAuthState] = useState<AuthState>({
+    currentUser: null,
+    users: [],
+    isLoggedIn: false,
+    isLoading: true,
   });
+
+  // Load current user from session storage on mount
+  useEffect(() => {
+    const loadInitialState = async () => {
+      try {
+        const currentUserId = sessionStorage.getItem("rf_current_user_id");
+        if (currentUserId) {
+          // Try to get user from API
+          try {
+            const user = await api.getUser(currentUserId);
+            setAuthState({
+              currentUser: user as User,
+              users: [],
+              isLoggedIn: true,
+              isLoading: false,
+            });
+          } catch (error) {
+            // User not found or API error, clear session
+            sessionStorage.removeItem("rf_current_user_id");
+            setAuthState(prev => ({ ...prev, isLoading: false }));
+          }
+        } else {
+          setAuthState(prev => ({ ...prev, isLoading: false }));
+        }
+      } catch (error) {
+        console.error("Error loading initial auth state:", error);
+        setAuthState(prev => ({ ...prev, isLoading: false }));
+      }
+    };
+
+    loadInitialState();
+  }, []);
+
+  // Load users list (for admin user management)
+  const loadUsers = async () => {
+    try {
+      const users = await api.getUsers();
+      setAuthState(prev => ({ ...prev, users: users as User[] }));
+      return users;
+    } catch (error) {
+      console.error("Error loading users:", error);
+      return [];
+    }
+  };
 
   // Initialize default admin user if no users exist
   useEffect(() => {
-    if (authState.users.length === 0) {
-      const defaultAdmin: User = {
-        id: "user-1",
-        username: "admin",
-        password: "admin123", // In production, use proper password hashing
-        fullName: "Administrator",
-        role: "admin",
-        isActive: true,
-        createdDate: new Date().toISOString(),
-      };
-      
-      const updatedUsers = [defaultAdmin];
-      localStorage.setItem("rf_users", JSON.stringify(updatedUsers));
-      setAuthState(prev => ({ ...prev, users: updatedUsers }));
-    }
-  }, [authState.users.length]);
+    const initAdmin = async () => {
+      try {
+        const users = await api.getUsers();
+        if (users.length === 0) {
+          // Initialize admin user
+          await api.initAdmin();
+          await loadUsers();
+        }
+      } catch (error) {
+        console.error("Error initializing admin:", error);
+      }
+    };
 
-  // Save users to localStorage whenever they change
-  useEffect(() => {
-    if (authState.users.length > 0) {
-      localStorage.setItem("rf_users", JSON.stringify(authState.users));
+    if (!authState.isLoading && authState.currentUser?.role === "admin") {
+      initAdmin();
     }
-  }, [authState.users]);
+  }, [authState.isLoading, authState.currentUser?.role]);
+
+  // Load users when admin logs in
+  useEffect(() => {
+    if (authState.isLoggedIn && authState.currentUser?.role === "admin") {
+      loadUsers();
+    }
+  }, [authState.isLoggedIn, authState.currentUser?.role]);
 
   // Log activity
-  const logActivity = (action: string, details?: string) => {
+  const logActivity = async (action: string, details?: string) => {
     if (!authState.currentUser) return;
 
     const log: ActivityLog = {
@@ -71,114 +102,113 @@ export function useAuth() {
     };
 
     try {
-      const logs = JSON.parse(localStorage.getItem("rf_activity_logs") || "[]");
+      const logs = await api.getData("rf_activity_logs") || [];
       logs.unshift(log); // Add to beginning
       // Keep only last 100 logs
       const trimmedLogs = logs.slice(0, 100);
-      localStorage.setItem("rf_activity_logs", JSON.stringify(trimmedLogs));
+      await api.saveData("rf_activity_logs", trimmedLogs);
     } catch (error) {
       console.error("Error logging activity:", error);
     }
   };
 
   // Login function
-  const login = (username: string, password: string): boolean => {
-    const user = authState.users.find(
-      u => u.username === username && u.password === password && u.isActive
-    );
-
-    if (user) {
-      const updatedUser = { ...user, lastLogin: new Date().toISOString() };
-      const updatedUsers = authState.users.map(u => 
-        u.id === user.id ? updatedUser : u
-      );
+  const login = async (username: string, password: string): Promise<boolean> => {
+    try {
+      const response = await api.login(username, password);
+      const user = response.user;
 
       setAuthState({
-        currentUser: updatedUser,
-        users: updatedUsers,
+        currentUser: user as User,
+        users: [],
         isLoggedIn: true,
+        isLoading: false,
       });
 
-      localStorage.setItem("rf_current_user_id", user.id);
-      localStorage.setItem("rf_users", JSON.stringify(updatedUsers));
+      sessionStorage.setItem("rf_current_user_id", user.id);
+      
+      // Load users if admin
+      if (user.role === "admin") {
+        await loadUsers();
+      }
 
-      logActivity("Logged in", `User ${username} logged in`);
+      await logActivity("Logged in", `User ${username} logged in`);
       return true;
+    } catch (error: any) {
+      console.error("Login error:", error);
+      return false;
     }
-
-    return false;
   };
 
   // Logout function
-  const logout = () => {
+  const logout = async () => {
     if (authState.currentUser) {
-      logActivity("Logged out", `User ${authState.currentUser.username} logged out`);
+      await logActivity("Logged out", `User ${authState.currentUser.username} logged out`);
     }
 
-    setAuthState({
-      ...authState,
-      currentUser: null,
-      isLoggedIn: false,
-    });
+    // Clear token and user data
+    api.logout();
 
-    localStorage.removeItem("rf_current_user_id");
+    setAuthState({
+      currentUser: null,
+      users: [],
+      isLoggedIn: false,
+      isLoading: false,
+    });
   };
 
   // Add new user (admin only)
-  const addUser = (user: Omit<User, "id" | "createdDate">): boolean => {
+  const addUser = async (user: Omit<User, "id" | "createdDate">): Promise<boolean> => {
     if (!authState.currentUser || authState.currentUser.role !== "admin") {
       return false;
     }
 
-    // Check if username already exists
-    if (authState.users.some(u => u.username === user.username)) {
+    try {
+      const newUser = await api.createUser({
+        username: user.username,
+        password: user.password || "",
+        fullName: user.fullName,
+        role: user.role,
+        isActive: user.isActive,
+      });
+
+      await loadUsers(); // Refresh users list
+      await logActivity("User created", `Created user: ${user.username}`);
+      return true;
+    } catch (error: any) {
+      console.error("Error creating user:", error);
       return false;
     }
-
-    const newUser: User = {
-      ...user,
-      id: `user-${Date.now()}`,
-      createdDate: new Date().toISOString(),
-    };
-
-    const updatedUsers = [...authState.users, newUser];
-    
-    // IMPORTANT: Save to localStorage immediately
-    localStorage.setItem("rf_users", JSON.stringify(updatedUsers));
-    
-    setAuthState(prev => ({ ...prev, users: updatedUsers }));
-
-    logActivity("User created", `Created user: ${user.username}`);
-    return true;
   };
 
   // Update user (admin only)
-  const updateUser = (userId: string, updates: Partial<User>): boolean => {
+  const updateUser = async (userId: string, updates: Partial<User>): Promise<boolean> => {
     if (!authState.currentUser || authState.currentUser.role !== "admin") {
       return false;
     }
 
-    const updatedUsers = authState.users.map(u =>
-      u.id === userId ? { ...u, ...updates } : u
-    );
+    try {
+      await api.updateUser(userId, updates);
+      await loadUsers(); // Refresh users list
+      
+      // Update current user if it's the same user
+      if (authState.currentUser.id === userId) {
+        setAuthState(prev => ({
+          ...prev,
+          currentUser: { ...prev.currentUser!, ...updates } as User,
+        }));
+      }
 
-    // Save to localStorage immediately
-    localStorage.setItem("rf_users", JSON.stringify(updatedUsers));
-
-    setAuthState(prev => ({
-      ...prev,
-      users: updatedUsers,
-      currentUser: prev.currentUser?.id === userId 
-        ? { ...prev.currentUser, ...updates } 
-        : prev.currentUser,
-    }));
-
-    logActivity("User updated", `Updated user ID: ${userId}`);
-    return true;
+      await logActivity("User updated", `Updated user ID: ${userId}`);
+      return true;
+    } catch (error: any) {
+      console.error("Error updating user:", error);
+      return false;
+    }
   };
 
   // Delete user (admin only)
-  const deleteUser = (userId: string): boolean => {
+  const deleteUser = async (userId: string): Promise<boolean> => {
     if (!authState.currentUser || authState.currentUser.role !== "admin") {
       return false;
     }
@@ -188,21 +218,21 @@ export function useAuth() {
       return false;
     }
 
-    const updatedUsers = authState.users.filter(u => u.id !== userId);
-    
-    // Save to localStorage immediately
-    localStorage.setItem("rf_users", JSON.stringify(updatedUsers));
-    
-    setAuthState(prev => ({ ...prev, users: updatedUsers }));
-
-    logActivity("User deleted", `Deleted user ID: ${userId}`);
-    return true;
+    try {
+      await api.deleteUser(userId);
+      await loadUsers(); // Refresh users list
+      await logActivity("User deleted", `Deleted user ID: ${userId}`);
+      return true;
+    } catch (error: any) {
+      console.error("Error deleting user:", error);
+      return false;
+    }
   };
 
   // Get activity logs
-  const getActivityLogs = (): ActivityLog[] => {
+  const getActivityLogs = async (): Promise<ActivityLog[]> => {
     try {
-      return JSON.parse(localStorage.getItem("rf_activity_logs") || "[]");
+      return (await api.getData("rf_activity_logs")) || [];
     } catch (error) {
       console.error("Error loading activity logs:", error);
       return [];
@@ -213,6 +243,7 @@ export function useAuth() {
     currentUser: authState.currentUser,
     users: authState.users,
     isLoggedIn: authState.isLoggedIn,
+    isLoading: authState.isLoading,
     login,
     logout,
     addUser,
@@ -220,6 +251,6 @@ export function useAuth() {
     deleteUser,
     logActivity,
     getActivityLogs,
+    loadUsers,
   };
 }
-

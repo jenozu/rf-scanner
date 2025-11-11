@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from "react";
 import { parseCSV, parsePOFile, parseSalesOrderFile } from "../data/csv-utils";
-import useLocalStorage from "../hooks/useLocalStorage";
+import useServerStorage from "../hooks/useServerStorage";
 import { Item, PageType, PurchaseOrder, SalesOrder } from "../types";
 import { initializeSampleData, clearAllData } from "../data/sample-data";
+import { api } from "../services/api";
 import { Database, Upload, Play, Trash2, Package, ShoppingCart } from "lucide-react";
 
 interface SetupPageProps {
@@ -12,22 +13,31 @@ interface SetupPageProps {
 
 const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
   const [csvFile, setCsvFile] = useState<File | null>(null);
-  const [data, setData] = useLocalStorage<Item[]>("rf_active", []);
+  const [data, setData, isLoadingData] = useServerStorage<Item[]>("rf_active", []);
   const [status, setStatus] = useState<string>("");
   const [isLoadingMaster, setIsLoadingMaster] = useState(false);
 
   // 🔄 Auto-load master inventory from VPS on mount
   useEffect(() => {
     const loadMasterInventory = async () => {
-      // Check if we already have data
-      const existingData = localStorage.getItem("rf_active");
-      if (existingData && JSON.parse(existingData).length > 0) {
-        // Already have data, don't auto-load
-        return;
+      // Check if we already have data from server (but still try server first for fresh data)
+      try {
+        const existingData = await api.getData("rf_active");
+        const hasExistingData = existingData && Array.isArray(existingData) && existingData.length > 0;
+        
+        // Always try to load from server first, unless we already have real data
+        // (not sample data - sample data has only ~7 items)
+        if (hasExistingData && existingData.length > 20) {
+          setStatus(`✅ Using existing data (${existingData.length} items). Click "Load from Server" below to refresh.`);
+          return;
+        }
+      } catch (error) {
+        // API might not be available yet, continue with file load
+        console.log("API not available, will try file load");
       }
 
       setIsLoadingMaster(true);
-      setStatus("📥 Loading master inventory from server...");
+      setStatus("📥 Attempting to load master inventory from server...");
 
       try {
         // Try to fetch master inventory file from VPS
@@ -41,8 +51,8 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
           const parsedData = await parseCSV(file);
           
           // Save as both master (read-only) and active (working copy)
-          localStorage.setItem("rf_master", JSON.stringify(parsedData));
-          localStorage.setItem("rf_active", JSON.stringify(parsedData));
+          await api.saveData("rf_master", parsedData);
+          await api.saveData("rf_active", parsedData);
           
           setData(parsedData);
           setStatus(`✅ Loaded ${parsedData.length} items from master inventory`);
@@ -54,12 +64,16 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
             }
           }, 1500);
         } else {
-          // Master file not found on server, allow manual upload
-          setStatus("No master inventory found. Please upload manually.");
+          // Master file not found on server
+          if (response.status === 404) {
+            setStatus("⚠️ Master inventory file not found on server. Please upload your inventory file below or use demo data.");
+          } else {
+            setStatus(`⚠️ Server error (${response.status}). Please upload your inventory file below or use demo data.`);
+          }
         }
       } catch (error) {
         console.error("Error loading master inventory:", error);
-        setStatus("Could not load master inventory. Please upload manually.");
+        setStatus("⚠️ Could not connect to server. Please upload your inventory file below or use demo data.");
       } finally {
         setIsLoadingMaster(false);
       }
@@ -67,6 +81,46 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
 
     loadMasterInventory();
   }, []);
+
+  // 🔄 Manual load from server button
+  const handleLoadFromServer = async () => {
+    setIsLoadingMaster(true);
+    setStatus("📥 Loading master inventory from server...");
+
+    try {
+      const response = await fetch("/data/master_inventory.xlsx");
+      
+      if (response.ok) {
+        const blob = await response.blob();
+        const file = new File([blob], "master_inventory.xlsx", { type: blob.type });
+        
+        const parsedData = await parseCSV(file);
+        
+        await api.saveData("rf_master", parsedData);
+        await api.saveData("rf_active", parsedData);
+        
+        setData(parsedData);
+        setStatus(`✅ Loaded ${parsedData.length} items from master inventory`);
+        
+        setTimeout(() => {
+          if (onSetupComplete) {
+            onSetupComplete();
+          }
+        }, 1500);
+      } else {
+        if (response.status === 404) {
+          setStatus("❌ Master inventory file not found on server. Please upload manually.");
+        } else {
+          setStatus(`❌ Server error (${response.status}). Please try again or upload manually.`);
+        }
+      }
+    } catch (error) {
+      console.error("Error loading master inventory:", error);
+      setStatus("❌ Could not connect to server. Please upload your inventory file manually.");
+    } finally {
+      setIsLoadingMaster(false);
+    }
+  };
 
   // 📥 Handle file upload (CSV or XLSX)
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -83,8 +137,8 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
       const parsedData = await parseCSV(file);
 
       // Save as both master (read-only) and active (working copy)
-      localStorage.setItem("rf_master", JSON.stringify(parsedData));
-      localStorage.setItem("rf_active", JSON.stringify(parsedData));
+        await api.saveData("rf_master", parsedData);
+        await api.saveData("rf_active", parsedData);
       
       setData(parsedData);
       setStatus(`✅ Loaded ${parsedData.length} items from ${fileType} file`);
@@ -140,7 +194,7 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
       const newPOs = await parsePOFile(file);
       
       // Get existing POs or create empty array
-      const existingPOs = JSON.parse(localStorage.getItem("rf_purchase_orders") || "[]") as PurchaseOrder[];
+      const existingPOs = (await api.getData("rf_purchase_orders")) || [] as PurchaseOrder[];
       const existingPONumbers = new Set(existingPOs.map(po => po.poNumber));
       
       // Filter out duplicates
@@ -153,7 +207,7 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
       }
 
       const mergedPOs = [...existingPOs, ...uniqueNewPOs];
-      localStorage.setItem("rf_purchase_orders", JSON.stringify(mergedPOs));
+      await api.saveData("rf_purchase_orders", mergedPOs);
       
       const totalItems = uniqueNewPOs.reduce((sum, po) => sum + po.items.length, 0);
       setStatus(`✅ Loaded ${uniqueNewPOs.length} purchase order(s) with ${totalItems} total line items from ${fileType} file`);
@@ -179,7 +233,7 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
       const newSOs = await parseSalesOrderFile(file);
       
       // Get existing SOs or create empty array
-      const existingSOs = JSON.parse(localStorage.getItem("rf_sales_orders") || "[]") as SalesOrder[];
+      const existingSOs = (await api.getData("rf_sales_orders")) || [] as SalesOrder[];
       const existingSONumbers = new Set(existingSOs.map(so => so.soNumber));
       
       // Filter out duplicates
@@ -192,7 +246,7 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
       }
 
       const mergedSOs = [...existingSOs, ...uniqueNewSOs];
-      localStorage.setItem("rf_sales_orders", JSON.stringify(mergedSOs));
+      await api.saveData("rf_sales_orders", mergedSOs);
       
       setStatus(`✅ Loaded ${uniqueNewSOs.length} sales order(s) with ${newSOs.reduce((sum, so) => sum + so.items.length, 0)} total line items from ${fileType} file`);
       e.target.value = "";
@@ -218,19 +272,61 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
         <h1 className="text-3xl font-semibold text-center text-blue-600 mb-2">
           RF Warehouse Manager
         </h1>
-        <p className="text-center text-gray-600 mb-8">
+        <p className="text-center text-gray-600 mb-4">
           Complete warehouse operations at your fingertips
         </p>
+        
+        {/* Info Box */}
+        <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-gray-700">
+          <p className="font-medium text-blue-900 mb-1">ℹ️ Data Storage Information</p>
+          <p className="text-gray-600">
+            Data is stored locally in your browser. Each user/browser has their own copy. 
+            <strong className="text-blue-700"> To share the same inventory data, use "Load from Server"</strong> - 
+            all users will load from the same master inventory file on the server.
+          </p>
+        </div>
 
-        {/* 🎲 Initialize Sample Data - PRIMARY ACTION */}
+        {/* 🔄 Load from Server - PRIMARY ACTION */}
+        <div className="mb-6 bg-gradient-to-br from-green-50 to-green-100 border-2 border-green-300 rounded-lg p-6">
+          <div className="flex items-center gap-3 mb-3">
+            <Database className="text-green-600" size={28} />
+            <h3 className="text-lg font-semibold text-green-900">Load from Server</h3>
+          </div>
+          <p className="text-sm text-gray-700 mb-4">
+            Load the master inventory file from the server. This is the recommended option for new users.
+            All users share the same master inventory file from the server.
+          </p>
+          <button
+            onClick={handleLoadFromServer}
+            disabled={isLoadingMaster}
+            className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-medium py-3 rounded-lg transition flex items-center justify-center gap-2"
+          >
+            {isLoadingMaster ? (
+              <>
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                Loading...
+              </>
+            ) : (
+              <>
+                <Database size={20} />
+                Load from Server
+              </>
+            )}
+          </button>
+        </div>
+
+        <div className="text-center text-gray-400 mb-4">OR</div>
+
+        {/* 🎲 Initialize Sample Data */}
         <div className="mb-6 bg-gradient-to-br from-blue-50 to-blue-100 border-2 border-blue-300 rounded-lg p-6">
           <div className="flex items-center gap-3 mb-3">
-            <Database className="text-blue-600" size={28} />
-            <h3 className="text-lg font-semibold text-blue-900">Demo Data</h3>
+            <Play className="text-blue-600" size={28} />
+            <h3 className="text-lg font-semibold text-blue-900">Demo Data (Testing Only)</h3>
           </div>
           <p className="text-sm text-gray-700 mb-4">
             Start with pre-loaded sample data including purchase orders, customer orders, 
             bins, and cycle count tasks. Perfect for testing and learning!
+            <strong className="block mt-2 text-red-600">⚠️ This is dummy data - use "Load from Server" for real inventory!</strong>
           </p>
           <button
             onClick={handleInitializeSampleData}

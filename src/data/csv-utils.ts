@@ -742,6 +742,12 @@ function normalizeSOData(rawData: any[]): SalesOrder[] {
     soNumber: string;
     customer: string;
     cardCode: string;
+    shipToStreet?: string;
+    shipToCity?: string;
+    shipToProvince?: string;
+    shipToPostal?: string;
+    shipToCountry?: string;
+    shipToPhone?: string;
     items: SOItem[];
   }>();
 
@@ -787,12 +793,75 @@ function normalizeSOData(rawData: any[]): SalesOrder[] {
       ""
     ).toString().trim();
 
+    // Shipping address fields
+    // SAP Business One: Address2, City, County, ZipCode, Country, Phone1
+    const shipToStreet = (
+      row.ShipToStreet ||
+      row.shipToStreet ||
+      row.ship_to_street ||
+      row.Address2 ||         // SAP Business One: Ship-to street
+      row.Street ||           // SAP alternative
+      row.Address ||          // Generic
+      ""
+    ).toString().trim() || undefined;
+
+    const shipToCity = (
+      row.ShipToCity ||
+      row.shipToCity ||
+      row.ship_to_city ||
+      row.City ||             // SAP Business One
+      ""
+    ).toString().trim() || undefined;
+
+    const shipToProvince = (
+      row.ShipToProvince ||
+      row.shipToProvince ||
+      row.ship_to_province ||
+      row.County ||           // SAP Business One: Province/State
+      row.State ||
+      ""
+    ).toString().trim() || undefined;
+
+    const shipToPostal = (
+      row.ShipToPostal ||
+      row.shipToPostal ||
+      row.ship_to_postal ||
+      row.ZipCode ||          // SAP Business One
+      row.PostalCode ||
+      row.Zip ||
+      ""
+    ).toString().trim() || undefined;
+
+    const shipToCountry = (
+      row.ShipToCountry ||
+      row.shipToCountry ||
+      row.ship_to_country ||
+      row.Country ||          // SAP Business One
+      "CA"                    // Default to Canada
+    ).toString().trim() || undefined;
+
+    const shipToPhone = (
+      row.ShipToPhone ||
+      row.shipToPhone ||
+      row.ship_to_phone ||
+      row.Phone1 ||           // SAP Business One
+      row.Phone ||
+      row.Cellular ||         // SAP alternative
+      ""
+    ).toString().trim() || undefined;
+
     // Create SO if it doesn't exist
     if (!soMap.has(soNumber)) {
       soMap.set(soNumber, {
         soNumber,
         customer: customer || "Unknown Customer",
         cardCode: cardCode || "",
+        shipToStreet,
+        shipToCity,
+        shipToProvince,
+        shipToPostal,
+        shipToCountry,
+        shipToPhone,
         items: [],
       });
     }
@@ -891,6 +960,12 @@ function normalizeSOData(rawData: any[]): SalesOrder[] {
       soNumber: so.soNumber,
       customer: so.customer,
       cardCode: so.cardCode,
+      shipToStreet: so.shipToStreet,
+      shipToCity: so.shipToCity,
+      shipToProvince: so.shipToProvince,
+      shipToPostal: so.shipToPostal,
+      shipToCountry: so.shipToCountry,
+      shipToPhone: so.shipToPhone,
       items: so.items,
       status: so.items.every(item => item.DeliveredQty >= item.OrderedQty) 
         ? "shipped" 

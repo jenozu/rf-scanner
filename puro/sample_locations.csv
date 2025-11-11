@@ -1,0 +1,11 @@
+customer_name,location_name,address_street,address_city,address_province,address_postal,address_country,phone_number,is_default
+ABC Manufacturing Inc.,Toronto Warehouse,123 Industrial Drive,Toronto,ON,M5J2R8,CA,416-555-1234,1
+ABC Manufacturing Inc.,Montreal Distribution,456 Rue Saint-Jacques,Montreal,QC,H3B1A1,CA,514-555-5678,0
+XYZ Retail Corp.,Main Store,789 Queen Street West,Toronto,ON,M6J1G1,CA,416-555-9012,1
+XYZ Retail Corp.,East Location,321 Danforth Avenue,Toronto,ON,M4K1N7,CA,416-555-3456,0
+Maple Leaf Distributors,Head Office,567 Bay Street,Toronto,ON,M5G2C2,CA,416-555-7890,1
+Northern Supplies Ltd.,Vaughan Facility,890 Steeles Avenue West,Vaughan,ON,L4K4T6,CA,905-555-1234,1
+Northern Supplies Ltd.,Markham Branch,234 Highway 7,Markham,ON,L3R1A3,CA,905-555-5678,0
+Pacific Coast Trading,Vancouver Office,1456 West Hastings Street,Vancouver,BC,V6C1C3,CA,604-555-9012,1
+Pacific Coast Trading,Burnaby Warehouse,678 Marine Drive,Burnaby,BC,V5J3G5,CA,604-555-3456,0
+
