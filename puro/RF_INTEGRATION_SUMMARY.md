@@ -5,7 +5,7 @@
 A **fully working production Purolator shipping system** ready to integrate into your RF scanning tool.
 
 ### ✅ Tested & Working:
-- **Production API**: Active (Account 7254525)
+- **Production API**: Active (Account your_account_number)
 - **Shipment Creation**: Successfully created PIN 520138418055
 - **Authentication**: Credentials verified
 - **Phone Parsing**: Handles all formats (416-555-1234, etc.)
@@ -72,9 +72,9 @@ your_rf_project/
 ### Step 2: Create .env File
 
 ```env
-PUROLATOR_API_USERNAME=714d0583f90941ada8d2175bdc4452bb
-PUROLATOR_API_PASSWORD=6qDJZ0Ph
-PUROLATOR_API_ACCOUNT=7254525
+PUROLATOR_API_USERNAME=your_purolator_username
+PUROLATOR_API_PASSWORD=your_purolator_password
+PUROLATOR_API_ACCOUNT=your_account_number
 ```
 
 ### Step 3: Test Integration
@@ -248,16 +248,18 @@ See **INTEGRATION_GUIDE.md** for complete code.
 
 ---
 
-## 🔑 Production Credentials (Active)
+## 🔑 Production Credentials
+
+⚠️ **IMPORTANT**: Never commit credentials to Git!
+
+Add your credentials to `.env` file (see env_template.txt)
 
 ```
-Username: 714d0583f90941ada8d2175bdc4452bb
-Password: 6qDJZ0Ph
-Account:  7254525
+Username: [Get from Purolator]
+Password: [Get from Purolator]
+Account:  [Your account number]
 Endpoint: https://webservices.purolator.com/EWS/V2/Shipping/ShippingService.asmx
 ```
-
-**Status**: ✅ Tested and working (created PIN 520138418055)
 
 ---
 
@@ -340,7 +342,7 @@ Endpoint: https://webservices.purolator.com/EWS/V2/Shipping/ShippingService.asmx
 
 **Solution**: Contact your Purolator account manager
 - Request: "GetDocuments API access" or "Label Download API"
-- Account: 7254525
+- Account: your_account_number
 - Purpose: Automated label download for shipping system
 
 **Workaround**: 
@@ -374,5 +376,5 @@ Endpoint: https://webservices.purolator.com/EWS/V2/Shipping/ShippingService.asmx
 
 Last tested: Nov 4, 2025
 Test shipment: PIN 520138418055
-Production account: 7254525 (Active)
+Production account: your_account_number (Active)
 

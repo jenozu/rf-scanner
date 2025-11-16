@@ -1,7 +1,7 @@
 # Email Setup Guide - Auto-Send Shipping Labels
 
 ## Overview
-The shipping system can automatically email PDF labels to `aobryan@marind.ca` (or any email address you configure) when shipments are created.
+The shipping system can automatically email PDF labels to your configured recipient address when shipments are created.
 
 ---
 
@@ -15,7 +15,7 @@ Open the `.env` file in the `puro` folder and add these lines:
 # Email Configuration for Auto-Sending Labels
 EMAIL_FROM=your-email@gmail.com
 EMAIL_PASSWORD=your-app-password
-EMAIL_TO=aobryan@marind.ca
+EMAIL_TO=recipient@example.com
 EMAIL_SMTP_SERVER=smtp.gmail.com
 EMAIL_SMTP_PORT=587
 ```
@@ -64,14 +64,14 @@ Here's what your complete `.env` file should look like:
 
 ```env
 # Purolator API Credentials
-PUROLATOR_API_USERNAME=714d0583f90941ada8d2175bdc4452bb
-PUROLATOR_API_PASSWORD=6qDJZ0Ph
-PUROLATOR_API_ACCOUNT=7254525
+PUROLATOR_API_USERNAME=your_purolator_username
+PUROLATOR_API_PASSWORD=your_purolator_password
+PUROLATOR_API_ACCOUNT=your_account_number
 
 # Email Configuration (for auto-sending labels)
 EMAIL_FROM=your-email@gmail.com
 EMAIL_PASSWORD=your-16-char-app-password
-EMAIL_TO=aobryan@marind.ca
+EMAIL_TO=recipient@example.com
 EMAIL_SMTP_SERVER=smtp.gmail.com
 EMAIL_SMTP_PORT=587
 
@@ -95,7 +95,7 @@ When you create a shipment:
 1. **Shipment is created** with Purolator
 2. **Label PDF is downloaded** and saved locally
 3. **Email is automatically sent** with the PDF attached
-4. **Email goes to** `aobryan@marind.ca` (or EMAIL_TO setting)
+4. **Email goes to** your configured `EMAIL_TO` address
 
 ### Email Content
 
@@ -127,7 +127,7 @@ You should see:
 ```
 ✓ Email configuration found
   From: your-email@gmail.com
-  To: aobryan@marind.ca
+  To: recipient@example.com
   SMTP: smtp.gmail.com:587
 ```
 
@@ -142,10 +142,10 @@ You should see:
 
 3. Check the console output - you should see:
    ```
-   ✓ Label emailed to aobryan@marind.ca
+   ✓ Label emailed to your configured address
    ```
 
-4. Check `aobryan@marind.ca` inbox for the email
+4. Check your email inbox for the label
 
 ---
 
@@ -258,7 +258,7 @@ sender.send_batch_labels_email(
 1. ✅ Add email settings to `.env` file
 2. ✅ Get Gmail App Password (if using Gmail)
 3. ✅ Test with a single shipment
-4. ✅ Verify email received at `aobryan@marind.ca`
+4. ✅ Verify email received at your configured address
 
 **How It Works**:
 - Automatic - no manual steps needed
@@ -282,7 +282,7 @@ sender.send_batch_labels_email(
 **Required Settings**:
 - `EMAIL_FROM` - Your email address
 - `EMAIL_PASSWORD` - App password (Gmail) or regular password
-- `EMAIL_TO` - Recipient (aobryan@marind.ca)
+- `EMAIL_TO` - Recipient email address
 - `EMAIL_SMTP_SERVER` - SMTP server (smtp.gmail.com for Gmail)
 - `EMAIL_SMTP_PORT` - Port (587 for most)
 

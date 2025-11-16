@@ -26,7 +26,7 @@
 app = BatchShippingApp.__new__(BatchShippingApp)
 app.username = "your_username"
 app.password = "your_password"
-app.account = "7254525"
+app.account = "your_account_number"
 app.shipment_url = "https://webservices.purolator.com/..."
 
 # Create shipment
@@ -44,9 +44,9 @@ result = app.create_shipment_from_data(data)
 
 **Contents:**
 ```env
-PUROLATOR_API_USERNAME=714d0583f90941ada8d2175bdc4452bb
-PUROLATOR_API_PASSWORD=6qDJZ0Ph
-PUROLATOR_API_ACCOUNT=7254525
+PUROLATOR_API_USERNAME=your_purolator_username
+PUROLATOR_API_PASSWORD=your_purolator_password
+PUROLATOR_API_ACCOUNT=your_account_number
 ```
 
 **Size**: < 1 KB
@@ -358,9 +358,9 @@ your_rf_project/
 
 2. **Create .env:**
    ```bash
-   echo "PUROLATOR_API_USERNAME=714d0583f90941ada8d2175bdc4452bb" > your_project/.env
-   echo "PUROLATOR_API_PASSWORD=6qDJZ0Ph" >> your_project/.env
-   echo "PUROLATOR_API_ACCOUNT=7254525" >> your_project/.env
+   echo "PUROLATOR_API_USERNAME=your_purolator_username" > your_project/.env
+   echo "PUROLATOR_API_PASSWORD=your_purolator_password" >> your_project/.env
+   echo "PUROLATOR_API_ACCOUNT=your_account_number" >> your_project/.env
    ```
 
 3. **Install dependencies:**

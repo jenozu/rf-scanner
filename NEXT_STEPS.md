@@ -22,9 +22,9 @@ notepad .env
 
 ```env
 # Purolator API Credentials (Production)
-PUROLATOR_API_USERNAME=714d0583f90941ada8d2175bdc4452bb
-PUROLATOR_API_PASSWORD=6qDJZ0Ph
-PUROLATOR_API_ACCOUNT=7254525
+PUROLATOR_API_USERNAME=your_purolator_username
+PUROLATOR_API_PASSWORD=your_purolator_password
+PUROLATOR_API_ACCOUNT=your_account_number
 
 # Default Sender Information (Your Warehouse)
 DEFAULT_SENDER_NAME=Your Warehouse Name
@@ -37,7 +37,7 @@ DEFAULT_SENDER_PHONE=416-555-1234
 # Email Configuration (for sending labels)
 EMAIL_FROM=your-email@gmail.com
 EMAIL_PASSWORD=your-app-password
-EMAIL_TO=aobryan@marind.ca
+EMAIL_TO=recipient@example.com
 EMAIL_SMTP_SERVER=smtp.gmail.com
 EMAIL_SMTP_PORT=587
 ```

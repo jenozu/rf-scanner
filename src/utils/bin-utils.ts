@@ -1,9 +1,12 @@
+import { Item, BinLocation, BinItem } from "../types";
+
 /**
  * Utility functions for handling bin codes
  * Warehouse prefix "01-" is used internally but hidden from users
  */
 
 const WAREHOUSE_PREFIX = "01-";
+const DEFAULT_BIN_CAPACITY = 1000;
 
 /**
  * Remove warehouse prefix from bin code for display
@@ -57,5 +60,67 @@ export function normalizeBinInput(input: string): string {
   
   // Otherwise, return as-is (might be an item code)
   return trimmed;
+}
+
+function inferZoneFromBinCode(binCode: string): string {
+  const parts = binCode.split("-");
+  if (parts.length > 1 && parts[0]) {
+    const prefix = parts[0];
+    return `Zone ${prefix.toUpperCase()}`;
+  }
+  return "General";
+}
+
+/**
+ * Build BinLocation objects from a flat Item list.
+ * Ensures sequential counting has the same structure as receiving/picking modules.
+ */
+export function buildBinsFromItems(items: Item[]): BinLocation[] {
+  const binMap = new Map<
+    string,
+    {
+      zone: string;
+      items: Map<string, BinItem>;
+    }
+  >();
+
+  items.forEach((item) => {
+    const rawBinCode = item.BinCode?.trim();
+    if (!rawBinCode) {
+      return;
+    }
+    const binCode = rawBinCode.toUpperCase();
+    if (!binMap.has(binCode)) {
+      binMap.set(binCode, {
+        zone: inferZoneFromBinCode(binCode),
+        items: new Map(),
+      });
+    }
+    const binEntry = binMap.get(binCode)!;
+    const quantity = item.CountedQty ?? item.ExpectedQty ?? 0;
+    const description = item.Description?.trim() || item.ItemCode;
+    const existingItem = binEntry.items.get(item.ItemCode);
+    if (existingItem) {
+      existingItem.Quantity += quantity;
+    } else {
+      binEntry.items.set(item.ItemCode, {
+        ItemCode: item.ItemCode,
+        Description: description,
+        Quantity: quantity,
+      });
+    }
+  });
+
+  return Array.from(binMap.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([binCode, data]) => ({
+      BinCode: binCode,
+      Zone: data.zone,
+      Capacity: DEFAULT_BIN_CAPACITY,
+      Status: "active" as const,
+      Items: Array.from(data.items.values()).sort((a, b) =>
+        a.ItemCode.localeCompare(b.ItemCode)
+      ),
+    }));
 }
 

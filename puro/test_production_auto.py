@@ -129,7 +129,7 @@ def test_production():
             print()
             print("Troubleshooting:")
             print("1. Verify password in .env is correct")
-            print("2. Check account 7254525 is active")
+            print("2. Check account your_account_number is active")
             print("3. Verify addresses are valid Canadian addresses")
             print()
             return False

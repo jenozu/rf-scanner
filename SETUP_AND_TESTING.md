@@ -48,7 +48,7 @@ DEFAULT_SENDER_PHONE=416-555-1234
 # Email Configuration (for sending labels)
 EMAIL_FROM=your-email@gmail.com
 EMAIL_PASSWORD=your-app-password
-EMAIL_TO=aobryan@marind.ca
+EMAIL_TO=recipient@example.com
 EMAIL_SMTP_SERVER=smtp.gmail.com
 EMAIL_SMTP_PORT=587
 ```

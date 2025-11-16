@@ -1,6 +1,18 @@
 import { Item } from "../types";
 import { fullBinCode, looksLikeBinCode } from "./bin-utils";
 
+const buildSearchTerms = (query: string): string[] => {
+  const normalized = query.toUpperCase().trim();
+  const terms = [normalized];
+
+  const stripped = normalized.replace(/^0+/, "");
+  if (stripped && stripped !== normalized) {
+    terms.push(stripped);
+  }
+
+  return terms;
+};
+
 export interface SearchResult {
   type: "bin" | "item";
   bin?: any;
@@ -15,11 +27,13 @@ export interface SearchResult {
 export function searchItems(query: string, allItems: Item[]): Item[] {
   if (!query || query.length < 2) return [];
 
-  const searchTerm = query.toUpperCase().trim();
+  const searchTerms = buildSearchTerms(query);
   
   const matches = allItems.filter(item => {
+    const itemCode = item.ItemCode?.toUpperCase() || "";
+
     // Match against ItemCode (partial)
-    if (item.ItemCode?.toUpperCase().includes(searchTerm)) {
+    if (searchTerms.some(term => itemCode.includes(term))) {
       return true;
     }
     
@@ -27,12 +41,13 @@ export function searchItems(query: string, allItems: Item[]): Item[] {
     if (item.BinCode) {
       const binCode = item.BinCode.toUpperCase();
       // Try matching with and without prefix
-      if (binCode.includes(searchTerm)) {
+      if (searchTerms.some(term => binCode.includes(term))) {
         return true;
       }
       // If query looks like a bin code, try with prefix added
-      if (looksLikeBinCode(searchTerm)) {
-        const fullBin = fullBinCode(searchTerm);
+      const firstTerm = searchTerms[0];
+      if (looksLikeBinCode(firstTerm)) {
+        const fullBin = fullBinCode(firstTerm);
         if (binCode === fullBin) {
           return true;
         }
@@ -40,7 +55,8 @@ export function searchItems(query: string, allItems: Item[]): Item[] {
     }
     
     // Match against Description (partial)
-    if (item.Description?.toUpperCase().includes(searchTerm)) {
+    const description = item.Description?.toUpperCase() || "";
+    if (searchTerms.some(term => description.includes(term))) {
       return true;
     }
     
@@ -61,12 +77,12 @@ export function searchItems(query: string, allItems: Item[]): Item[] {
   const deduplicated = Array.from(uniqueItems.values());
   return deduplicated.sort((a, b) => {
     // Exact matches first
-    if (a.ItemCode === searchTerm) return -1;
-    if (b.ItemCode === searchTerm) return 1;
+    if (a.ItemCode === searchTerms[0]) return -1;
+    if (b.ItemCode === searchTerms[0]) return 1;
     
     // Then matches that start with the search term
-    const aStarts = a.ItemCode?.toUpperCase().startsWith(searchTerm);
-    const bStarts = b.ItemCode?.toUpperCase().startsWith(searchTerm);
+    const aStarts = a.ItemCode?.toUpperCase().startsWith(searchTerms[0]);
+    const bStarts = b.ItemCode?.toUpperCase().startsWith(searchTerms[0]);
     if (aStarts && !bStarts) return -1;
     if (!aStarts && bStarts) return 1;
     
@@ -80,7 +96,8 @@ export function searchItems(query: string, allItems: Item[]): Item[] {
  * Returns the best match or multiple matches if ambiguous
  */
 export function smartSearch(query: string, bins: any[], allItems: Item[]): SearchResult | null {
-  const normalized = query.toUpperCase().trim();
+  const searchTerms = buildSearchTerms(query);
+  const normalized = searchTerms[0];
   
   // Try exact bin match first (with prefix normalization)
   let binToFind = normalized;
@@ -94,7 +111,7 @@ export function smartSearch(query: string, bins: any[], allItems: Item[]): Searc
   }
   
   // Try exact item match
-  const exactItem = allItems.find(i => i.ItemCode?.toUpperCase() === normalized);
+  const exactItem = allItems.find(i => searchTerms.some(term => i.ItemCode?.toUpperCase() === term));
   if (exactItem) {
     return { type: "item", item: exactItem };
   }

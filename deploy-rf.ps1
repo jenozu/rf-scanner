@@ -13,15 +13,25 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host "`n🌐 Deploying to server 72.60.170.192..." -ForegroundColor Yellow
     Write-Host "Please enter your server password when prompted." -ForegroundColor Gray
     
-    # Clean old build files (preserve /data folder)
-    Write-Host "`n🧹 Cleaning old build files (preserving /data folder)..." -ForegroundColor Yellow
-    ssh root@72.60.170.192 "cd /var/www/rf-scanner; find . -mindepth 1 -maxdepth 1 ! -name 'data' -exec rm -rf {} +"
+    # Clean old build files (preserve /data and /server folders)
+    Write-Host "`n🧹 Cleaning old build files (preserving /data and /server folders)..." -ForegroundColor Yellow
+    ssh root@72.60.170.192 "cd /var/www/rf-scanner; find . -mindepth 1 -maxdepth 1 ! -name 'data' ! -name 'server' -exec rm -rf {} +"
     
     # Copy files
     Write-Host "`n📤 Uploading new build..." -ForegroundColor Yellow
     scp -r dist/* root@72.60.170.192:/var/www/rf-scanner/
     
     if ($LASTEXITCODE -eq 0) {
+        # Verify deployment - check that index.html references compiled assets, not source files
+        Write-Host "`n🔍 Verifying deployment..." -ForegroundColor Yellow
+        $indexCheck = ssh root@72.60.170.192 "grep -q '/src/main.tsx' /var/www/rf-scanner/index.html && echo 'ERROR' || echo 'OK'"
+        if ($indexCheck -match 'ERROR') {
+            Write-Host "⚠️  WARNING: index.html still references source files!" -ForegroundColor Red
+            Write-Host "This might indicate a deployment issue." -ForegroundColor Yellow
+        } else {
+            Write-Host "✅ Verified: index.html references compiled assets" -ForegroundColor Green
+        }
+        
         Write-Host "`n🔧 Setting permissions and reloading nginx..." -ForegroundColor Yellow
         ssh root@72.60.170.192 "chown -R www-data:www-data /var/www/rf-scanner; systemctl reload nginx"
         

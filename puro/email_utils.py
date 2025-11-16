@@ -24,7 +24,7 @@ class EmailSender:
         self.smtp_port = int(os.getenv('EMAIL_SMTP_PORT', '587'))
         self.email_from = os.getenv('EMAIL_FROM')
         self.email_password = os.getenv('EMAIL_PASSWORD')
-        self.email_to = os.getenv('EMAIL_TO', 'aobryan@marind.ca')
+        self.email_to = os.getenv('EMAIL_TO', 'recipient@example.com')
         
         # Check if email is configured
         self.is_configured = bool(self.email_from and self.email_password)
@@ -216,7 +216,7 @@ if __name__ == '__main__':
         print("\nAdd to .env file:")
         print("  EMAIL_FROM=your-email@gmail.com")
         print("  EMAIL_PASSWORD=your-app-password")
-        print("  EMAIL_TO=aobryan@marind.ca")
+        print("  EMAIL_TO=recipient@example.com")
         print("  EMAIL_SMTP_SERVER=smtp.gmail.com")
         print("  EMAIL_SMTP_PORT=587")
 

@@ -339,9 +339,9 @@ Update your `.env` file with warehouse details:
 
 ```env
 # Already configured:
-PUROLATOR_API_USERNAME=714d0583f90941ada8d2175bdc4452bb
-PUROLATOR_API_PASSWORD=6qDJZ0Ph
-PUROLATOR_API_ACCOUNT=7254525
+PUROLATOR_API_USERNAME=your_purolator_username
+PUROLATOR_API_PASSWORD=your_purolator_password
+PUROLATOR_API_ACCOUNT=your_account_number
 
 # Add these (update with your actual info):
 DEFAULT_SENDER_NAME=Your Warehouse Name

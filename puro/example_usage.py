@@ -23,7 +23,7 @@ def example_1_setup_database():
     
     # Add a customer
     print("\n1. Adding customer...")
-    customer_id = db.add_customer("Acme Corporation", "7254525")
+    customer_id = db.add_customer("Acme Corporation", "your_account_number")
     print(f"   Created customer ID: {customer_id}")
     
     # Add shipping locations

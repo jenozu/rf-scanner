@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { parseCSV, parsePOFile, parseSalesOrderFile } from "../data/csv-utils";
 import useServerStorage from "../hooks/useServerStorage";
 import { Item, PageType, PurchaseOrder, SalesOrder } from "../types";
 import { initializeSampleData, clearAllData } from "../data/sample-data";
 import { api } from "../services/api";
 import { Database, Upload, Play, Trash2, Package, ShoppingCart } from "lucide-react";
+import { buildBinsFromItems } from "../utils/bin-utils";
 
 interface SetupPageProps {
   setPage: (page: PageType) => void;
@@ -17,6 +18,36 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
   const [status, setStatus] = useState<string>("");
   const [isLoadingMaster, setIsLoadingMaster] = useState(false);
 
+  const persistInventoryData = useCallback(
+    async (items: Item[], options: { syncToServer?: boolean } = {}) => {
+      const { syncToServer = true } = options;
+      const safeItems = Array.isArray(items) ? items : [];
+      await setData(safeItems);
+      localStorage.setItem("rf_active", JSON.stringify(safeItems));
+      localStorage.setItem("rf_master", JSON.stringify(safeItems));
+
+      const bins = buildBinsFromItems(safeItems);
+      localStorage.setItem("rf_bins", JSON.stringify(bins));
+
+      let serverSynced = true;
+      if (syncToServer) {
+        try {
+          await Promise.all([
+            api.saveData("rf_master", safeItems),
+            api.saveData("rf_active", safeItems),
+            api.saveData("rf_bins", bins),
+          ]);
+        } catch (error) {
+          serverSynced = false;
+          console.error("Error syncing inventory data to server:", error);
+        }
+      }
+
+      return { bins, serverSynced };
+    },
+    [setData]
+  );
+
   // 🔄 Auto-load master inventory from VPS on mount
   useEffect(() => {
     const loadMasterInventory = async () => {
@@ -28,6 +59,7 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
         // Always try to load from server first, unless we already have real data
         // (not sample data - sample data has only ~7 items)
         if (hasExistingData && existingData.length > 20) {
+          await persistInventoryData(existingData, { syncToServer: false });
           setStatus(`✅ Using existing data (${existingData.length} items). Click "Load from Server" below to refresh.`);
           return;
         }
@@ -50,12 +82,9 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
           // Parse the file
           const parsedData = await parseCSV(file);
           
-          // Save as both master (read-only) and active (working copy)
-          await api.saveData("rf_master", parsedData);
-          await api.saveData("rf_active", parsedData);
-          
-          setData(parsedData);
-          setStatus(`✅ Loaded ${parsedData.length} items from master inventory`);
+          const { serverSynced } = await persistInventoryData(parsedData);
+          const syncNote = serverSynced ? "" : " ⚠️ Saved locally; server sync failed.";
+          setStatus(`✅ Loaded ${parsedData.length} items from master inventory${syncNote}`);
           
           // Auto-complete setup after successful load
           setTimeout(() => {
@@ -80,7 +109,7 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
     };
 
     loadMasterInventory();
-  }, []);
+  }, [persistInventoryData]);
 
   // 🔄 Manual load from server button
   const handleLoadFromServer = async () => {
@@ -96,11 +125,9 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
         
         const parsedData = await parseCSV(file);
         
-        await api.saveData("rf_master", parsedData);
-        await api.saveData("rf_active", parsedData);
-        
-        setData(parsedData);
-        setStatus(`✅ Loaded ${parsedData.length} items from master inventory`);
+        const { serverSynced } = await persistInventoryData(parsedData);
+        const syncNote = serverSynced ? "" : " ⚠️ Saved locally; server sync failed.";
+        setStatus(`✅ Loaded ${parsedData.length} items from master inventory${syncNote}`);
         
         setTimeout(() => {
           if (onSetupComplete) {
@@ -136,12 +163,9 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
     try {
       const parsedData = await parseCSV(file);
 
-      // Save as both master (read-only) and active (working copy)
-        await api.saveData("rf_master", parsedData);
-        await api.saveData("rf_active", parsedData);
-      
-      setData(parsedData);
-      setStatus(`✅ Loaded ${parsedData.length} items from ${fileType} file`);
+      const { serverSynced } = await persistInventoryData(parsedData);
+      const syncNote = serverSynced ? "" : " ⚠️ Saved locally; server sync failed.";
+      setStatus(`✅ Loaded ${parsedData.length} items from ${fileType} file${syncNote}`);
       
       // Automatically navigate to home if data is loaded successfully
       if (onSetupComplete) {
@@ -166,11 +190,14 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
   };
 
   // 🎲 Initialize sample data
-  const handleInitializeSampleData = () => {
+  const handleInitializeSampleData = async () => {
     setStatus("⏳ Initializing sample data...");
     try {
       initializeSampleData();
-      setStatus("✅ Sample data initialized! Ready to use.");
+      const sampleItems = JSON.parse(localStorage.getItem("rf_active") || "[]");
+      const { serverSynced } = await persistInventoryData(sampleItems);
+      const syncNote = serverSynced ? "" : " ⚠️ Saved locally; server sync failed.";
+      setStatus(`✅ Sample data initialized! Ready to use.${syncNote}`);
       setTimeout(() => {
         if (onSetupComplete) onSetupComplete();
       }, 1500);

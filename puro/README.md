@@ -80,9 +80,9 @@ pip install -r requirements.txt
 ### Step 3: Create .env file
 ```bash
 # In your project folder, create .env:
-PUROLATOR_API_USERNAME=714d0583f90941ada8d2175bdc4452bb
-PUROLATOR_API_PASSWORD=6qDJZ0Ph
-PUROLATOR_API_ACCOUNT=7254525
+PUROLATOR_API_USERNAME=your_purolator_username
+PUROLATOR_API_PASSWORD=your_purolator_password
+PUROLATOR_API_ACCOUNT=your_account_number
 ```
 
 ### Step 4: Test
@@ -96,7 +96,7 @@ If you see "SUCCESS! Shipment PIN: ..." then you're ready to integrate!
 
 ## ✅ What's Working
 
-- ✅ Production API (Account 7254525) - Active
+- ✅ Production API (Account your_account_number) - Active
 - ✅ Shipment creation - Tested (PIN: 520138418055)
 - ✅ Phone number parsing - All formats
 - ✅ Address parsing - Automatic
@@ -156,11 +156,14 @@ RF Scanner → Your Code → Purolator API → Shipment PIN
 
 ## 🔑 Your Production Credentials
 
+⚠️ **IMPORTANT**: Never commit credentials to Git!
+
+Add your credentials to `.env` file (see env_template.txt)
+
 ```
-Username: 714d0583f90941ada8d2175bdc4452bb
-Password: 6qDJZ0Ph
-Account:  7254525
-Status:   ✅ Active and tested
+Username: [Get from Purolator]
+Password: [Get from Purolator]
+Account:  [Your account number]
 ```
 
 ---

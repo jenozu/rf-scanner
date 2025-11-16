@@ -39,12 +39,13 @@
    YOUR PRODUCTION CREDENTIALS:
 ============================================================
 
-Username: 714d0583f90941ada8d2175bdc4452bb
-Password: 6qDJZ0Ph
-Account:  7254525
-Status:   ✅ ACTIVE & TESTED
+⚠️  IMPORTANT: Add your credentials to .env file (never commit them!)
 
-Test shipment created: PIN 520138418055
+Username: [Get from Purolator]
+Password: [Get from Purolator]
+Account:  [Your account number]
+
+See env_template.txt for setup instructions
 
 ============================================================
    QUICK START:

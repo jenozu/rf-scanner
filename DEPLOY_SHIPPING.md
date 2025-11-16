@@ -199,7 +199,7 @@ python3 batch_shipping_app.py
 3. **Workflow**:
    - Use web app to select/export orders
    - Run Python tools locally to create shipments
-   - Labels automatically emailed to aobryan@marind.ca
+   - Labels automatically emailed to configured recipient
 
 **Why this setup?**
 - ✅ Web app accessible from anywhere

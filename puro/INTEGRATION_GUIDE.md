@@ -5,7 +5,7 @@
 This document provides complete technical specifications for integrating the Purolator batch shipping system into an RF scanning tool or warehouse management system.
 
 **Current Status:**
-- ✅ Production API: Fully working (account 7254525)
+- ✅ Production API: Fully working (account your_account_number)
 - ✅ Shipment Creation: Tested and operational
 - ✅ Phone/Address Parsing: All formats supported
 - ✅ CSV Batch Processing: Implemented
@@ -129,9 +129,9 @@ class BatchShippingApp:
 ### 3. Configuration (`.env`)
 
 ```env
-PUROLATOR_API_USERNAME=714d0583f90941ada8d2175bdc4452bb
-PUROLATOR_API_PASSWORD=6qDJZ0Ph
-PUROLATOR_API_ACCOUNT=7254525
+PUROLATOR_API_USERNAME=your_purolator_username
+PUROLATOR_API_PASSWORD=your_purolator_password
+PUROLATOR_API_ACCOUNT=your_account_number
 ```
 
 ---
@@ -223,7 +223,7 @@ soap_body = f"""<?xml version="1.0" encoding="UTF-8"?>
         </v2:PackageInformation>
         <v2:PaymentInformation>
           <v2:PaymentType>Sender</v2:PaymentType>
-          <v2:RegisteredAccountNumber>7254525</v2:RegisteredAccountNumber>
+          <v2:RegisteredAccountNumber>your_account_number</v2:RegisteredAccountNumber>
         </v2:PaymentInformation>
         <v2:PickupInformation>
           <v2:PickupType>DropOff</v2:PickupType>
@@ -832,9 +832,9 @@ if not validate_postal_code(postal, country):
 
 # Error 4: Authentication failed
 # Solution: Verify credentials in .env file
-# Username: 714d0583f90941ada8d2175bdc4452bb
-# Password: 6qDJZ0Ph
-# Account: 7254525
+# Username: [from Purolator]
+# Password: [from Purolator]
+# Account: [your account number]
 
 # Error 5: Missing PickupInformation
 # Solution: Always include PickupInformation in SOAP
@@ -881,9 +881,9 @@ def handle_shipment_result(result):
 
 ```bash
 # .env file
-PUROLATOR_API_USERNAME=714d0583f90941ada8d2175bdc4452bb
-PUROLATOR_API_PASSWORD=6qDJZ0Ph
-PUROLATOR_API_ACCOUNT=7254525
+PUROLATOR_API_USERNAME=your_purolator_username
+PUROLATOR_API_PASSWORD=your_purolator_password
+PUROLATOR_API_ACCOUNT=your_account_number
 
 # Production endpoints (already configured)
 # https://webservices.purolator.com/EWS/V2/Shipping/ShippingService.asmx
@@ -892,7 +892,7 @@ PUROLATOR_API_ACCOUNT=7254525
 ### Tested Production Status
 
 ```
-✅ Account: 7254525 (Active)
+✅ Account: your_account_number (Active)
 ✅ Shipment API: Working
 ✅ Test shipment created: PIN 520138418055
 ✅ Authentication: Verified
@@ -929,7 +929,7 @@ import os
 username = os.getenv("PUROLATOR_API_USERNAME")
 
 # ❌ BAD: Hardcode credentials
-username = "714d0583f90941ada8d2175bdc4452bb"  # Don't do this!
+username = "your_username_here"  # Don't do this!
 ```
 
 ### Data Protection
@@ -1092,7 +1092,7 @@ See `test_production_auto.py` for a complete working example that:
 - ✅ Handles errors
 
 **Last Updated**: Based on successful production test (Shipment PIN: 520138418055)
-**Account**: 7254525 (Production, Active)
+**Account**: your_account_number (Production, Active)
 **Status**: Ready for integration
 
 ---

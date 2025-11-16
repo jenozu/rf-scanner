@@ -314,7 +314,7 @@ curl "http://localhost:3001/api/shipping/customers/search?q=Acme"
 
 2. **Default Weight**: If not specified, package weight defaults to 2.5 kg. This can be made configurable per order.
 
-3. **Email Labels**: Shipping labels are automatically emailed to `aobryan@marind.ca` (configured in `.env`).
+3. **Email Labels**: Shipping labels are automatically emailed to the configured recipient (set via `EMAIL_TO` in `.env`).
 
 4. **Order Storage**: Orders are stored in both server storage (JSON files) and localStorage as backup.
 

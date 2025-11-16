@@ -626,7 +626,7 @@ export default function ShippingPage({ setPage }: ShippingPageProps) {
             </p>
             <ul className="list-disc list-inside space-y-1 text-xs">
               <li>Click "Create Shipment" on individual orders or select multiple for batch shipping</li>
-              <li>Tracking PINs are automatically saved and labels are emailed to aobryan@marind.ca</li>
+              <li>Tracking PINs are automatically saved and labels are emailed to the configured recipient</li>
               <li>Order status is updated to "shipped" after successful shipment creation</li>
               <li>Export to CSV remains available as a backup option</li>
               <li>Ensure customers are added to the address book before shipping</li>

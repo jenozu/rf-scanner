@@ -41,6 +41,27 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem, onStartCount
     setBins(binsData);
   }, []);
 
+  // Ensure rf_active data is in localStorage (safety net)
+  useEffect(() => {
+    const ensureDataInLocalStorage = async () => {
+      const localData = localStorage.getItem("rf_active");
+      if (!localData || localData === "[]") {
+        // Data missing in localStorage, try to sync from server
+        try {
+          const { api } = await import("../services/api");
+          const serverData = await api.getData("rf_active");
+          if (serverData && Array.isArray(serverData) && serverData.length > 0) {
+            localStorage.setItem("rf_active", JSON.stringify(serverData));
+            console.log("Synced rf_active from server to localStorage");
+          }
+        } catch (error) {
+          console.error("Could not sync data from server:", error);
+        }
+      }
+    };
+    ensureDataInLocalStorage();
+  }, []);
+
   // Toast auto-dismiss
   useEffect(() => {
     if (toast) {
