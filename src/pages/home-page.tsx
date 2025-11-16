@@ -83,14 +83,6 @@ export default function HomePage({ setPage }: HomePageProps) {
           <p className="text-xs opacity-90">Fulfill Orders</p>
         </button>
         <button
-          onClick={() => setPage("shipping")}
-          className="bg-gradient-to-br from-indigo-500 to-indigo-600 text-white p-4 rounded-lg shadow-md hover:shadow-lg transition-shadow"
-        >
-          <Truck className="mb-2" size={24} />
-          <p className="font-semibold">Shipping</p>
-          <p className="text-xs opacity-90">Create Labels</p>
-        </button>
-        <button
           onClick={() => setPage("scan")}
           className="bg-gradient-to-br from-purple-500 to-purple-600 text-white p-4 rounded-lg shadow-md hover:shadow-lg transition-shadow"
         >
