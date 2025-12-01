@@ -359,7 +359,8 @@ app.get('/api/data/:key', authenticateToken, async (req, res) => {
   try {
     const { key } = req.params;
     const validKeys = ['rf_active', 'rf_master', 'rf_purchase_orders', 'rf_sales_orders', 
-                       'rf_orders', 'rf_waves', 'rf_bins', 'rf_cycle_counts', 'rf_activity_logs'];
+                       'rf_orders', 'rf_waves', 'rf_bins', 'rf_cycle_counts', 'rf_activity_logs',
+                       'rf_bin_locks', 'rf_inventory_sessions', 'rf_session_count_logs'];
     
     if (!validKeys.includes(key)) {
       return res.status(400).json({ error: 'Invalid data key' });
@@ -380,7 +381,8 @@ app.post('/api/data/:key', authenticateToken, async (req, res) => {
     const { data } = req.body;
     
     const validKeys = ['rf_active', 'rf_master', 'rf_purchase_orders', 'rf_sales_orders', 
-                       'rf_orders', 'rf_waves', 'rf_bins', 'rf_cycle_counts', 'rf_activity_logs'];
+                       'rf_orders', 'rf_waves', 'rf_bins', 'rf_cycle_counts', 'rf_activity_logs',
+                       'rf_bin_locks', 'rf_inventory_sessions', 'rf_session_count_logs'];
     
     if (!validKeys.includes(key)) {
       return res.status(400).json({ error: 'Invalid data key' });
@@ -395,6 +397,127 @@ app.post('/api/data/:key', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error(`Error saving ${req.params.key}:`, error);
     res.status(500).json({ error: 'Failed to save data' });
+  }
+});
+
+// ============================================
+// BIN LOCKING ENDPOINTS
+// ============================================
+
+// Check if bin range is available (not locked by another session)
+app.post('/api/bins/check-availability', authenticateToken, async (req, res) => {
+  try {
+    const { startBin, endBin, sessionId } = req.body;
+    
+    if (!startBin || !endBin || !sessionId) {
+      return res.status(400).json({ error: 'startBin, endBin, and sessionId are required' });
+    }
+
+    const locks = await readJSONFile(path.join(DATA_DIR, 'rf_bin_locks.json')) || [];
+    
+    // Clean up expired locks (older than 24 hours)
+    const now = new Date().getTime();
+    const validLocks = locks.filter(lock => {
+      const lockTime = new Date(lock.lockedAt).getTime();
+      return (now - lockTime) < (24 * 60 * 60 * 1000); // 24 hours
+    });
+    
+    // Check for conflicts with other sessions
+    const conflicts = validLocks.filter(lock => {
+      if (lock.sessionId === sessionId) return false; // Same session, no conflict
+      
+      // Check if ranges overlap
+      const lockStart = lock.startBin;
+      const lockEnd = lock.endBin;
+      
+      // Range overlap logic
+      const overlap = (
+        (startBin >= lockStart && startBin <= lockEnd) ||
+        (endBin >= lockStart && endBin <= lockEnd) ||
+        (startBin <= lockStart && endBin >= lockEnd)
+      );
+      
+      return overlap;
+    });
+    
+    if (conflicts.length > 0) {
+      return res.json({
+        available: false,
+        conflicts: conflicts.map(c => ({
+          sessionName: c.sessionName,
+          username: c.username,
+          startBin: c.startBin,
+          endBin: c.endBin,
+          lockedAt: c.lockedAt
+        }))
+      });
+    }
+    
+    // Save cleaned locks
+    if (validLocks.length !== locks.length) {
+      await writeJSONFile(path.join(DATA_DIR, 'rf_bin_locks.json'), validLocks);
+    }
+    
+    res.json({ available: true, conflicts: [] });
+  } catch (error) {
+    console.error('Error checking bin availability:', error);
+    res.status(500).json({ error: 'Failed to check bin availability' });
+  }
+});
+
+// Lock bin range for a session
+app.post('/api/bins/lock', authenticateToken, async (req, res) => {
+  try {
+    const { startBin, endBin, sessionId, sessionName, username } = req.body;
+    
+    if (!startBin || !endBin || !sessionId || !sessionName || !username) {
+      return res.status(400).json({ error: 'All fields are required' });
+    }
+
+    const locks = await readJSONFile(path.join(DATA_DIR, 'rf_bin_locks.json')) || [];
+    
+    // Remove any existing lock for this session
+    const filteredLocks = locks.filter(lock => lock.sessionId !== sessionId);
+    
+    // Add new lock
+    filteredLocks.push({
+      sessionId,
+      sessionName,
+      username,
+      startBin,
+      endBin,
+      lockedAt: new Date().toISOString()
+    });
+    
+    await writeJSONFile(path.join(DATA_DIR, 'rf_bin_locks.json'), filteredLocks);
+    
+    res.json({ message: 'Bins locked successfully' });
+  } catch (error) {
+    console.error('Error locking bins:', error);
+    res.status(500).json({ error: 'Failed to lock bins' });
+  }
+});
+
+// Release bin lock for a session
+app.post('/api/bins/unlock', authenticateToken, async (req, res) => {
+  try {
+    const { sessionId } = req.body;
+    
+    if (!sessionId) {
+      return res.status(400).json({ error: 'sessionId is required' });
+    }
+
+    const locks = await readJSONFile(path.join(DATA_DIR, 'rf_bin_locks.json')) || [];
+    
+    // Remove lock for this session
+    const filteredLocks = locks.filter(lock => lock.sessionId !== sessionId);
+    
+    await writeJSONFile(path.join(DATA_DIR, 'rf_bin_locks.json'), filteredLocks);
+    
+    res.json({ message: 'Bins unlocked successfully' });
+  } catch (error) {
+    console.error('Error unlocking bins:', error);
+    res.status(500).json({ error: 'Failed to unlock bins' });
   }
 });
 

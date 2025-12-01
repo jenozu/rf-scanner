@@ -140,6 +140,28 @@ class ApiClient {
   async healthCheck() {
     return this.request<{ status: string; timestamp: string }>('/health');
   }
+
+  // Bin locking endpoints
+  async checkBinAvailability(startBin: string, endBin: string, sessionId: string) {
+    return this.request<{ available: boolean; conflicts: any[] }>('/bins/check-availability', {
+      method: 'POST',
+      body: JSON.stringify({ startBin, endBin, sessionId }),
+    });
+  }
+
+  async lockBins(startBin: string, endBin: string, sessionId: string, sessionName: string, username: string) {
+    return this.request<{ message: string }>('/bins/lock', {
+      method: 'POST',
+      body: JSON.stringify({ startBin, endBin, sessionId, sessionName, username }),
+    });
+  }
+
+  async unlockBins(sessionId: string) {
+    return this.request<{ message: string }>('/bins/unlock', {
+      method: 'POST',
+      body: JSON.stringify({ sessionId }),
+    });
+  }
 }
 
 export const api = new ApiClient();

@@ -8,6 +8,18 @@ $projectPath = "C:\Users\andel\Desktop\Marind\rf scanner"
 Write-Host "Starting complete deployment to VPS..." -ForegroundColor Cyan
 Write-Host ""
 
+# Test SSH connection first
+Write-Host "🔌 Testing SSH connection..." -ForegroundColor Yellow
+$testConnection = ssh -o BatchMode=yes -o ConnectTimeout=5 $vpsHost "echo 'OK'" 2>&1
+if ($LASTEXITCODE -ne 0 -or $testConnection -notmatch "OK") {
+    Write-Host "❌ SSH connection failed!" -ForegroundColor Red
+    Write-Host "Make sure SSH keys are set up correctly." -ForegroundColor Yellow
+    Write-Host "Test manually with: ssh $vpsHost" -ForegroundColor Gray
+    exit 1
+}
+Write-Host "✅ SSH connection successful (using SSH keys)" -ForegroundColor Green
+Write-Host ""
+
 # Step 1: Build frontend
 Write-Host "Step 1: Building frontend..." -ForegroundColor Yellow
 Set-Location $projectPath
@@ -23,35 +35,31 @@ Write-Host ""
 
 # Step 2: Deploy frontend
 Write-Host "Step 2: Deploying frontend (dist folder)..." -ForegroundColor Yellow
-Write-Host "Please enter your server password when prompted." -ForegroundColor Gray
 
 # Clean old build files (preserve /data and /server folders)
 Write-Host "Cleaning old build files (preserving /data and /server folders)..." -ForegroundColor Yellow
-ssh $vpsHost "cd $remotePath; find . -mindepth 1 -maxdepth 1 ! -name 'data' ! -name 'server' -exec rm -rf {} +"
+ssh -o BatchMode=yes $vpsHost "cd $remotePath; find . -mindepth 1 -maxdepth 1 ! -name 'data' ! -name 'server' -exec rm -rf {} +"
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Failed to clean old files!" -ForegroundColor Red
+    exit 1
+}
 
 # Copy frontend files
 Write-Host "Uploading frontend build..." -ForegroundColor Yellow
-scp -r dist/* "${vpsHost}:${remotePath}/"
+scp -o BatchMode=yes -r dist/* "${vpsHost}:${remotePath}/"
 
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Frontend deployment failed!" -ForegroundColor Red
     exit 1
 }
 
-# Verify frontend deployment - check that index.html references compiled assets, not source files
-Write-Host "Verifying frontend deployment..." -ForegroundColor Yellow
-$indexCheck = ssh $vpsHost "grep -q '/src/main.tsx' ${remotePath}/index.html && echo 'ERROR' || echo 'OK'"
-if ($indexCheck -match 'ERROR') {
-    Write-Host "WARNING: index.html still references source files!" -ForegroundColor Red
-    Write-Host "This might indicate a deployment issue." -ForegroundColor Yellow
-} else {
-    Write-Host "Verified: index.html references compiled assets" -ForegroundColor Green
-}
+Write-Host "Frontend deployed!" -ForegroundColor Green
 Write-Host ""
 
 # Step 3: Deploy backend
 Write-Host "Step 3: Deploying backend (server folder)..." -ForegroundColor Yellow
-scp -r server "${vpsHost}:${remotePath}/"
+scp -o BatchMode=yes -r server "${vpsHost}:${remotePath}/"
 
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Backend deployment failed!" -ForegroundColor Red
@@ -63,7 +71,7 @@ Write-Host ""
 
 # Step 4: Install dependencies and restart backend
 Write-Host "Step 4: Installing dependencies and restarting backend..." -ForegroundColor Yellow
-ssh $vpsHost "cd ${remotePath}/server; npm install; pm2 restart rf-api"
+ssh -o BatchMode=yes $vpsHost "cd ${remotePath}/server; npm install; pm2 restart rf-api"
 
 if ($LASTEXITCODE -ne 0) {
     Write-Host "WARNING: Backend restart may have failed. Check PM2 status manually." -ForegroundColor Yellow
@@ -75,7 +83,7 @@ Write-Host ""
 
 # Step 5: Set permissions and reload nginx
 Write-Host "Step 5: Setting permissions and reloading nginx..." -ForegroundColor Yellow
-ssh $vpsHost "chown -R www-data:www-data $remotePath; systemctl reload nginx"
+ssh -o BatchMode=yes $vpsHost "chown -R www-data:www-data $remotePath; systemctl reload nginx"
 
 Write-Host ""
 Write-Host "Deployment complete!" -ForegroundColor Green

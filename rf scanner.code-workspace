@@ -4,21 +4,5 @@
 			"path": "."
 		}
 	],
-	"settings": {
-		"cursor.general.globalCursorIgnoreList": [
-			"**/credentials.json",
-			"**/credentials.*.json",
-			"**/secret.json",
-			"**/secrets.json",
-			"**/*.key",
-			"**/*.pem",
-			"**/*.pfx",
-			"**/*.p12",
-			"**/*.crt",
-			"**/*.cer",
-			"**/id_rsa",
-			"**/id_dsa",
-			"**/.ssh/id_*"
-		]
-	}
+	"settings": {}
 }

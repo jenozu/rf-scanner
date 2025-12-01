@@ -87,6 +87,8 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
   // Sequential counting mode state
   const [countingMode, setCountingMode] = useState<"cycle" | "sequential" | "full">("cycle");
   const [showBinRangeModal, setShowBinRangeModal] = useState(false);
+  const [filterMode, setFilterMode] = useState<"range" | "aisle">("aisle");
+  const [aisleFilter, setAisleFilter] = useState<string>("");
   const [startBinFilter, setStartBinFilter] = useState<string>("");
   const [endBinFilter, setEndBinFilter] = useState<string>("");
   const [sequentialItems, setSequentialItems] = useState<SequentialCountItem[]>([]);
@@ -94,6 +96,8 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
   const [sessionCountLogs, setSessionCountLogs] = useState<SessionCountLog[]>([]);
   const [showNumpad, setShowNumpad] = useState(false);
   const [numpadValue, setNumpadValue] = useState<string>("");
+  const [showBinInfoModal, setShowBinInfoModal] = useState(false);
+  const [scannedBinInfo, setScannedBinInfo] = useState<BinLocation | null>(null);
 
   // Full counting mode state
   const [fullCountFile, setFullCountFile] = useState<File | null>(null);
@@ -246,7 +250,9 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     setShowSessionTrackingForm(true);
   };
 
-  const resumeSession = (session: InventorySession) => {
+  const resumeSession = async (session: InventorySession) => {
+    console.log("Resuming session:", session);
+    
     const updatedSession: InventorySession = {
       ...session,
       status: "active",
@@ -260,22 +266,93 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     localStorage.setItem("rf_inventory_sessions", JSON.stringify(updatedSessions));
     localStorage.setItem("rf_current_inventory_session", session.id);
 
-    // Restore cycle counts from session
-    if (session.cycleCountIds.length > 0) {
-      const sessionCounts = cycleCounts.filter((c) => session.cycleCountIds.includes(c.id));
-      if (sessionCounts.length > 0) {
-        const pendingCounts = sessionCounts.filter((c) => c.Status === "pending");
-        if (pendingCounts.length > 0) {
-          showToast(`✅ Resumed session: ${session.name} (${pendingCounts.length} pending counts)`, "success");
-        } else {
-          showToast(`✅ Resumed session: ${session.name}`, "success");
+    // Restore sequential counting state if it was in sequential mode
+    if (session.countingMode === "sequential" && session.binRangeStart && session.binRangeEnd) {
+      console.log("Restoring sequential mode:", session.binRangeStart, "to", session.binRangeEnd);
+      
+      const startBin = session.binRangeStart;
+      const endBin = session.binRangeEnd;
+      
+      setStartBinFilter(startBin);
+      setEndBinFilter(endBin);
+      
+      // Rebuild sequential items from bins
+      const sortedBins = [...bins].sort((a, b) => a.BinCode.localeCompare(b.BinCode));
+      const filteredBins = sortedBins.filter((bin) => {
+        return bin.BinCode >= startBin && bin.BinCode <= endBin;
+      });
+      
+      const items: SequentialCountItem[] = [];
+      filteredBins.forEach((bin) => {
+        bin.Items.forEach((item) => {
+          items.push({
+            binCode: bin.BinCode,
+            zone: bin.Zone,
+            itemCode: item.ItemCode,
+            description: item.Description,
+            expectedQty: item.Quantity,
+          });
+        });
+      });
+      
+      console.log("Rebuilt items:", items.length, "Current index:", session.currentItemIndex || 0);
+      
+      if (items.length > 0) {
+        const itemIndex = Math.min(session.currentItemIndex || 0, items.length - 1);
+        
+        // Re-lock the bins
+        try {
+          const { api } = await import("../services/api");
+          const currentUserId = sessionStorage.getItem("rf_current_user_id");
+          const users = JSON.parse(localStorage.getItem("rf_users") || "[]");
+          const currentUser = users.find((u: any) => u.id === currentUserId);
+          const username = currentUser ? currentUser.username : "Unknown";
+          
+          await api.lockBins(startBin, endBin, session.id, session.name, username);
+          console.log("Bins re-locked successfully");
+        } catch (error) {
+          console.error("Error re-locking bins:", error);
+          // Continue anyway, non-critical
         }
+        
+        // Set all state in correct order
+        setSequentialItems(items);
+        setCurrentItemIndex(itemIndex);
+        setCountedQty(0);
+        setNumpadValue("");
+        
+        // IMPORTANT: Force switch to sequential mode
+        console.log("Setting countingMode to sequential");
+        setCountingMode("sequential");
+        
+        setShowSessionModal(false);
+        
+        showToast(`✅ Resumed: ${session.name} - Item ${itemIndex + 1} of ${items.length}`, "success");
+      } else {
+        showToast(`⚠️ No items found in bin range ${startBin} to ${endBin}`, "error");
+        setCountingMode("cycle");
+        setShowSessionModal(false);
       }
     } else {
-      showToast(`✅ Resumed session: ${session.name}`, "success");
+      // No sequential state saved, stay in cycle mode
+      setCountingMode("cycle");
+      setShowSessionModal(false);
+      
+      // Restore cycle counts from session
+      if (session.cycleCountIds && session.cycleCountIds.length > 0) {
+        const sessionCounts = cycleCounts.filter((c) => session.cycleCountIds.includes(c.id));
+        if (sessionCounts.length > 0) {
+          const pendingCounts = sessionCounts.filter((c) => c.Status === "pending");
+          if (pendingCounts.length > 0) {
+            showToast(`✅ Resumed session: ${session.name} (${pendingCounts.length} pending counts)`, "success");
+          } else {
+            showToast(`✅ Resumed session: ${session.name}`, "success");
+          }
+        }
+      } else {
+        showToast(`✅ Resumed session: ${session.name}`, "success");
+      }
     }
-
-    setShowSessionModal(false);
   };
 
   const pauseSession = () => {
@@ -286,6 +363,11 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
       status: "paused",
       lastAccessedDate: new Date().toISOString(),
       currentCycleCountId: selectedCount?.id,
+      // Save sequential counting state
+      countingMode: countingMode,
+      binRangeStart: startBinFilter,
+      binRangeEnd: endBinFilter,
+      currentItemIndex: currentItemIndex,
     };
 
     const updatedSessions = sessions.map((s) => (s.id === currentSession.id ? updatedSession : s));
@@ -296,8 +378,16 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     showToast(`⏸️ Session paused: ${currentSession.name}`, "info");
   };
 
-  const completeSession = () => {
+  const completeSession = async () => {
     if (!currentSession) return;
+
+    // Unlock bins when completing session
+    try {
+      const { api } = await import("../services/api");
+      await api.unlockBins(currentSession.id);
+    } catch (error) {
+      console.error("Error unlocking bins:", error);
+    }
 
     const updatedSession: InventorySession = {
       ...currentSession,
@@ -541,50 +631,155 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
 
   // ========== Sequential Counting Functions ==========
 
-  // Start sequential count with bin range
-  const startSequentialCount = () => {
-    if (!startBinFilter.trim() || !endBinFilter.trim()) {
-      showToast("⚠️ Please enter both start and end bin codes", "error");
+  // Start sequential count with bin range or aisle filter
+  const startSequentialCount = async () => {
+    if (!currentSession) {
+      showToast("⚠️ No active session", "error");
       return;
     }
 
-    // Sort bins alphabetically
+    // Debug: Log bins array
+    console.log("Total bins available:", bins.length);
+    if (bins.length > 0) {
+      console.log("Sample bin codes:", bins.slice(0, 5).map(b => b.BinCode));
+    }
+
+    let startBin = "";
+    let endBin = "";
+    let filteredBins: BinLocation[] = [];
+
+    // Sort bins alphabetically first
     const sortedBins = [...bins].sort((a, b) => a.BinCode.localeCompare(b.BinCode));
-    
-    // Filter bins within range (inclusive)
-    const filteredBins = sortedBins.filter((bin) => {
-      return bin.BinCode >= startBinFilter.trim() && bin.BinCode <= endBinFilter.trim();
-    });
 
-    if (filteredBins.length === 0) {
-      showToast("⚠️ No bins found in the specified range", "error");
-      return;
+    if (filterMode === "aisle") {
+      // Aisle prefix filter
+      if (!aisleFilter.trim()) {
+        showToast("⚠️ Please enter an aisle code", "error");
+        return;
+      }
+
+      const aislePrefix = aisleFilter.trim().toUpperCase();
+      console.log("Filtering by aisle prefix:", aislePrefix);
+      
+      filteredBins = sortedBins.filter((bin) => bin.BinCode.startsWith(aislePrefix));
+      
+      console.log("Filtered bins count:", filteredBins.length);
+      if (filteredBins.length > 0) {
+        console.log("First 5 filtered bins:", filteredBins.slice(0, 5).map(b => b.BinCode));
+      }
+
+      if (filteredBins.length === 0) {
+        showToast(`⚠️ No bins found starting with "${aislePrefix}". Check your bin codes format.`, "error");
+        return;
+      }
+
+      // Set start/end for locking purposes
+      startBin = filteredBins[0].BinCode;
+      endBin = filteredBins[filteredBins.length - 1].BinCode;
+      console.log("Range for aisle:", startBin, "to", endBin);
+
+    } else {
+      // Range filter
+      if (!startBinFilter.trim() || !endBinFilter.trim()) {
+        showToast("⚠️ Please enter both start and end bin codes", "error");
+        return;
+      }
+
+      startBin = startBinFilter.trim().toUpperCase();
+      endBin = endBinFilter.trim().toUpperCase();
+
+      // Filter bins within range (inclusive)
+      filteredBins = sortedBins.filter((bin) => {
+        return bin.BinCode >= startBin && bin.BinCode <= endBin;
+      });
+
+      if (filteredBins.length === 0) {
+        showToast("⚠️ No bins found in the specified range", "error");
+        return;
+      }
     }
 
-    // Build sequential items list
-    const items: SequentialCountItem[] = [];
-    filteredBins.forEach((bin) => {
-      bin.Items.forEach((item) => {
-        items.push({
-          binCode: bin.BinCode,
-          zone: bin.Zone,
-          itemCode: item.ItemCode,
-          description: item.Description,
-          expectedQty: item.Quantity,
+    try {
+      console.log("Checking bin availability...");
+      // Check if bins are available (not locked by another user)
+      const { api } = await import("../services/api");
+      const availability = await api.checkBinAvailability(startBin, endBin, currentSession.id);
+
+      if (!availability.available && availability.conflicts.length > 0) {
+        const conflict = availability.conflicts[0];
+        showToast(
+          `❌ Bins ${conflict.startBin} to ${conflict.endBin} are being counted by ${conflict.username} (${conflict.sessionName})`,
+          "error"
+        );
+        return;
+      }
+
+      // Build sequential items list
+      const items: SequentialCountItem[] = [];
+      filteredBins.forEach((bin) => {
+        bin.Items.forEach((item) => {
+          items.push({
+            binCode: bin.BinCode,
+            zone: bin.Zone,
+            itemCode: item.ItemCode,
+            description: item.Description,
+            expectedQty: item.Quantity,
+          });
         });
       });
-    });
 
-    if (items.length === 0) {
-      showToast("⚠️ No items found in the specified bin range", "error");
-      return;
+      console.log("Total items to count:", items.length);
+
+      if (items.length === 0) {
+        showToast("⚠️ No items found in the selected bins", "error");
+        return;
+      }
+
+      // Get username for locking
+      const currentUserId = sessionStorage.getItem("rf_current_user_id");
+      const users = JSON.parse(localStorage.getItem("rf_users") || "[]");
+      const currentUser = users.find((u: any) => u.id === currentUserId);
+      const username = currentUser ? currentUser.username : "Unknown";
+
+      console.log("Locking bins...");
+      // Lock the bin range
+      await api.lockBins(startBin, endBin, currentSession.id, currentSession.name, username);
+      console.log("Bins locked successfully");
+
+      // Update session with bin range info
+      const updatedSession: InventorySession = {
+        ...currentSession,
+        countingMode: "sequential",
+        binRangeStart: startBin,
+        binRangeEnd: endBin,
+        currentItemIndex: 0,
+        lastAccessedDate: new Date().toISOString(),
+      };
+      
+      const updatedSessions = sessions.map((s) => s.id === currentSession.id ? updatedSession : s);
+      setSessions(updatedSessions);
+      setCurrentSession(updatedSession);
+      localStorage.setItem("rf_inventory_sessions", JSON.stringify(updatedSessions));
+      
+      // Set sequential state
+      setSequentialItems(items);
+      setCurrentItemIndex(0);
+      setCountedQty(0);
+      setNumpadValue("");
+      setStartBinFilter(startBin);
+      setEndBinFilter(endBin);
+      
+      console.log("Setting counting mode to sequential");
+      setCountingMode("sequential");
+      setShowBinRangeModal(false);
+      
+      const aisleInfo = filterMode === "aisle" ? ` (Aisle: ${aisleFilter})` : "";
+      showToast(`✅ Loaded ${items.length} items from ${filteredBins.length} bins${aisleInfo}`, "success");
+      console.log("Sequential count started successfully");
+    } catch (error: any) {
+      console.error("Error starting sequential count:", error);
+      showToast(`❌ Error: ${error.message || "Failed to start counting"}`, "error");
     }
-
-    setSequentialItems(items);
-    setCurrentItemIndex(0);
-    setCountingMode("sequential");
-    setShowBinRangeModal(false);
-    showToast(`✅ Loaded ${items.length} items from ${filteredBins.length} bins`, "success");
   };
 
   // Handle sequential count submission
@@ -661,10 +856,22 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     }
 
     // Move to next item
-    if (currentItemIndex < sequentialItems.length - 1) {
-      setCurrentItemIndex(currentItemIndex + 1);
+    const nextIndex = currentItemIndex + 1;
+    if (nextIndex < sequentialItems.length) {
+      setCurrentItemIndex(nextIndex);
       setCountedQty(0);
       setNumpadValue("");
+      
+      // Update session with new current index
+      const updatedSession: InventorySession = {
+        ...currentSession,
+        currentItemIndex: nextIndex,
+        lastAccessedDate: new Date().toISOString(),
+      };
+      const updatedSessions = sessions.map((s) => s.id === currentSession.id ? updatedSession : s);
+      setSessions(updatedSessions);
+      setCurrentSession(updatedSession);
+      localStorage.setItem("rf_inventory_sessions", JSON.stringify(updatedSessions));
     } else {
       showToast("🎉 All items in range have been counted!", "success");
       // Stay on last item, allow export
@@ -737,7 +944,17 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
   };
 
   // Exit sequential mode
-  const exitSequentialMode = () => {
+  const exitSequentialMode = async () => {
+    // Unlock bins when exiting
+    if (currentSession) {
+      try {
+        const { api } = await import("../services/api");
+        await api.unlockBins(currentSession.id);
+      } catch (error) {
+        console.error("Error unlocking bins:", error);
+      }
+    }
+    
     setCountingMode("cycle");
     setSequentialItems([]);
     setCurrentItemIndex(0);
@@ -1057,19 +1274,18 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
   // Handle barcode scan
   const handleScan = (code: string) => {
     setScannedCode(code);
+    setScanMode(false);
     
-    // Find cycle count task for this bin
-    const count = cycleCounts.find(
-      (c) => c.BinCode === code && c.Status === "pending"
-    );
+    // Find the bin
+    const bin = bins.find((b) => b.BinCode === code);
 
-    if (count) {
-      setSelectedCount(count);
-      setCountedQty(0);
-      setScanMode(false);
+    if (bin) {
+      // Show bin information modal
+      setScannedBinInfo(bin);
+      setShowBinInfoModal(true);
       showToast(`✅ Scanned bin: ${code}`, "success");
     } else {
-      showToast(`❌ No pending count task for bin: ${code}`, "error");
+      showToast(`❌ Bin not found: ${code}`, "error");
     }
   };
 
@@ -1184,7 +1400,156 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     setScannedCode("");
   };
 
-  // Render task list
+  // IMPORTANT: Check sequential mode FIRST (before cycle mode)
+  // This ensures "Continue Counting" navigates to sequential UI immediately
+  if (countingMode === "sequential" && sequentialItems.length > 0) {
+    const currentItem = sequentialItems[currentItemIndex];
+    const progress = ((currentItemIndex + 1) / sequentialItems.length) * 100;
+
+    return (
+      <div className="p-4 max-w-4xl mx-auto">
+        <div className="flex justify-between items-center mb-4">
+          <button
+            onClick={exitSequentialMode}
+            className="text-gray-600 hover:text-gray-800"
+          >
+            <ArrowLeft size={24} />
+          </button>
+          <h1 className="text-xl font-bold flex items-center gap-2">
+            <ClipboardCheck className="text-green-600" />
+            Counting: {currentSession?.name}
+          </h1>
+          <button
+            onClick={() => {
+              if (confirm("Export current session logs?")) {
+                exportSessionLogsToCSV();
+              }
+            }}
+            className="text-blue-600 hover:text-blue-800"
+          >
+            <Download size={20} />
+          </button>
+        </div>
+
+        {/* Progress Bar */}
+        <div className="mb-6">
+          <div className="flex justify-between text-sm text-gray-600 mb-2">
+            <span>Item {currentItemIndex + 1} of {sequentialItems.length}</span>
+            <span>{Math.round(progress)}% Complete</span>
+          </div>
+          <div className="w-full bg-gray-200 rounded-full h-3">
+            <div
+              className="bg-green-600 h-3 rounded-full transition-all duration-300"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Current Item Card */}
+        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+          <div className="grid grid-cols-2 gap-4 mb-6">
+            <div>
+              <label className="text-sm text-gray-600">Bin Location</label>
+              <div className="text-2xl font-bold text-blue-600">{currentItem.binCode}</div>
+            </div>
+            <div>
+              <label className="text-sm text-gray-600">Zone</label>
+              <div className="text-2xl font-bold text-gray-800">{currentItem.zone}</div>
+            </div>
+          </div>
+
+          <div className="mb-6">
+            <label className="text-sm text-gray-600">Item Code</label>
+            <div className="text-xl font-bold text-gray-900">{currentItem.itemCode}</div>
+          </div>
+
+          <div className="mb-6">
+            <label className="text-sm text-gray-600">Description</label>
+            <div className="text-gray-800">{currentItem.description}</div>
+          </div>
+
+          <div className="mb-6 p-4 bg-blue-50 rounded-md">
+            <label className="text-sm text-gray-600">Expected Quantity</label>
+            <div className="text-3xl font-bold text-blue-600">{currentItem.expectedQty}</div>
+          </div>
+
+          {/* Quantity Input */}
+          <div className="mb-6">
+            <label className="block text-sm font-medium mb-2">Counted Quantity</label>
+            <input
+              type="number"
+              value={numpadValue || countedQty}
+              onChange={(e) => {
+                const val = parseInt(e.target.value) || 0;
+                setCountedQty(val);
+                setNumpadValue(e.target.value);
+              }}
+              className="w-full text-3xl font-bold text-center border-2 border-gray-300 rounded-md p-4"
+              autoFocus
+            />
+          </div>
+
+          {/* Numpad */}
+          <div className="grid grid-cols-3 gap-2 mb-6">
+            {[1, 2, 3, 4, 5, 6, 7, 8, 9, "C", 0, "OK"].map((btn) => (
+              <button
+                key={btn}
+                onClick={() => handleNumpadClick(String(btn))}
+                className={`py-4 text-2xl font-bold rounded-md ${
+                  btn === "OK"
+                    ? "bg-green-600 text-white hover:bg-green-700"
+                    : btn === "C"
+                    ? "bg-red-600 text-white hover:bg-red-700"
+                    : "bg-gray-200 text-gray-800 hover:bg-gray-300"
+                }`}
+              >
+                {btn === "OK" ? "✓" : btn}
+              </button>
+            ))}
+          </div>
+
+          {/* Action Buttons */}
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              onClick={goToPreviousItem}
+              disabled={currentItemIndex === 0}
+              className="py-3 px-4 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              <ChevronLeft size={20} />
+              Previous
+            </button>
+            <button
+              onClick={skipCurrentItem}
+              disabled={currentItemIndex >= sequentialItems.length - 1}
+              className="py-3 px-4 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              Skip
+              <ChevronRight size={20} />
+            </button>
+          </div>
+        </div>
+
+        {/* Session Stats */}
+        {currentSession && (
+          <div className="bg-gray-50 rounded-lg p-4">
+            <h3 className="font-semibold mb-2">Session Statistics</h3>
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <span className="text-gray-600">Items Counted:</span>
+                <span className="ml-2 font-bold">{currentItemIndex + 1}</span>
+              </div>
+              <div>
+                <span className="text-gray-600">Remaining:</span>
+                <span className="ml-2 font-bold">{sequentialItems.length - currentItemIndex - 1}</span>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Render task list (cycle mode)
   if (!selectedCount && countingMode === "cycle") {
     return (
       <div className="p-4 max-w-4xl mx-auto">
@@ -1193,83 +1558,91 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
             <ClipboardCheck className="text-blue-600" />
             Inventory Counting
           </h1>
-          <div className="flex gap-2">
-            {currentSession && (
-              <div className="bg-blue-50 px-3 py-1 rounded-md text-sm flex items-center gap-2">
-                <FolderOpen size={16} className="text-blue-600" />
-                <span className="font-medium text-blue-700">{currentSession.name}</span>
+        </div>
+
+        {/* Current Session Card - Bigger and easier to tap */}
+        {currentSession && (
+          <div className="mb-6 bg-blue-50 rounded-lg shadow p-4 border-2 border-blue-300">
+            <div className="flex justify-between items-center">
+              <div>
+                <p className="text-sm text-blue-600 font-medium mb-1">Current Session</p>
+                <h2 className="text-xl font-bold text-blue-900">{currentSession.name}</h2>
+                <p className="text-sm text-blue-600 mt-1">
+                  {sessionCountLogs.filter(l => l.sessionId === currentSession.id).length} items counted
+                </p>
+                {currentSession.binRangeStart && currentSession.binRangeEnd && (
+                  <p className="text-xs text-gray-600 mt-1">
+                    Bins: {currentSession.binRangeStart} to {currentSession.binRangeEnd}
+                  </p>
+                )}
+              </div>
+              <div className="flex flex-col gap-2">
+                <button
+                  onClick={() => {
+                    // If session has bin range, resume; otherwise start new count
+                    if (currentSession.binRangeStart && currentSession.binRangeEnd) {
+                      resumeSession(currentSession);
+                    } else {
+                      setShowBinRangeModal(true);
+                    }
+                  }}
+                  className="bg-blue-600 text-white px-6 py-3 rounded-md hover:bg-blue-700 font-medium"
+                >
+                  {currentSession.binRangeStart ? "Continue Counting" : "Start Counting"}
+                </button>
                 <button
                   onClick={pauseSession}
-                  className="text-blue-600 hover:text-blue-800"
-                  title="Pause Session"
+                  className="bg-gray-200 text-gray-700 px-6 py-3 rounded-md hover:bg-gray-300 font-medium"
                 >
-                  <Save size={14} />
+                  Pause Session
+                </button>
+                <button
+                  onClick={() => setShowSessionModal(true)}
+                  className="bg-white text-blue-600 px-6 py-3 rounded-md hover:bg-blue-50 font-medium border border-blue-600"
+                >
+                  Switch Session
                 </button>
               </div>
-            )}
+            </div>
+          </div>
+        )}
+
+        {/* Start Session Button - if no current session */}
+        {!currentSession && (
+          <div className="mb-6">
             <button
               onClick={() => setShowSessionModal(true)}
-              className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 text-sm flex items-center gap-2"
+              className="w-full bg-blue-600 text-white px-6 py-4 rounded-lg hover:bg-blue-700 text-lg font-medium flex items-center justify-center gap-2"
             >
-              <FolderOpen size={16} />
-              {currentSession ? "Switch Session" : "Start Session"}
-            </button>
-            <button
-              onClick={() => setShowTempLocationModal(true)}
-              className="bg-purple-600 text-white px-4 py-2 rounded-md hover:bg-purple-700 text-sm flex items-center gap-2"
-            >
-              <MapPin size={16} />
-              Temp Locations
+              <FolderOpen size={24} />
+              Start New Session
             </button>
           </div>
-        </div>
+        )}
 
         {/* Mode Selection */}
         <div className="mb-6 bg-white rounded-lg shadow p-4">
-          <h2 className="text-lg font-semibold mb-3">Counting Mode</h2>
-          <div className="grid grid-cols-3 gap-3">
-            <button
-              onClick={() => {
-                if (!currentSession) {
-                  showToast("⚠️ Please start a session first", "error");
-                  setShowSessionModal(true);
-                  return;
-                }
-                setShowBinRangeModal(true);
-              }}
-              className="bg-green-600 text-white px-4 py-3 rounded-md hover:bg-green-700 font-medium flex items-center justify-center gap-2"
-            >
-              <List size={20} />
-              Sequential Count (Bin Range)
-            </button>
-            <button
-              onClick={() => setCountingMode("cycle")}
-              className="bg-gray-200 text-gray-700 px-4 py-3 rounded-md hover:bg-gray-300 font-medium flex items-center justify-center gap-2"
-            >
-              <ClipboardCheck size={20} />
-              Cycle Count (Task List)
-            </button>
-            <button
-              onClick={() => {
-                if (!currentSession) {
-                  showToast("⚠️ Please start a session first", "error");
-                  setShowSessionModal(true);
-                  return;
-                }
-                setCountingMode("full");
-              }}
-              className="bg-yellow-600 text-white px-4 py-3 rounded-md hover:bg-yellow-700 font-medium flex items-center justify-center gap-2"
-            >
-              <Upload size={20} />
-              Full Inventory Count (Upload)
-            </button>
-          </div>
+          <h2 className="text-lg font-semibold mb-3">Start Counting</h2>
+          <button
+            onClick={() => {
+              if (!currentSession) {
+                showToast("⚠️ Please start a session first", "error");
+                setShowSessionModal(true);
+                return;
+              }
+              setShowBinRangeModal(true);
+            }}
+            className="w-full bg-green-600 text-white px-6 py-4 rounded-lg hover:bg-green-700 text-lg font-medium flex items-center justify-center gap-2"
+          >
+            <List size={24} />
+            Sequential Count (Bin Range)
+          </button>
           {currentSession && sessionCountLogs.filter(l => l.sessionId === currentSession.id).length > 0 && (
             <button
               onClick={exportSessionLogsToCSV}
-              className="mt-3 w-full bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 font-medium flex items-center justify-center gap-2"
+              className="mt-3 w-full bg-blue-600 text-white px-4 py-3 rounded-md hover:bg-blue-700 font-medium flex items-center justify-center gap-2"
             >
-              <Download size={18} />
+              <Download size={20} />
               Export Session Log ({sessionCountLogs.filter(l => l.sessionId === currentSession.id).length} counts)
             </button>
           )}
@@ -1549,12 +1922,13 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
               <div className="flex justify-between items-center mb-4">
-                <h3 className="text-xl font-bold">Select Bin Range</h3>
+                <h3 className="text-xl font-bold">Select Bins to Count</h3>
                 <button
                   onClick={() => {
                     setShowBinRangeModal(false);
                     setStartBinFilter("");
                     setEndBinFilter("");
+                    setAisleFilter("");
                   }}
                   className="text-gray-500 hover:text-gray-700"
                 >
@@ -1562,38 +1936,93 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
                 </button>
               </div>
 
-              <p className="text-sm text-gray-600 mb-4">
-                Enter the start and end bin codes to count all items within that range (inclusive).
-              </p>
-
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Start Bin Code</label>
-                  <input
-                    type="text"
-                    value={startBinFilter}
-                    onChange={(e) => setStartBinFilter(e.target.value.toUpperCase())}
-                    placeholder="e.g., A-01-01"
-                    className="w-full border border-gray-300 rounded-md px-3 py-2"
-                    autoFocus
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">End Bin Code</label>
-                  <input
-                    type="text"
-                    value={endBinFilter}
-                    onChange={(e) => setEndBinFilter(e.target.value.toUpperCase())}
-                    placeholder="e.g., A-01-10"
-                    className="w-full border border-gray-300 rounded-md px-3 py-2"
-                  />
+              {/* Filter Mode Toggle */}
+              <div className="mb-4">
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => setFilterMode("aisle")}
+                    className={`py-2 px-4 rounded-md font-medium ${
+                      filterMode === "aisle"
+                        ? "bg-green-600 text-white"
+                        : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                    }`}
+                  >
+                    By Aisle
+                  </button>
+                  <button
+                    onClick={() => setFilterMode("range")}
+                    className={`py-2 px-4 rounded-md font-medium ${
+                      filterMode === "range"
+                        ? "bg-green-600 text-white"
+                        : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                    }`}
+                  >
+                    By Range
+                  </button>
                 </div>
               </div>
+
+              {/* Aisle Filter */}
+              {filterMode === "aisle" && (
+                <div>
+                  <p className="text-sm text-gray-600 mb-4">
+                    Enter an aisle code to count all bins in that aisle (e.g., "01-1" for all bins starting with 01-1).
+                  </p>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Aisle Code</label>
+                      <input
+                        type="text"
+                        value={aisleFilter}
+                        onChange={(e) => setAisleFilter(e.target.value.toUpperCase())}
+                        placeholder="e.g., 01-1"
+                        className="w-full border border-gray-300 rounded-md px-3 py-2 text-lg"
+                        autoFocus
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        This will select all bins like: 01-1001, 01-1002, 01-1003, etc.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Range Filter */}
+              {filterMode === "range" && (
+                <div>
+                  <p className="text-sm text-gray-600 mb-4">
+                    Enter the start and end bin codes to count all items within that range (inclusive).
+                  </p>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Start Bin Code</label>
+                      <input
+                        type="text"
+                        value={startBinFilter}
+                        onChange={(e) => setStartBinFilter(e.target.value.toUpperCase())}
+                        placeholder="e.g., 01-0001"
+                        className="w-full border border-gray-300 rounded-md px-3 py-2"
+                        autoFocus
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">End Bin Code</label>
+                      <input
+                        type="text"
+                        value={endBinFilter}
+                        onChange={(e) => setEndBinFilter(e.target.value.toUpperCase())}
+                        placeholder="e.g., 01-0100"
+                        className="w-full border border-gray-300 rounded-md px-3 py-2"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div className="mt-6 flex gap-2">
                 <button
                   onClick={startSequentialCount}
-                  className="flex-1 bg-green-600 text-white py-2 rounded-md hover:bg-green-700 font-medium"
+                  className="flex-1 bg-green-600 text-white py-3 rounded-md hover:bg-green-700 font-medium text-lg"
                 >
                   Start Counting
                 </button>
@@ -1602,10 +2031,71 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
                     setShowBinRangeModal(false);
                     setStartBinFilter("");
                     setEndBinFilter("");
+                    setAisleFilter("");
                   }}
-                  className="px-4 bg-gray-200 text-gray-700 py-2 rounded-md hover:bg-gray-300"
+                  className="px-4 bg-gray-200 text-gray-700 py-3 rounded-md hover:bg-gray-300"
                 >
                   Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Bin Info Modal */}
+        {showBinInfoModal && scannedBinInfo && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 max-h-[80vh] overflow-y-auto">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-xl font-bold">Bin: {scannedBinInfo.BinCode}</h3>
+                <button
+                  onClick={() => {
+                    setShowBinInfoModal(false);
+                    setScannedBinInfo(null);
+                  }}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="mb-4 p-3 bg-blue-50 rounded-md">
+                <div className="text-sm text-gray-600 mb-1">Zone</div>
+                <div className="text-lg font-bold text-blue-900">{scannedBinInfo.Zone}</div>
+              </div>
+
+              <div className="mb-2">
+                <h4 className="font-semibold text-gray-700 mb-2">Items in This Bin:</h4>
+              </div>
+
+              {scannedBinInfo.Items && scannedBinInfo.Items.length > 0 ? (
+                <div className="space-y-3">
+                  {scannedBinInfo.Items.map((item, index) => (
+                    <div key={index} className="border border-gray-300 rounded-md p-3 bg-gray-50">
+                      <div className="font-medium text-gray-900">{item.ItemCode}</div>
+                      <div className="text-sm text-gray-600 mt-1">{item.Description}</div>
+                      <div className="mt-2 flex justify-between items-center">
+                        <span className="text-sm text-gray-600">Expected Qty:</span>
+                        <span className="font-bold text-lg text-green-600">{item.Quantity}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center text-gray-500 py-4">
+                  No items in this bin
+                </div>
+              )}
+
+              <div className="mt-6">
+                <button
+                  onClick={() => {
+                    setShowBinInfoModal(false);
+                    setScannedBinInfo(null);
+                  }}
+                  className="w-full bg-blue-600 text-white py-3 rounded-md hover:bg-blue-700 font-medium"
+                >
+                  Close
                 </button>
               </div>
             </div>
