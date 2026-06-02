@@ -1,8 +1,7 @@
 # Deploy RF Scanner app to VPS
 # Run this from PowerShell in the project root
 
-$vpsHost = "root@72.60.170.192"
-$remotePath = "/var/www/rf-scanner"
+. "$PSScriptRoot/deploy-config.ps1"
 
 Write-Host "📦 Deploying to $vpsHost:$remotePath" -ForegroundColor Cyan
 Write-Host ""
@@ -25,9 +24,9 @@ if ($LASTEXITCODE -eq 0) {
 }
 
 Write-Host "🔧 Setting permissions..." -ForegroundColor Yellow
-ssh $vpsHost "chown -R www-data:www-data $remotePath && systemctl reload nginx"
+ssh $vpsHost "sudo chown -R www-data:www-data $remotePath && sudo systemctl reload nginx"
 
 Write-Host ""
 Write-Host "✅ Deployment complete!" -ForegroundColor Green
-Write-Host "🌐 Your app is live at: https://rf.andel-vps.space" -ForegroundColor Cyan
+Write-Host "🌐 Your app is live at: http://$SERVER_IP" -ForegroundColor Cyan
 

@@ -1,8 +1,7 @@
 # Fast deployment script with better error handling
 Write-Host "Starting fast deployment..." -ForegroundColor Cyan
 
-$vpsHost = "root@72.60.170.192"
-$remotePath = "/var/www/rf-scanner"
+. "$PSScriptRoot/deploy-config.ps1"
 
 # Test connection
 Write-Host "`nTesting connection..." -ForegroundColor Yellow
@@ -47,14 +46,14 @@ cd $remotePath && \
 find . -mindepth 1 -maxdepth 1 ! -name 'data' ! -name 'server' -exec rm -rf {} + && \
 tar -xzf /tmp/dist.tar.gz -C $remotePath && \
 rm /tmp/dist.tar.gz && \
-chown -R www-data:www-data $remotePath && \
-systemctl reload nginx
+sudo chown -R www-data:www-data $remotePath && \
+sudo systemctl reload nginx
 "@
 
 if ($LASTEXITCODE -eq 0) {
     Remove-Item dist.tar.gz -ErrorAction SilentlyContinue
     Write-Host "`nDEPLOYED!" -ForegroundColor Green
-    Write-Host "Live at: https://rf.andel-vps.space" -ForegroundColor Cyan
+    Write-Host "Live at: http://$SERVER_IP" -ForegroundColor Cyan
 } else {
     Write-Host "ERROR: Server commands failed" -ForegroundColor Red
     Remove-Item dist.tar.gz -ErrorAction SilentlyContinue

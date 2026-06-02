@@ -1,8 +1,7 @@
 # Complete deployment script for RF Scanner (Frontend + Backend)
 # Run this from PowerShell in the project root
 
-$vpsHost = "root@72.60.170.192"
-$remotePath = "/var/www/rf-scanner"
+. "$PSScriptRoot/deploy-config.ps1"
 $projectPath = "C:\Users\andel\Desktop\Marind\rf scanner"
 
 Write-Host "Starting complete deployment to VPS..." -ForegroundColor Cyan
@@ -71,7 +70,7 @@ Write-Host ""
 
 # Step 4: Install dependencies and restart backend
 Write-Host "Step 4: Installing dependencies and restarting backend..." -ForegroundColor Yellow
-ssh -o BatchMode=yes $vpsHost "cd ${remotePath}/server; npm install; pm2 restart rf-api"
+ssh -o BatchMode=yes $vpsHost "cd ${remotePath}/server; npm install; sudo pm2 restart rf-api"
 
 if ($LASTEXITCODE -ne 0) {
     Write-Host "WARNING: Backend restart may have failed. Check PM2 status manually." -ForegroundColor Yellow
@@ -83,11 +82,11 @@ Write-Host ""
 
 # Step 5: Set permissions and reload nginx
 Write-Host "Step 5: Setting permissions and reloading nginx..." -ForegroundColor Yellow
-ssh -o BatchMode=yes $vpsHost "chown -R www-data:www-data $remotePath; systemctl reload nginx"
+ssh -o BatchMode=yes $vpsHost "sudo chown -R www-data:www-data $remotePath; sudo systemctl reload nginx"
 
 Write-Host ""
 Write-Host "Deployment complete!" -ForegroundColor Green
-Write-Host "App is live at: https://rf.andel-vps.space" -ForegroundColor Cyan
+Write-Host "App is live at: http://$SERVER_IP" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "To check backend status:" -ForegroundColor Yellow
 $statusCmd = "ssh $vpsHost pm2 status"

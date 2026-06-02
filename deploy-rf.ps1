@@ -1,8 +1,7 @@
 # PowerShell deployment script for RF Scanner
 Write-Host "Starting deployment to VPS..." -ForegroundColor Cyan
 
-$vpsHost = "root@72.60.170.192"
-$remotePath = "/var/www/rf-scanner"
+. "$PSScriptRoot/deploy-config.ps1"
 
 # Test SSH connection first
 Write-Host ""
@@ -27,7 +26,7 @@ if ($LASTEXITCODE -eq 0) {
     
     # Deploy using scp
     Write-Host ""
-    Write-Host "Deploying to server 72.60.170.192..." -ForegroundColor Yellow
+    Write-Host "Deploying to server $SERVER_IP..." -ForegroundColor Yellow
     
     # Clean old build files (preserve /data and /server folders)
     Write-Host ""
@@ -48,11 +47,11 @@ if ($LASTEXITCODE -eq 0) {
     if ($LASTEXITCODE -eq 0) {
         Write-Host ""
         Write-Host "Setting permissions and reloading nginx..." -ForegroundColor Yellow
-        ssh -o BatchMode=yes $vpsHost "chown -R www-data:www-data $remotePath; systemctl reload nginx"
+        ssh -o BatchMode=yes $vpsHost "sudo chown -R www-data:www-data $remotePath; sudo systemctl reload nginx"
         
         Write-Host ""
         Write-Host "Deployment complete!" -ForegroundColor Green
-        Write-Host "Your app is live at: https://rf.andel-vps.space" -ForegroundColor Cyan
+        Write-Host "Your app is live at: http://$SERVER_IP" -ForegroundColor Cyan
     } else {
         Write-Host ""
         Write-Host "ERROR: Deployment failed during file transfer" -ForegroundColor Red
