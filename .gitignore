@@ -53,6 +53,10 @@ out/
 # ====================================
 # Keep your example env for reference
 !.env.example
+!server/.env.example
+
+# Docker data volume (local dev)
+server/data/
 
 # Keep Tailwind and config files
 !tailwind.config.js
