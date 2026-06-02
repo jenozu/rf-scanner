@@ -13,7 +13,7 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-const DATA_DIR = process.env.DATA_DIR || '/var/www/rf-scanner/data';
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const JWT_SECRET = process.env.JWT_SECRET || 'rf-scanner-secret-key-change-in-production';
 const JWT_EXPIRES_IN = '24h'; // Token expires in 24 hours
 const execAsync = promisify(exec);

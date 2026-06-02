@@ -1,0 +1,27 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    volumes:
+      - rf_data:/app/server/data
+    env_file:
+      - server/.env
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DATA_DIR: /app/server/data
+
+  nginx:
+    build:
+      context: .
+      dockerfile: Dockerfile.nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - api
+
+volumes:
+  rf_data:
