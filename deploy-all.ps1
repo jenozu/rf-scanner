@@ -70,7 +70,7 @@ Write-Host ""
 
 # Step 4: Install dependencies and restart backend
 Write-Host "Step 4: Installing dependencies and restarting backend..." -ForegroundColor Yellow
-ssh -o BatchMode=yes $vpsHost "cd ${remotePath}/server; npm install; sudo pm2 restart rf-api"
+ssh -o BatchMode=yes $vpsHost "cd ${remotePath}/server; npm install; sudo pm2 describe rf-api > /dev/null 2>&1 && sudo pm2 restart rf-api || sudo pm2 start ecosystem.config.js && sudo pm2 save"
 
 if ($LASTEXITCODE -ne 0) {
     Write-Host "WARNING: Backend restart may have failed. Check PM2 status manually." -ForegroundColor Yellow
