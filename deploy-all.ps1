@@ -37,12 +37,16 @@ Write-Host "Step 2: Deploying frontend (dist folder)..." -ForegroundColor Yellow
 
 # Clean old build files (preserve /data and /server folders)
 Write-Host "Cleaning old build files (preserving /data and /server folders)..." -ForegroundColor Yellow
-ssh -o BatchMode=yes $vpsHost "cd $remotePath; find . -mindepth 1 -maxdepth 1 ! -name 'data' ! -name 'server' -exec rm -rf {} +"
+ssh -o BatchMode=yes $vpsHost "cd $remotePath; find . -mindepth 1 -maxdepth 1 ! -name 'data' ! -name 'server' -exec sudo rm -rf {} +"
 
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Failed to clean old files!" -ForegroundColor Red
     exit 1
 }
+
+# Hand ownership of the root folder back to the deploy user so scp can
+# write into it (Step 5 hands the static files back to www-data at the end)
+ssh -o BatchMode=yes $vpsHost "sudo chown ${SSH_USER}:${SSH_USER} $remotePath"
 
 # Copy frontend files
 Write-Host "Uploading frontend build..." -ForegroundColor Yellow
