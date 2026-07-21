@@ -82,7 +82,7 @@ Write-Host ""
 
 # Step 5: Set permissions and reload nginx
 Write-Host "Step 5: Setting permissions and reloading nginx..." -ForegroundColor Yellow
-ssh -o BatchMode=yes $vpsHost "sudo chown -R www-data:www-data $remotePath; sudo systemctl reload nginx"
+ssh -o BatchMode=yes $vpsHost "find $remotePath -mindepth 1 -maxdepth 1 ! -name 'server' ! -name 'data' -exec sudo chown -R www-data:www-data {} +; sudo chown -R ${SSH_USER}:${SSH_USER} $remotePath/server; sudo systemctl reload nginx"
 
 Write-Host ""
 Write-Host "Deployment complete!" -ForegroundColor Green
