@@ -1,4 +1,4 @@
-# ============================================================
+﻿# ============================================================
 # RF Scanner — Server Configuration
 # Update this file whenever you change servers.
 # All deploy scripts dot-source this file automatically.

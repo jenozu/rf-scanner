@@ -1,4 +1,4 @@
-# Test Script for Shipping Integration
+﻿# Test Script for Shipping Integration
 # Run with: .\test-integration.ps1
 
 Write-Host "🧪 Testing Shipping Integration" -ForegroundColor Cyan

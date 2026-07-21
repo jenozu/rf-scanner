@@ -1,4 +1,4 @@
-# PowerShell script to upload PO CSV/XLSX files to VPS
+﻿# PowerShell script to upload PO CSV/XLSX files to VPS
 # Usage: Run this from PowerShell in the project root
 
 . "$PSScriptRoot/deploy-config.ps1"

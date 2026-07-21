@@ -1,4 +1,4 @@
-# Complete deployment script for RF Scanner (Frontend + Backend)
+﻿# Complete deployment script for RF Scanner (Frontend + Backend)
 # Run this from PowerShell in the project root
 
 . "$PSScriptRoot/deploy-config.ps1"
@@ -8,15 +8,15 @@ Write-Host "Starting complete deployment to VPS..." -ForegroundColor Cyan
 Write-Host ""
 
 # Test SSH connection first
-Write-Host "🔌 Testing SSH connection..." -ForegroundColor Yellow
+Write-Host "Testing SSH connection..." -ForegroundColor Yellow
 $testConnection = ssh -o BatchMode=yes -o ConnectTimeout=5 $vpsHost "echo 'OK'" 2>&1
 if ($LASTEXITCODE -ne 0 -or $testConnection -notmatch "OK") {
-    Write-Host "❌ SSH connection failed!" -ForegroundColor Red
+    Write-Host "SSH connection failed!" -ForegroundColor Red
     Write-Host "Make sure SSH keys are set up correctly." -ForegroundColor Yellow
     Write-Host "Test manually with: ssh $vpsHost" -ForegroundColor Gray
     exit 1
 }
-Write-Host "✅ SSH connection successful (using SSH keys)" -ForegroundColor Green
+Write-Host "SSH connection successful (using SSH keys)" -ForegroundColor Green
 Write-Host ""
 
 # Step 1: Build frontend

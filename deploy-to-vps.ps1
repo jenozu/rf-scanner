@@ -1,4 +1,4 @@
-# Deploy RF Scanner app to VPS
+﻿# Deploy RF Scanner app to VPS
 # Run this from PowerShell in the project root
 
 . "$PSScriptRoot/deploy-config.ps1"
