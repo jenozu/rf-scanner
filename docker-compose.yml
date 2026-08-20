@@ -19,7 +19,7 @@ services:
       dockerfile: Dockerfile.nginx
     restart: unless-stopped
     ports:
-      - "80:80"
+      - "8082:80"
     depends_on:
       - api
 

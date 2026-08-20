@@ -1,0 +1,8 @@
+services:
+  nginx:
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.rf-scanner.rule=Host(`rf.andel-vps.space`)"
+      - "traefik.http.routers.rf-scanner.entrypoints=websecure"
+      - "traefik.http.routers.rf-scanner.tls.certresolver=letsencrypt"
+      - "traefik.http.services.rf-scanner.loadbalancer.server.port=80"
