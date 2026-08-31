@@ -55,8 +55,9 @@ out/
 !.env.example
 !server/.env.example
 
-# Docker data volume (local dev)
+# Persistent/runtime data (do not commit company inventory or server state)
 server/data/
+/data/
 
 # Keep Tailwind and config files
 !tailwind.config.js
