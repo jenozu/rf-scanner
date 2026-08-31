@@ -20,6 +20,10 @@ services:
     restart: unless-stopped
     ports:
       - "8082:80"
+    volumes:
+      # Persistent host folder for master inventory files.
+      # Put master_inventory.xlsx in /docker/rf-scanner/data on the VPS.
+      - ./data:/usr/share/nginx/html/data:ro
     depends_on:
       - api
 
