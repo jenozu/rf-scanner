@@ -1,0 +1,24 @@
+{
+  "baseURL": "http://127.0.0.1:4173",
+  "desktop": {
+    "dashboard": true,
+    "allMajorNavigation": true,
+    "shippingSimulation": true,
+    "localStoragePersistence": true,
+    "noHorizontalOverflow": true,
+    "keyboardFocus": true,
+    "reducedMotionContext": true
+  },
+  "mobile": {
+    "dashboard": true,
+    "inventory": true,
+    "drawerNavigation": true,
+    "shipping": true,
+    "noHorizontalOverflow": true,
+    "touchLayout": true
+  },
+  "consoleErrors": [],
+  "pageErrors": [],
+  "unexpectedExternalRequests": [],
+  "passed": true
+}
