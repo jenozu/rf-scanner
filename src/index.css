@@ -1507,3 +1507,9 @@ textarea:focus-visible {
 @keyframes wms-spin {
   to { transform: rotate(360deg); }
 }
+
+
+/* Keep the cinematic dashboard headline legible above the legacy workflow heading layer. */
+.wms-content .ops-hero h1 {
+  color: #f3f5ef !important;
+}
