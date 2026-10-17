@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import HomePage from "./pages/home-page";
 import TransactionsPage from "./pages/transactions-page";
 import ScanPage from "./pages/scan-page";
@@ -10,17 +10,17 @@ import ShippingPage from "./pages/shipping-page";
 import SetupPage from "./pages/setup-page";
 import SettingsPage from "./pages/settings-page";
 import NumpadModal from "./pages/numpad-modal";
-import FooterNav from "./components/footer-nav";
-import Header from "./components/header";
+import WarehouseShell from "./components/warehouse-shell";
 import { PageType, Item } from "./types";
 import { api } from "./services/api";
 import { buildBinsFromItems } from "./utils/bin-utils";
+import { demoUser, isDemoMode, resetDemoData, seedDemoData } from "./demo/demo-mode";
 
 export default function App() {
-  // Check if data is initialized
+  const demo = isDemoMode();
   const [isInitialized, setIsInitialized] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [page, setPage] = useState<PageType>("settings");
+  const [page, setPage] = useState<PageType>(demo ? "home" : "settings");
   const [showNumpad, setShowNumpad] = useState(false);
   const [activeItem, setActiveItem] = useState<string | null>(null);
 
@@ -68,15 +68,23 @@ export default function App() {
     await ensureBinsData(safeItems);
   }, [ensureBinsData]);
 
-  // Check login status and data on mount
   useEffect(() => {
     const checkInitialState = async () => {
+      if (demo) {
+        seedDemoData();
+        sessionStorage.setItem("rf_current_user_id", demoUser.id);
+        sessionStorage.setItem("rf_auth_token", "demo-preview-token");
+        setIsLoggedIn(true);
+        setIsInitialized(true);
+        setPage("home");
+        return;
+      }
+
       const currentUserId = sessionStorage.getItem("rf_current_user_id");
       const loggedIn = !!currentUserId;
       setIsLoggedIn(loggedIn);
-      
+
       if (loggedIn) {
-        // User is logged in, check for data from API
         try {
           const data = (await api.getData("rf_active")) as Item[];
           const hasData = data && Array.isArray(data) && data.length > 0;
@@ -85,53 +93,48 @@ export default function App() {
             setIsInitialized(true);
             setPage("home");
           } else {
-            // Logged in but no data - go to setup
             setPage("setup");
           }
         } catch (error) {
-          // API not available or error, go to setup
           console.error("Error checking data:", error);
           setPage("setup");
         }
       } else {
-        // Not logged in - show login (settings page)
         setPage("settings");
       }
     };
-    
-    checkInitialState();
-  }, [syncLocalInventoryData]);
 
-  // Open numpad for manual adjustment
+    checkInitialState();
+  }, [demo, syncLocalInventoryData]);
+
   const handleAdjust = (itemCode: string) => {
     setActiveItem(itemCode);
     setShowNumpad(true);
   };
 
-  // Start cycle count from bin scan
   const handleStartCount = (binCode: string) => {
     setPage("inventory");
-    // The inventory page will handle finding/create cycle count tasks for this bin
-    // Store the bin code in localStorage for the inventory page to pick up
     sessionStorage.setItem("rf_start_count_bin", binCode);
   };
 
-  // Close modal
   const handleCloseNumpad = () => {
     setShowNumpad(false);
     setActiveItem(null);
   };
 
-  // Handle setup completion
   const handleSetupComplete = () => {
     setIsInitialized(true);
     setPage("home");
   };
-  
-  // Handle successful login
+
   const handleLogin = async () => {
     setIsLoggedIn(true);
-    // Check if data exists after login
+    if (demo) {
+      setIsInitialized(true);
+      setPage("home");
+      return;
+    }
+
     try {
       const data = (await api.getData("rf_active")) as Item[];
       const hasData = data && Array.isArray(data) && data.length > 0;
@@ -148,30 +151,41 @@ export default function App() {
     }
   };
 
+  const handleResetDemo = () => {
+    resetDemoData();
+    window.location.reload();
+  };
+
   return (
-    <div className="flex flex-col min-h-screen bg-gray-50 text-gray-900">
-      <Header />
-
-      <main className="flex-1 p-4 pb-20">
-        {page === "settings" && <SettingsPage setPage={setPage} onLogin={handleLogin} />}
-        {page === "setup" && isLoggedIn && <SetupPage setPage={setPage} onSetupComplete={handleSetupComplete} />}
-        {page === "home" && isLoggedIn && <HomePage setPage={setPage} />}
-        {page === "transactions" && isLoggedIn && <TransactionsPage setPage={setPage} />}
-        {page === "receive" && isLoggedIn && <ReceivePage setPage={setPage} />}
-        {page === "scan" && isLoggedIn && (
-          <ScanPage setPage={setPage} onAdjustItem={handleAdjust} onStartCount={handleStartCount} />
-        )}
-        {page === "pick" && isLoggedIn && <PickPage setPage={setPage} />}
-        {page === "inventory" && isLoggedIn && <InventoryPage setPage={setPage} />}
-        {page === "export" && isLoggedIn && <ExportPage setPage={setPage} />}
-        {page === "shipping" && isLoggedIn && <ShippingPage setPage={setPage} />}
-      </main>
-
-      {isInitialized && isLoggedIn && <FooterNav currentPage={page} setPage={setPage} />}
+    <WarehouseShell
+      currentPage={page}
+      setPage={setPage}
+      isLoggedIn={isLoggedIn}
+      isDemo={demo}
+      onResetDemo={demo ? handleResetDemo : undefined}
+    >
+      {page === "settings" && <SettingsPage setPage={setPage} onLogin={handleLogin} />}
+      {page === "setup" && isLoggedIn && (
+        <SetupPage setPage={setPage} onSetupComplete={handleSetupComplete} />
+      )}
+      {page === "home" && isLoggedIn && <HomePage setPage={setPage} />}
+      {page === "transactions" && isLoggedIn && <TransactionsPage setPage={setPage} />}
+      {page === "receive" && isLoggedIn && <ReceivePage setPage={setPage} />}
+      {page === "scan" && isLoggedIn && (
+        <ScanPage
+          setPage={setPage}
+          onAdjustItem={handleAdjust}
+          onStartCount={handleStartCount}
+        />
+      )}
+      {page === "pick" && isLoggedIn && <PickPage setPage={setPage} />}
+      {page === "inventory" && isLoggedIn && <InventoryPage setPage={setPage} />}
+      {page === "export" && isLoggedIn && <ExportPage setPage={setPage} />}
+      {page === "shipping" && isLoggedIn && <ShippingPage setPage={setPage} />}
 
       {showNumpad && (
         <NumpadModal itemCode={activeItem} onClose={handleCloseNumpad} />
       )}
-    </div>
+    </WarehouseShell>
   );
 }
