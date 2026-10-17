@@ -422,7 +422,7 @@ export default function ShippingPage({ setPage }: ShippingPageProps) {
 
   return (
     <div className="p-4 max-w-6xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-bold mb-1">Shipping</h1>
           <p className="text-gray-600">Manage outbound shipments and create Purolator labels</p>
@@ -439,7 +439,7 @@ export default function ShippingPage({ setPage }: ShippingPageProps) {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mb-6">
         <div className="bg-white rounded-lg shadow p-4">
           <div className="flex items-center justify-between mb-2">
             <Package className="text-orange-600" size={20} />
@@ -476,7 +476,7 @@ export default function ShippingPage({ setPage }: ShippingPageProps) {
       {/* Search and Filters */}
       <div className="bg-white rounded-lg shadow p-4 mb-4">
         <div className="flex flex-col md:flex-row gap-4">
-          <div className="flex-1">
+          <div className="flex-1 min-w-0">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
               <input
@@ -505,11 +505,11 @@ export default function ShippingPage({ setPage }: ShippingPageProps) {
 
         {/* Selection Actions */}
         {selectedOrders.size > 0 && (
-          <div className="mt-4 flex items-center gap-2 p-3 bg-blue-50 rounded-lg">
+          <div className="mt-4 flex flex-col sm:flex-row sm:items-center gap-3 p-3 bg-blue-50 rounded-lg">
             <span className="text-sm font-medium text-blue-800">
               {selectedOrders.size} order{selectedOrders.size > 1 ? "s" : ""} selected
             </span>
-            <div className="flex gap-2 ml-auto">
+            <div className="flex flex-wrap gap-2 sm:ml-auto">
               <button
                 onClick={createBatchShipments}
                 disabled={Array.from(selectedOrders).some(id => loading.has(id))}
@@ -597,8 +597,8 @@ export default function ShippingPage({ setPage }: ShippingPageProps) {
                     isSelected ? "bg-blue-50 border-l-4 border-blue-500" : ""
                   }`}
                 >
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-start gap-3 flex-1">
+                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                    <div className="flex items-start gap-3 flex-1 min-w-0 w-full">
                       {isReady && (
                         <input
                           type="checkbox"
@@ -608,8 +608,8 @@ export default function ShippingPage({ setPage }: ShippingPageProps) {
                         />
                       )}
                       
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2 mb-1">
                           <h3 className="font-semibold text-lg">{order.soNumber}</h3>
                           <span className={`px-2 py-1 rounded text-xs font-medium ${
                             order.status === "shipped" 
@@ -629,7 +629,7 @@ export default function ShippingPage({ setPage }: ShippingPageProps) {
                           )}
                         </p>
                         
-                        <div className="flex items-center gap-4 text-sm text-gray-500">
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-500">
                           <span className="flex items-center gap-1">
                             <Package size={14} />
                             {totalItems} item{totalItems > 1 ? "s" : ""}
@@ -652,7 +652,7 @@ export default function ShippingPage({ setPage }: ShippingPageProps) {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
                       {order.status === "shipped" && (
                         <CheckCircle2 className="text-green-500" size={20} />
                       )}
