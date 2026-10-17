@@ -1,0 +1,64 @@
+name: RF preview visual smoke test
+
+on:
+  push:
+    branches:
+      - feat/rf-scanner-premium-redesign
+    paths:
+      - ".github/workflows/rf-preview-e2e.yml"
+      - "scripts/e2e-preview.mjs"
+      - "src/**"
+      - "package.json"
+      - "vite.config.ts"
+      - "vercel.json"
+
+permissions:
+  contents: read
+
+jobs:
+  visual-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout redesign branch
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install application dependencies
+        run: npm install
+
+      - name: Verify production build
+        run: npm run build
+
+      - name: Install Playwright for visual smoke testing
+        run: |
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+
+      - name: Start isolated demo server
+        run: |
+          VITE_DEMO_MODE=true npm run dev -- --host 127.0.0.1 --port 4173 > /tmp/rf-vite.log 2>&1 &
+          echo $! > /tmp/rf-vite.pid
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:4173 >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/rf-vite.log
+          exit 1
+
+      - name: Exercise desktop and mobile workflows
+        run: node scripts/e2e-preview.mjs
+
+      - name: Upload screenshots and report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rf-preview-visual-smoke
+          path: artifacts/rf-preview
+          if-no-files-found: warn
