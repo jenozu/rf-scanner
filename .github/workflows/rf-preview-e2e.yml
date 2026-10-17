@@ -1,5 +1,9 @@
 name: RF preview visual smoke test
 
+concurrency:
+  group: rf-preview-premium-redesign
+  cancel-in-progress: true
+
 on:
   push:
     branches:
