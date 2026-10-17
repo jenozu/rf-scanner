@@ -48,6 +48,14 @@ async function noHorizontalOverflow(page, label) {
   );
 }
 
+async function waitForModule(page) {
+  const loader = page.locator(".wms-loading-shell");
+  if (await loader.count()) {
+    await loader.waitFor({ state: "detached", timeout: 10000 });
+  }
+  await page.waitForTimeout(80);
+}
+
 async function assertHeading(page, expected) {
   await page.locator(".wms-page-heading strong").filter({ hasText: expected }).waitFor({ state: "visible" });
 }
@@ -55,6 +63,7 @@ async function assertHeading(page, expected) {
 async function clickDesktopNav(page, label, expectedHeading) {
   await page.locator(".wms-sidebar").getByRole("button", { name: label, exact: true }).click();
   await assertHeading(page, expectedHeading);
+  await waitForModule(page);
   await noHorizontalOverflow(page, expectedHeading);
 }
 
@@ -80,19 +89,64 @@ try {
   }
 
   await clickDesktopNav(desktop, "Receiving / GRPO", "Receiving / GRPO");
+  await desktop.getByText("PO-48217", { exact: true }).first().click();
+  await desktop.getByText("Items to Receive", { exact: true }).waitFor({ state: "visible" });
+  await desktop.getByRole("button", { name: "Receive", exact: true }).first().click();
+  await desktop.getByText("Quantity Received", { exact: true }).waitFor({ state: "visible" });
   await desktop.screenshot({ path: `${outputDir}/receiving-desktop.png`, fullPage: true });
+  await desktop.getByRole("button", { name: "Confirm Receive to Staging", exact: true }).click();
+  await desktop.waitForFunction(() => {
+    const pos = JSON.parse(localStorage.getItem("rf_purchase_orders") || "[]");
+    const po = pos.find((candidate) => candidate.poNumber === "PO-48217");
+    const item = po?.items.find((candidate) => candidate.ItemCode === "PTO-850-A");
+    return item?.ReceivedQty === 6;
+  });
 
   await clickDesktopNav(desktop, "Picking", "Order picking");
+  await desktop.getByRole("button", { name: "Start Picking", exact: true }).first().click();
+  await desktop.getByRole("button", { name: "Confirm Pick", exact: true }).waitFor({ state: "visible" });
   await desktop.screenshot({ path: `${outputDir}/picking-desktop.png`, fullPage: true });
+  await desktop.getByRole("button", { name: "Confirm Pick", exact: true }).click();
+  await desktop.waitForFunction(() => {
+    const orders = JSON.parse(localStorage.getItem("rf_sales_orders") || "[]");
+    const so = orders.find((candidate) => candidate.soNumber === "SO-73111");
+    return so?.items?.some((item) => item.ItemCode === "GBX-220" && item.DeliveredQty === 1);
+  });
 
   await clickDesktopNav(desktop, "Scan & Inquiry", "Scan & inquiry");
+  const lookup = desktop.getByPlaceholder("Enter item or bin code");
+  await lookup.fill("01-0210");
+  await lookup.press("Enter");
+  await desktop.getByText("Bin Contents (1 items)", { exact: true }).waitFor({ state: "visible" });
+  await desktop.screenshot({ path: `${outputDir}/scan-desktop.png`, fullPage: true });
+  await desktop.getByRole("button", { name: "Clear", exact: true }).click();
+  await lookup.fill("NO-DEMO-ITEM");
+  await lookup.press("Enter");
+  await desktop.getByText(/No bin or item found for code:/).waitFor({ state: "visible" });
   await noHorizontalOverflow(desktop, "scan desktop");
 
   await clickDesktopNav(desktop, "Inventory & Counts", "Inventory & cycle counts");
+  await desktop.getByRole("button", { name: "Count", exact: true }).first().click();
+  await desktop.getByText("Physical Count", { exact: true }).waitFor({ state: "visible" });
   await desktop.screenshot({ path: `${outputDir}/inventory-desktop.png`, fullPage: true });
+  const physicalCount = desktop.getByPlaceholder("Enter counted quantity");
+  await physicalCount.fill("18");
+  await desktop.getByRole("button", { name: "Submit Count", exact: true }).click();
+  await desktop.waitForFunction(() => {
+    const counts = JSON.parse(localStorage.getItem("rf_cycle_counts") || "[]");
+    return counts.some((count) => count.id === "demo-cc-3" && count.Status === "completed" && count.CountedQty === 18);
+  });
 
   await clickDesktopNav(desktop, "Transactions", "Transactions");
+
   await clickDesktopNav(desktop, "Exports", "Exports");
+  for (const name of [/Download Updated CSV/, /Download Receiving Log CSV/, /Download Cycle Count Log CSV/]) {
+    const downloadPromise = desktop.waitForEvent("download");
+    await desktop.getByRole("button", { name }).click();
+    const download = await downloadPromise;
+    assert(Boolean(download.suggestedFilename()), `Export did not produce a filename for ${name}`);
+  }
+
   await clickDesktopNav(desktop, "Settings", "Settings & access");
 
   await clickDesktopNav(desktop, "Shipping", "Shipping operations");
@@ -120,6 +174,11 @@ try {
   report.desktop = {
     dashboard: true,
     allMajorNavigation: true,
+    receivingSimulation: true,
+    pickingSimulation: true,
+    successfulAndUnsuccessfulInquiry: true,
+    cycleCountPersistence: true,
+    exportDownloads: true,
     shippingSimulation: true,
     localStoragePersistence: true,
     noHorizontalOverflow: true,
@@ -141,18 +200,20 @@ try {
   await mobile.goto(baseURL, { waitUntil: "networkidle" });
   await assertHeading(mobile, "Warehouse control centre");
   await noHorizontalOverflow(mobile, "mobile dashboard");
-  await mobile.screenshot({ path: `${outputDir}/dashboard-mobile.png`, fullPage: true });
+  await mobile.screenshot({ path: `${outputDir}/dashboard-mobile.png`, fullPage: false });
 
   await mobile.locator(".wms-mobile-dock").getByRole("button", { name: "Count", exact: true }).click();
   await assertHeading(mobile, "Inventory & cycle counts");
+  await waitForModule(mobile);
   await noHorizontalOverflow(mobile, "mobile inventory");
-  await mobile.screenshot({ path: `${outputDir}/inventory-mobile.png`, fullPage: true });
+  await mobile.screenshot({ path: `${outputDir}/inventory-mobile.png`, fullPage: false });
 
   await mobile.getByRole("button", { name: "Open navigation" }).click();
   await mobile.locator(".wms-drawer-panel").getByRole("button", { name: "Shipping", exact: true }).click();
   await assertHeading(mobile, "Shipping operations");
+  await waitForModule(mobile);
   await noHorizontalOverflow(mobile, "mobile shipping");
-  await mobile.screenshot({ path: `${outputDir}/shipping-mobile.png`, fullPage: true });
+  await mobile.screenshot({ path: `${outputDir}/shipping-mobile.png`, fullPage: false });
 
   report.mobile = {
     dashboard: true,
