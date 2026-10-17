@@ -183,6 +183,7 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
       const newBin: BinLocation = {
         BinCode: finalBin,
         Zone: "Main",
+        Capacity: 1000,
         Status: "active",
         Items: [
           {
