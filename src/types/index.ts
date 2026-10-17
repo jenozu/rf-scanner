@@ -244,7 +244,7 @@ export interface InventorySession {
   currentCycleCountId?: string; // Currently active count
   items?: SessionItem[]; // Items tracked in this session
   // Sequential counting state
-  countingMode?: "cycle" | "sequential";
+  countingMode?: "cycle" | "sequential" | "full";
   binRangeStart?: string;
   binRangeEnd?: string;
   currentItemIndex?: number;
