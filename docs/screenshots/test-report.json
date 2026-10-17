@@ -3,6 +3,11 @@
   "desktop": {
     "dashboard": true,
     "allMajorNavigation": true,
+    "receivingSimulation": true,
+    "pickingSimulation": true,
+    "successfulAndUnsuccessfulInquiry": true,
+    "cycleCountPersistence": true,
+    "exportDownloads": true,
     "shippingSimulation": true,
     "localStoragePersistence": true,
     "noHorizontalOverflow": true,
