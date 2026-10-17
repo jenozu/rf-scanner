@@ -382,7 +382,7 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem, onStartCount
                   <button
                     onClick={() => {
                       if (onStartCount) {
-                        onStartCount(scanResult.bin.BinCode);
+                        onStartCount(scanResult.bin!.BinCode);
                         handleClearScan();
                       }
                     }}
