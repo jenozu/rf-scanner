@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { CycleCount, BinLocation, CycleCountTransaction, BinItem, InventorySession, TemporaryLocation, TemporaryLocationItem, SessionItem } from "../types";
-import { ClipboardCheck, Camera, AlertCircle, CheckCircle2, Plus, FolderOpen, MapPin, X, Save, Play, ChevronRight, ChevronLeft, SkipForward, Download, List, Upload } from "lucide-react";
+import { ClipboardCheck, Camera, AlertCircle, CheckCircle2, Plus, FolderOpen, MapPin, X, Save, Play, ChevronRight, ChevronLeft, ArrowLeft, SkipForward, Download, List, Upload } from "lucide-react";
 import Quagga from "@ericblade/quagga2";
 import { parseCSV } from "../data/csv-utils";
 
@@ -1069,6 +1069,8 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
         updatedBins.push({
           BinCode: newCount.BinCode,
           Zone: "FULL_COUNT",
+          Capacity: 1000,
+          Status: "active",
           Items: [{
             ItemCode: newCount.ItemCode,
             Description: newCount.ItemCode,
@@ -2518,6 +2520,8 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
   }
 
   // Render counting form
+  if (!selectedCount) return null;
+
   const bin = bins.find((b) => b.BinCode === selectedCount.BinCode);
   const binItem = bin?.Items.find((i) => i.ItemCode === selectedCount.ItemCode);
 
