@@ -688,7 +688,7 @@ export default function PickPage({ setPage }: PickPageProps) {
       {/* Progress Bar */}
       <div className="bg-white rounded-lg shadow p-4 mb-6">
         <div className="flex justify-between items-center mb-2">
-          <h2 className="text-lg font-bold">{selectedWave.waveNumber}</h2>
+          <h2 className="text-lg font-bold">{selectedWave?.waveNumber ?? "Active Wave"}</h2>
           <span className="text-sm text-gray-600">
             {currentPickIndex + 1} / {pickList.length}
           </span>
