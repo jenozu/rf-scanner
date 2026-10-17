@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { PageType, SalesOrder, Order } from "../types";
+import { isDemoMode } from "../demo/demo-mode";
 import { 
   Package, 
   Truck, 
@@ -17,7 +18,7 @@ interface ShippingPageProps {
   setPage: (page: PageType) => void;
 }
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001';
+const API_BASE_URL = import.meta.env.VITE_API_URL || "";
 
 export default function ShippingPage({ setPage }: ShippingPageProps) {
   const [orders, setOrders] = useState<SalesOrder[]>([]);
@@ -33,6 +34,12 @@ export default function ShippingPage({ setPage }: ShippingPageProps) {
   }, []);
 
   const loadOrders = async () => {
+    if (isDemoMode()) {
+      const salesOrders = JSON.parse(localStorage.getItem("rf_sales_orders") || "[]") as SalesOrder[];
+      setOrders(salesOrders);
+      return;
+    }
+
     try {
       // Try to load from server first
       const response = await fetch(`${API_BASE_URL}/api/data/rf_sales_orders`);
@@ -77,6 +84,11 @@ export default function ShippingPage({ setPage }: ShippingPageProps) {
   };
 
   const saveOrders = async (updatedOrders: SalesOrder[]) => {
+    if (isDemoMode()) {
+      localStorage.setItem("rf_sales_orders", JSON.stringify(updatedOrders));
+      return;
+    }
+
     try {
       // Try to save to server
       await fetch(`${API_BASE_URL}/api/data/rf_sales_orders`, {
@@ -181,6 +193,42 @@ export default function ShippingPage({ setPage }: ShippingPageProps) {
     setLoading(prev => new Set(prev).add(orderId));
     setError(null);
 
+    if (isDemoMode()) {
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 550));
+        const shipmentPin = `DEMO-${String(Date.now()).slice(-8)}`;
+        const updatedOrders = orders.map((candidate) =>
+          candidate.id === orderId
+            ? {
+                ...candidate,
+                status: "shipped" as const,
+                shipmentPin,
+                shippedDate: new Date().toISOString(),
+              }
+            : candidate
+        );
+        setOrders(updatedOrders);
+        await saveOrders(updatedOrders);
+        setSuccessMessages((previous) =>
+          new Map(previous).set(orderId, `Preview shipment created · ${shipmentPin}`)
+        );
+        setTimeout(() => {
+          setSuccessMessages((previous) => {
+            const next = new Map(previous);
+            next.delete(orderId);
+            return next;
+          });
+        }, 5000);
+      } finally {
+        setLoading((previous) => {
+          const next = new Set(previous);
+          next.delete(orderId);
+          return next;
+        });
+      }
+      return;
+    }
+
     try {
       // Check if order has shipping address data
       const hasShippingAddress = order.shipToStreet && order.shipToCity && order.shipToProvince && order.shipToPostal;
@@ -198,12 +246,12 @@ export default function ShippingPage({ setPage }: ShippingPageProps) {
       if (hasShippingAddress) {
         requestBody.shipmentData = {
           // Sender info (from .env defaults - configured on backend)
-          sender_name: process.env.DEFAULT_SENDER_NAME || 'Your Warehouse',
-          sender_street: process.env.DEFAULT_SENDER_STREET || '123 Main St',
-          sender_city: process.env.DEFAULT_SENDER_CITY || 'Toronto',
-          sender_province: process.env.DEFAULT_SENDER_PROVINCE || 'ON',
-          sender_postal: process.env.DEFAULT_SENDER_POSTAL || 'M5J2R8',
-          sender_phone: process.env.DEFAULT_SENDER_PHONE || '416-555-1234',
+          sender_name: import.meta.env.VITE_DEFAULT_SENDER_NAME || 'Your Warehouse',
+          sender_street: import.meta.env.VITE_DEFAULT_SENDER_STREET || '123 Main St',
+          sender_city: import.meta.env.VITE_DEFAULT_SENDER_CITY || 'Toronto',
+          sender_province: import.meta.env.VITE_DEFAULT_SENDER_PROVINCE || 'ON',
+          sender_postal: import.meta.env.VITE_DEFAULT_SENDER_POSTAL || 'M5J2R8',
+          sender_phone: import.meta.env.VITE_DEFAULT_SENDER_PHONE || '416-555-1234',
           
           // Receiver info (from sales order)
           receiver_name: order.customer,
@@ -280,6 +328,35 @@ export default function ShippingPage({ setPage }: ShippingPageProps) {
     setLoading(prev => new Set([...prev, ...orderIds]));
     setError(null);
 
+    if (isDemoMode()) {
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 700));
+        const now = Date.now();
+        const updatedOrders = orders.map((order, index) =>
+          selectedOrders.has(order.id)
+            ? {
+                ...order,
+                status: "shipped" as const,
+                shipmentPin: `DEMO-${String(now + index).slice(-8)}`,
+                shippedDate: new Date().toISOString(),
+              }
+            : order
+        );
+        setOrders(updatedOrders);
+        await saveOrders(updatedOrders);
+        const shippedCount = selectedOrders.size;
+        setSelectedOrders(new Set());
+        alert(`Preview batch complete!\nSimulated shipments: ${shippedCount}\nNo carrier API was contacted.`);
+      } finally {
+        setLoading((previous) => {
+          const next = new Set(previous);
+          orderIds.forEach((id) => next.delete(id));
+          return next;
+        });
+      }
+      return;
+    }
+
     try {
       const response = await fetch(`${API_BASE_URL}/api/shipping/shipments/batch`, {
         method: 'POST',
@@ -335,8 +412,11 @@ export default function ShippingPage({ setPage }: ShippingPageProps) {
   };
 
   const openPurolatorApp = () => {
-    // Note: This would open the Python shipping app
-    // For web deployment, you'd need to create a backend API endpoint
+    if (isDemoMode()) {
+      alert("Preview mode: Purolator, SAP, and live label creation are intentionally disabled. Use Create Shipment to run a safe simulated workflow.");
+      return;
+    }
+
     alert("To use full shipping features:\n\n1. Open terminal/command prompt\n2. Navigate to: puro folder\n3. Run: python batch_shipping_app.py\n\nOr use the Export CSV feature to export orders for batch processing.");
   };
 
