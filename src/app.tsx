@@ -1,20 +1,21 @@
-import { useCallback, useEffect, useState } from "react";
-import HomePage from "./pages/home-page";
-import TransactionsPage from "./pages/transactions-page";
-import ScanPage from "./pages/scan-page";
-import ReceivePage from "./pages/receive-page";
-import PickPage from "./pages/pick-page";
-import InventoryPage from "./pages/inventory-page";
-import ExportPage from "./pages/export-page";
-import ShippingPage from "./pages/shipping-page";
-import SetupPage from "./pages/setup-page";
-import SettingsPage from "./pages/settings-page";
-import NumpadModal from "./pages/numpad-modal";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import WarehouseShell from "./components/warehouse-shell";
 import { PageType, Item } from "./types";
 import { api } from "./services/api";
 import { buildBinsFromItems } from "./utils/bin-utils";
 import { demoUser, isDemoMode, resetDemoData, seedDemoData } from "./demo/demo-mode";
+
+const HomePage = lazy(() => import("./pages/home-page"));
+const TransactionsPage = lazy(() => import("./pages/transactions-page"));
+const ScanPage = lazy(() => import("./pages/scan-page"));
+const ReceivePage = lazy(() => import("./pages/receive-page"));
+const PickPage = lazy(() => import("./pages/pick-page"));
+const InventoryPage = lazy(() => import("./pages/inventory-page"));
+const ExportPage = lazy(() => import("./pages/export-page"));
+const ShippingPage = lazy(() => import("./pages/shipping-page"));
+const SetupPage = lazy(() => import("./pages/setup-page"));
+const SettingsPage = lazy(() => import("./pages/settings-page"));
+const NumpadModal = lazy(() => import("./pages/numpad-modal"));
 
 export default function App() {
   const demo = isDemoMode();
@@ -164,6 +165,14 @@ export default function App() {
       isDemo={demo}
       onResetDemo={demo ? handleResetDemo : undefined}
     >
+      <Suspense
+        fallback={
+          <div className="wms-loading-shell" role="status" aria-live="polite">
+            <span />
+            <strong>Loading warehouse module</strong>
+          </div>
+        }
+      >
       {page === "settings" && <SettingsPage setPage={setPage} onLogin={handleLogin} />}
       {page === "setup" && isLoggedIn && (
         <SetupPage setPage={setPage} onSetupComplete={handleSetupComplete} />
@@ -186,6 +195,7 @@ export default function App() {
       {showNumpad && (
         <NumpadModal itemCode={activeItem} onClose={handleCloseNumpad} />
       )}
+      </Suspense>
     </WarehouseShell>
   );
 }
