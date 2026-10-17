@@ -1,198 +1,349 @@
-import { useState, useEffect } from "react";
-import { PageType, PurchaseOrder, Order, Wave, CycleCount, BinLocation } from "../types";
-import { 
-  Package, 
-  Truck, 
-  ClipboardCheck, 
-  TrendingUp, 
+import { useEffect, useMemo, useState } from "react";
+import {
+  Activity,
   AlertCircle,
-  CheckCircle2
+  ArrowRight,
+  CheckCircle2,
+  ClipboardCheck,
+  Package,
+  Search,
+  TrendingUp,
+  Truck,
 } from "lucide-react";
+import {
+  BinLocation,
+  CycleCount,
+  CycleCountTransaction,
+  Order,
+  PageType,
+  PurchaseOrder,
+  ReceivingTransaction,
+  SalesOrder,
+  Wave,
+} from "../types";
 
 interface HomePageProps {
   setPage: (page: PageType) => void;
 }
 
+type Stats = {
+  pendingPOs: number;
+  receivingPOs: number;
+  pendingOrders: number;
+  activeWaves: number;
+  pendingCounts: number;
+  completedCounts: number;
+  totalBins: number;
+  accuracy: number;
+  readyToShip: number;
+  shipped: number;
+};
+
+type TimelineEntry = {
+  id: string;
+  title: string;
+  detail: string;
+  time: string;
+  tone: "good" | "warn" | "neutral";
+};
+
+const emptyStats: Stats = {
+  pendingPOs: 0,
+  receivingPOs: 0,
+  pendingOrders: 0,
+  activeWaves: 0,
+  pendingCounts: 0,
+  completedCounts: 0,
+  totalBins: 0,
+  accuracy: 0,
+  readyToShip: 0,
+  shipped: 0,
+};
+
+function read<T>(key: string, fallback: T): T {
+  try {
+    return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback));
+  } catch {
+    return fallback;
+  }
+}
+
+function timeLabel(value: string) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return parsed.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
 export default function HomePage({ setPage }: HomePageProps) {
-  const [stats, setStats] = useState({
-    pendingPOs: 0,
-    receivingPOs: 0,
-    pendingOrders: 0,
-    activeWaves: 0,
-    pendingCounts: 0,
-    completedCounts: 0,
-    totalBins: 0,
-    accuracy: 0,
-  });
+  const [stats, setStats] = useState<Stats>(emptyStats);
+  const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
 
   useEffect(() => {
-    // Load data from localStorage
-    const pos = JSON.parse(localStorage.getItem("rf_purchase_orders") || "[]") as PurchaseOrder[];
-    const orders = JSON.parse(localStorage.getItem("rf_orders") || "[]") as Order[];
-    const waves = JSON.parse(localStorage.getItem("rf_waves") || "[]") as Wave[];
-    const counts = JSON.parse(localStorage.getItem("rf_cycle_counts") || "[]") as CycleCount[];
-    const bins = JSON.parse(localStorage.getItem("rf_bins") || "[]") as BinLocation[];
+    const pos = read<PurchaseOrder[]>("rf_purchase_orders", []);
+    const orders = read<Order[]>("rf_orders", []);
+    const salesOrders = read<SalesOrder[]>("rf_sales_orders", []);
+    const waves = read<Wave[]>("rf_waves", []);
+    const counts = read<CycleCount[]>("rf_cycle_counts", []);
+    const bins = read<BinLocation[]>("rf_bins", []);
+    const receiving = read<ReceivingTransaction[]>("rf_receiving_txns", []);
+    const countTxns = read<CycleCountTransaction[]>("rf_cycle_count_txns", []);
 
-    // Calculate stats
-    const completedCountsList = counts.filter((c) => c.Status === "completed");
-    const accurateCounts = completedCountsList.filter((c) => c.Variance === 0).length;
-    const accuracy = completedCountsList.length > 0 
-      ? (accurateCounts / completedCountsList.length) * 100 
-      : 0;
+    const completedCounts = counts.filter((count) => count.Status === "completed");
+    const accurateCounts = completedCounts.filter((count) => count.Variance === 0).length;
+    const accuracy =
+      completedCounts.length > 0
+        ? Math.round((accurateCounts / completedCounts.length) * 100)
+        : 0;
 
     setStats({
       pendingPOs: pos.filter((po) => po.status === "pending").length,
       receivingPOs: pos.filter((po) => po.status === "receiving").length,
-      pendingOrders: orders.filter((o) => o.status === "pending").length,
-      activeWaves: waves.filter((w) => w.status === "active" || w.status === "pending").length,
-      pendingCounts: counts.filter((c) => c.Status === "pending").length,
-      completedCounts: completedCountsList.length,
+      pendingOrders:
+        orders.filter((order) => order.status === "pending" || order.status === "picking").length +
+        salesOrders.filter((order) => order.status === "pending" || order.status === "picking").length,
+      activeWaves: waves.filter((wave) => wave.status === "active" || wave.status === "pending").length,
+      pendingCounts: counts.filter((count) => count.Status === "pending").length,
+      completedCounts: completedCounts.length,
       totalBins: bins.length,
-      accuracy: Math.round(accuracy),
+      accuracy,
+      readyToShip: salesOrders.filter((order) => order.status === "picked").length,
+      shipped: salesOrders.filter((order) => order.status === "shipped").length,
     });
+
+    const entries: Array<TimelineEntry & { stamp: number }> = [
+      ...receiving.slice(0, 4).map((txn) => ({
+        id: txn.id,
+        title: "Receiving posted",
+        detail: `${txn.poNumber} · ${txn.qty} × ${txn.itemCode} → ${txn.binCode}`,
+        time: timeLabel(txn.timestamp),
+        tone: "good" as const,
+        stamp: new Date(txn.timestamp).getTime(),
+      })),
+      ...countTxns.slice(0, 4).map((txn) => ({
+        id: txn.id,
+        title: txn.variance === 0 ? "Count verified" : "Variance detected",
+        detail: `${txn.binCode} · ${txn.itemCode} · ${txn.variance > 0 ? "+" : ""}${txn.variance}`,
+        time: timeLabel(txn.timestamp),
+        tone: txn.variance === 0 ? ("good" as const) : ("warn" as const),
+        stamp: new Date(txn.timestamp).getTime(),
+      })),
+      ...salesOrders
+        .filter((order) => order.status === "shipped" && order.shippedDate)
+        .slice(0, 3)
+        .map((order) => ({
+          id: `ship-${order.id}`,
+          title: "Shipment confirmed",
+          detail: `${order.soNumber} · ${order.customer}${order.shipmentPin ? ` · ${order.shipmentPin}` : ""}`,
+          time: timeLabel(order.shippedDate || ""),
+          tone: "good" as const,
+          stamp: new Date(order.shippedDate || "").getTime(),
+        })),
+    ];
+
+    setTimeline(
+      entries
+        .filter((entry) => Number.isFinite(entry.stamp))
+        .sort((a, b) => b.stamp - a.stamp)
+        .slice(0, 6)
+        .map(({ stamp: _stamp, ...entry }) => entry)
+    );
   }, []);
 
+  const workload = useMemo(
+    () => [
+      { label: "Receiving", value: stats.pendingPOs + stats.receivingPOs, page: "receive" as PageType },
+      { label: "Picking", value: stats.pendingOrders, page: "pick" as PageType },
+      { label: "Cycle counts", value: stats.pendingCounts, page: "inventory" as PageType },
+      { label: "Shipping", value: stats.readyToShip, page: "shipping" as PageType },
+    ],
+    [stats]
+  );
+
+  const maxWorkload = Math.max(1, ...workload.map((item) => item.value));
+
+  const recommended =
+    workload.find((item) => item.value > 0) ||
+    ({ label: "Inventory inquiry", value: 0, page: "scan" } as const);
+
+  const today = new Intl.DateTimeFormat("en-CA", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+  }).format(new Date());
+
   return (
-    <div className="p-4 max-w-4xl mx-auto">
-      <h1 className="text-2xl font-bold mb-2">Warehouse Dashboard</h1>
-      <p className="text-gray-600 mb-6">
-        {new Date().toLocaleDateString("en-US", { 
-          weekday: "long", 
-          year: "numeric", 
-          month: "long", 
-          day: "numeric" 
-        })}
-      </p>
+    <div className="ops-dashboard">
+      <section className="ops-hero">
+        <div className="ops-hero-copy">
+          <span className="ops-kicker">WAREHOUSE PULSE · {today.toUpperCase()}</span>
+          <h1>
+            Move the right work,
+            <br />
+            <em>without the noise.</em>
+          </h1>
+          <p>
+            A live operational view built from the warehouse data already in RF Scanner.
+            Prioritize inbound, outbound, counts, and shipping from one place.
+          </p>
 
-      {/* Quick Actions */}
-      <div className="grid grid-cols-2 gap-3 mb-6">
-        <button
-          onClick={() => setPage("receive")}
-          className="bg-gradient-to-br from-blue-500 to-blue-600 text-white p-4 rounded-lg shadow-md hover:shadow-lg transition-shadow"
-        >
-          <Package className="mb-2" size={24} />
-          <p className="font-semibold">Receive</p>
-          <p className="text-xs opacity-90">Process POs</p>
-        </button>
-        <button
-          onClick={() => setPage("pick")}
-          className="bg-gradient-to-br from-green-500 to-green-600 text-white p-4 rounded-lg shadow-md hover:shadow-lg transition-shadow"
-        >
-          <Truck className="mb-2" size={24} />
-          <p className="font-semibold">Pick</p>
-          <p className="text-xs opacity-90">Fulfill Orders</p>
-        </button>
-        <button
-          onClick={() => setPage("scan")}
-          className="bg-gradient-to-br from-purple-500 to-purple-600 text-white p-4 rounded-lg shadow-md hover:shadow-lg transition-shadow"
-        >
-          <TrendingUp className="mb-2" size={24} />
-          <p className="font-semibold">Scan</p>
-          <p className="text-xs opacity-90">Item Inquiry</p>
-        </button>
-        <button
-          onClick={() => setPage("inventory")}
-          className="bg-gradient-to-br from-orange-500 to-orange-600 text-white p-4 rounded-lg shadow-md hover:shadow-lg transition-shadow"
-        >
-          <ClipboardCheck className="mb-2" size={24} />
-          <p className="font-semibold">Inventory</p>
-          <p className="text-xs opacity-90">Cycle Count</p>
-        </button>
-      </div>
-
-      {/* KPI Cards */}
-      <h2 className="text-lg font-semibold mb-3">Today's Metrics</h2>
-      <div className="grid grid-cols-2 gap-3 mb-6">
-        {/* Receiving */}
-        <div className="bg-white rounded-lg shadow p-4">
-          <div className="flex items-center justify-between mb-2">
-            <Package className="text-blue-600" size={20} />
-            {stats.receivingPOs > 0 && (
-              <span className="bg-yellow-100 text-yellow-800 text-xs px-2 py-1 rounded-full">
-                Active
-              </span>
-            )}
-          </div>
-          <p className="text-2xl font-bold">{stats.pendingPOs + stats.receivingPOs}</p>
-          <p className="text-sm text-gray-600">Pending POs</p>
-        </div>
-
-        {/* Picking */}
-        <div className="bg-white rounded-lg shadow p-4">
-          <div className="flex items-center justify-between mb-2">
-            <Truck className="text-green-600" size={20} />
-            {stats.activeWaves > 0 && (
-              <span className="bg-yellow-100 text-yellow-800 text-xs px-2 py-1 rounded-full">
-                {stats.activeWaves} Wave{stats.activeWaves > 1 ? "s" : ""}
-              </span>
-            )}
-          </div>
-          <p className="text-2xl font-bold">{stats.pendingOrders}</p>
-          <p className="text-sm text-gray-600">Orders to Pick</p>
-        </div>
-
-        {/* Cycle Counting */}
-        <div className="bg-white rounded-lg shadow p-4">
-          <div className="flex items-center justify-between mb-2">
-            <ClipboardCheck className="text-orange-600" size={20} />
-            {stats.pendingCounts > 0 && (
-              <AlertCircle className="text-orange-500" size={16} />
-            )}
-          </div>
-          <p className="text-2xl font-bold">{stats.pendingCounts}</p>
-          <p className="text-sm text-gray-600">Pending Counts</p>
-        </div>
-
-        {/* Accuracy */}
-        <div className="bg-white rounded-lg shadow p-4">
-          <div className="flex items-center justify-between mb-2">
-            <TrendingUp className="text-purple-600" size={20} />
-            {stats.accuracy === 100 && stats.completedCounts > 0 && (
-              <CheckCircle2 className="text-green-500" size={16} />
-            )}
-          </div>
-          <p className="text-2xl font-bold">{stats.accuracy}%</p>
-          <p className="text-sm text-gray-600">Count Accuracy</p>
-        </div>
-      </div>
-
-      {/* Warehouse Info */}
-      <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-lg shadow p-4">
-        <h3 className="font-semibold mb-3">Warehouse Overview</h3>
-        <div className="grid grid-cols-2 gap-4 text-sm">
-          <div>
-            <p className="text-gray-600">Total Bins</p>
-            <p className="text-lg font-bold">{stats.totalBins}</p>
-          </div>
-          <div>
-            <p className="text-gray-600">Completed Counts</p>
-            <p className="text-lg font-bold">{stats.completedCounts}</p>
+          <div className="ops-hero-actions">
+            <button className="ops-primary-action" onClick={() => setPage(recommended.page)}>
+              Continue with {recommended.label}
+              <ArrowRight size={17} />
+            </button>
+            <button className="ops-secondary-action" onClick={() => setPage("scan")}>
+              <Search size={17} />
+              Item / bin inquiry
+            </button>
           </div>
         </div>
-      </div>
 
-      {/* Alerts */}
-      {(stats.pendingPOs > 0 || stats.pendingOrders > 0 || stats.pendingCounts > 0) && (
-        <div className="mt-6 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-          <div className="flex items-start gap-2">
-            <AlertCircle className="text-yellow-600 mt-0.5" size={20} />
+        <div className="ops-focus-panel">
+          <div className="ops-focus-head">
+            <span>NEXT ACTION</span>
+            <span className="ops-live-dot">LIVE</span>
+          </div>
+          <strong>{recommended.label}</strong>
+          <p>
+            {recommended.value > 0
+              ? `${recommended.value} active ${recommended.value === 1 ? "task" : "tasks"} in queue`
+              : "No urgent queue detected. Use inquiry or inventory tools as needed."}
+          </p>
+          <button onClick={() => setPage(recommended.page)}>
+            Open workflow <ArrowRight size={15} />
+          </button>
+          <div className="ops-focus-grid" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+            <span />
+          </div>
+        </div>
+      </section>
+
+      <section className="ops-metric-grid" aria-label="Warehouse metrics">
+        <article className="ops-metric-card">
+          <div className="ops-metric-icon"><Package size={18} /></div>
+          <span>Inbound queue</span>
+          <strong>{stats.pendingPOs + stats.receivingPOs}</strong>
+          <small>{stats.receivingPOs} currently receiving</small>
+        </article>
+        <article className="ops-metric-card">
+          <div className="ops-metric-icon"><Truck size={18} /></div>
+          <span>Orders to pick</span>
+          <strong>{stats.pendingOrders}</strong>
+          <small>{stats.activeWaves} active / pending waves</small>
+        </article>
+        <article className="ops-metric-card">
+          <div className="ops-metric-icon"><ClipboardCheck size={18} /></div>
+          <span>Counts pending</span>
+          <strong>{stats.pendingCounts}</strong>
+          <small>{stats.completedCounts} completed in current data</small>
+        </article>
+        <article className="ops-metric-card">
+          <div className="ops-metric-icon"><TrendingUp size={18} /></div>
+          <span>Count accuracy</span>
+          <strong>{stats.completedCounts ? `${stats.accuracy}%` : "—"}</strong>
+          <small>{stats.completedCounts ? "Based on completed counts" : "No completed counts yet"}</small>
+        </article>
+      </section>
+
+      <section className="ops-grid-two">
+        <article className="ops-panel ops-workload">
+          <div className="ops-panel-heading">
             <div>
-              <p className="font-semibold text-yellow-800">Pending Tasks</p>
-              <ul className="text-sm text-yellow-700 mt-1 space-y-1">
-                {stats.pendingPOs > 0 && (
-                  <li>• {stats.pendingPOs} purchase order{stats.pendingPOs > 1 ? "s" : ""} awaiting receipt</li>
-                )}
-                {stats.pendingOrders > 0 && (
-                  <li>• {stats.pendingOrders} order{stats.pendingOrders > 1 ? "s" : ""} ready for picking</li>
-                )}
-                {stats.pendingCounts > 0 && (
-                  <li>• {stats.pendingCounts} cycle count{stats.pendingCounts > 1 ? "s" : ""} pending</li>
-                )}
-              </ul>
+              <span className="ops-section-kicker">WORK QUEUES</span>
+              <h2>Current workload</h2>
             </div>
+            <Activity size={19} />
           </div>
-        </div>
-      )}
+
+          <div className="ops-workload-list">
+            {workload.map((item) => (
+              <button key={item.label} onClick={() => setPage(item.page)}>
+                <div className="ops-workload-row">
+                  <span>{item.label}</span>
+                  <strong>{item.value}</strong>
+                </div>
+                <div className="ops-progress-track">
+                  <span style={{ width: `${Math.max(item.value ? 8 : 0, (item.value / maxWorkload) * 100)}%` }} />
+                </div>
+              </button>
+            ))}
+          </div>
+
+          <div className="ops-panel-foot">
+            <span>{stats.totalBins} active bin records available</span>
+            <button onClick={() => setPage("inventory")}>Open inventory</button>
+          </div>
+        </article>
+
+        <article className="ops-panel">
+          <div className="ops-panel-heading">
+            <div>
+              <span className="ops-section-kicker">ACTIVITY</span>
+              <h2>Recent warehouse events</h2>
+            </div>
+            {timeline.some((entry) => entry.tone === "warn") ? (
+              <AlertCircle size={19} />
+            ) : (
+              <CheckCircle2 size={19} />
+            )}
+          </div>
+
+          <div className="ops-timeline">
+            {timeline.length === 0 ? (
+              <div className="ops-empty-state">
+                <Activity size={22} />
+                <strong>No activity recorded yet</strong>
+                <span>Receiving, counts, and shipment events will appear here.</span>
+              </div>
+            ) : (
+              timeline.map((entry) => (
+                <div className="ops-timeline-row" key={entry.id}>
+                  <span className={`ops-event-dot ${entry.tone}`} />
+                  <div>
+                    <strong>{entry.title}</strong>
+                    <span>{entry.detail}</span>
+                  </div>
+                  <time>{entry.time}</time>
+                </div>
+              ))
+            )}
+          </div>
+        </article>
+      </section>
+
+      <section className="ops-module-grid">
+        <button className="ops-module-card" onClick={() => setPage("receive")}>
+          <span>01 · INBOUND</span>
+          <Package size={24} />
+          <strong>Receive purchase orders</strong>
+          <p>Verify product, quantity, lot / serial details, and staging location.</p>
+          <i><ArrowRight size={16} /></i>
+        </button>
+        <button className="ops-module-card" onClick={() => setPage("pick")}>
+          <span>02 · OUTBOUND</span>
+          <Truck size={24} />
+          <strong>Pick sales orders</strong>
+          <p>Work bin-sorted pick lists with clear progress and completion states.</p>
+          <i><ArrowRight size={16} /></i>
+        </button>
+        <button className="ops-module-card" onClick={() => setPage("inventory")}>
+          <span>03 · ACCURACY</span>
+          <ClipboardCheck size={24} />
+          <strong>Run cycle counts</strong>
+          <p>Resume sessions, verify bins, capture quantities, and surface variance.</p>
+          <i><ArrowRight size={16} /></i>
+        </button>
+        <button className="ops-module-card" onClick={() => setPage("shipping")}>
+          <span>04 · SHIPPING</span>
+          <Truck size={24} />
+          <strong>Prepare shipments</strong>
+          <p>{stats.readyToShip} ready to ship · {stats.shipped} shipped in current data.</p>
+          <i><ArrowRight size={16} /></i>
+        </button>
+      </section>
     </div>
   );
 }
