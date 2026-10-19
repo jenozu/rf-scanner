@@ -12,6 +12,8 @@ on:
       - ".github/workflows/rf-preview-e2e.yml"
       - "scripts/e2e-preview.mjs"
       - "src/**"
+      - "index.html"
+      - "public/**"
       - "package.json"
       - "vite.config.ts"
       - "vercel.json"
