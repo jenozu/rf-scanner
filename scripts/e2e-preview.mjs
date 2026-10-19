@@ -80,6 +80,24 @@ try {
   await desktop.goto(baseURL, { waitUntil: "networkidle" });
   await assertHeading(desktop, "Warehouse control centre");
   await desktop.getByText("DEMO · SAFE MODE", { exact: true }).waitFor({ state: "visible" });
+  const marindustrialColors = await desktop.evaluate(() => {
+    const style = (selector, property) => {
+      const el = document.querySelector(selector);
+      return el ? getComputedStyle(el).getPropertyValue(property).trim() : "";
+    };
+    return {
+      primaryAction: style(".ops-primary-action", "background-color"),
+      sidebar: style(".wms-sidebar", "background-color"),
+      activeNavIcon: style(".wms-nav-item.is-active svg", "color"),
+    };
+  });
+  assert(marindustrialColors.primaryAction === "rgb(0, 174, 239)", 
+    `Marindustrial primary action colour mismatch: ${marindustrialColors.primaryAction}`);
+  assert(marindustrialColors.sidebar === "rgb(10, 31, 46)",
+    `Marindustrial sidebar colour mismatch: ${marindustrialColors.sidebar}`);
+  assert(marindustrialColors.activeNavIcon === "rgb(169, 224, 251)",
+    `Marindustrial light blue navigation mismatch: ${marindustrialColors.activeNavIcon}`);
+
   await noHorizontalOverflow(desktop, "desktop dashboard");
   await desktop.screenshot({ path: `${outputDir}/dashboard-desktop.png`, fullPage: true });
 
@@ -173,6 +191,7 @@ try {
 
   report.desktop = {
     dashboard: true,
+    marindustrialBrandColors: true,
     allMajorNavigation: true,
     receivingSimulation: true,
     pickingSimulation: true,
