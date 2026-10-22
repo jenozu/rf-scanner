@@ -1,0 +1,30 @@
+{
+  "baseURL": "http://127.0.0.1:4173",
+  "desktop": {
+    "dashboard": true,
+    "marindustrialBrandColors": true,
+    "allMajorNavigation": true,
+    "receivingSimulation": true,
+    "pickingSimulation": true,
+    "successfulAndUnsuccessfulInquiry": true,
+    "cycleCountPersistence": true,
+    "exportDownloads": true,
+    "shippingSimulation": true,
+    "localStoragePersistence": true,
+    "noHorizontalOverflow": true,
+    "keyboardFocus": true,
+    "reducedMotionContext": true
+  },
+  "mobile": {
+    "dashboard": true,
+    "inventory": true,
+    "drawerNavigation": true,
+    "shipping": true,
+    "noHorizontalOverflow": true,
+    "touchLayout": true
+  },
+  "consoleErrors": [],
+  "pageErrors": [],
+  "unexpectedExternalRequests": [],
+  "passed": true
+}

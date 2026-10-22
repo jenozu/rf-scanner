@@ -221,7 +221,7 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
       const newPOs = await parsePOFile(file);
       
       // Get existing POs or create empty array
-      const existingPOs = (await api.getData("rf_purchase_orders")) || [] as PurchaseOrder[];
+      const existingPOs = ((await api.getData("rf_purchase_orders")) as PurchaseOrder[] | null) || [];
       const existingPONumbers = new Set(existingPOs.map(po => po.poNumber));
       
       // Filter out duplicates
@@ -260,7 +260,7 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
       const newSOs = await parseSalesOrderFile(file);
       
       // Get existing SOs or create empty array
-      const existingSOs = (await api.getData("rf_sales_orders")) || [] as SalesOrder[];
+      const existingSOs = ((await api.getData("rf_sales_orders")) as SalesOrder[] | null) || [];
       const existingSONumbers = new Set(existingSOs.map(so => so.soNumber));
       
       // Filter out duplicates

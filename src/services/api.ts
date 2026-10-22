@@ -1,9 +1,11 @@
 /**
- * API client for RF Scanner backend
- * Handles all communication with the server API
+ * API client for RF Scanner backend.
+ * In Vercel preview mode every request is routed to an isolated local demo adapter.
  */
 
-const API_BASE = import.meta.env.VITE_API_URL || '/api';
+import { demoRequest, isDemoMode } from "../demo/demo-mode";
+
+const API_BASE = import.meta.env.VITE_API_URL || "/api";
 
 export interface ApiResponse<T> {
   data?: T;
@@ -18,44 +20,44 @@ export interface AuthResponse {
 
 class ApiClient {
   private getToken(): string | null {
-    return sessionStorage.getItem('rf_auth_token');
+    return sessionStorage.getItem("rf_auth_token");
   }
 
   private setToken(token: string): void {
-    sessionStorage.setItem('rf_auth_token', token);
+    sessionStorage.setItem("rf_auth_token", token);
   }
 
   private clearToken(): void {
-    sessionStorage.removeItem('rf_auth_token');
-    sessionStorage.removeItem('rf_current_user_id');
+    sessionStorage.removeItem("rf_auth_token");
+    sessionStorage.removeItem("rf_current_user_id");
   }
 
-  private async request<T>(
-    endpoint: string,
-    options: RequestInit = {}
-  ): Promise<T> {
+  private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+    if (isDemoMode()) {
+      return demoRequest<T>(endpoint, options);
+    }
+
     const url = `${API_BASE}${endpoint}`;
     const token = this.getToken();
-    
+
     try {
       const response = await fetch(url, {
         ...options,
         headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
           ...options.headers,
         },
       });
 
       if (!response.ok) {
-        const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-        
-        // Handle token expiration
+        const error = await response.json().catch(() => ({ error: "Unknown error" }));
+
         if (response.status === 401 && error.expired) {
           this.clearToken();
-          throw new Error('Session expired. Please login again.');
+          throw new Error("Session expired. Please login again.");
         }
-        
+
         throw new Error(error.error || `HTTP ${response.status}`);
       }
 
@@ -66,9 +68,8 @@ class ApiClient {
     }
   }
 
-  // User endpoints
   async getUsers() {
-    return this.request<any[]>('/users');
+    return this.request<any[]>("/users");
   }
 
   async getUser(id: string) {
@@ -76,16 +77,15 @@ class ApiClient {
   }
 
   async login(username: string, password: string) {
-    const response = await this.request<AuthResponse>('/auth/login', {
-      method: 'POST',
+    const response = await this.request<AuthResponse>("/auth/login", {
+      method: "POST",
       body: JSON.stringify({ username, password }),
     });
-    
-    // Store the token
+
     if (response.token) {
       this.setToken(response.token);
     }
-    
+
     return response;
   }
 
@@ -100,69 +100,72 @@ class ApiClient {
     role: string;
     isActive?: boolean;
   }) {
-    return this.request<any>('/users', {
-      method: 'POST',
+    return this.request<any>("/users", {
+      method: "POST",
       body: JSON.stringify(user),
     });
   }
 
   async updateUser(id: string, updates: any) {
     return this.request<any>(`/users/${id}`, {
-      method: 'PUT',
+      method: "PUT",
       body: JSON.stringify(updates),
     });
   }
 
   async deleteUser(id: string) {
     return this.request<{ message: string }>(`/users/${id}`, {
-      method: 'DELETE',
+      method: "DELETE",
     });
   }
 
   async initAdmin() {
-    return this.request<{ message: string; user: any }>('/users/init-admin', {
-      method: 'POST',
+    return this.request<{ message: string; user: any }>("/users/init-admin", {
+      method: "POST",
     });
   }
 
-  // Data endpoints
   async getData(key: string) {
     return this.request<any>(`/data/${key}`);
   }
 
   async saveData(key: string, data: any) {
     return this.request<{ message: string }>(`/data/${key}`, {
-      method: 'POST',
+      method: "POST",
       body: JSON.stringify({ data }),
     });
   }
 
   async healthCheck() {
-    return this.request<{ status: string; timestamp: string }>('/health');
+    return this.request<{ status: string; timestamp: string }>("/health");
   }
 
-  // Bin locking endpoints
   async checkBinAvailability(startBin: string, endBin: string, sessionId: string) {
-    return this.request<{ available: boolean; conflicts: any[] }>('/bins/check-availability', {
-      method: 'POST',
+    return this.request<{ available: boolean; conflicts: any[] }>("/bins/check-availability", {
+      method: "POST",
       body: JSON.stringify({ startBin, endBin, sessionId }),
     });
   }
 
-  async lockBins(startBin: string, endBin: string, sessionId: string, sessionName: string, username: string) {
-    return this.request<{ message: string }>('/bins/lock', {
-      method: 'POST',
+  async lockBins(
+    startBin: string,
+    endBin: string,
+    sessionId: string,
+    sessionName: string,
+    username: string
+  ) {
+    return this.request<{ message: string }>("/bins/lock", {
+      method: "POST",
       body: JSON.stringify({ startBin, endBin, sessionId, sessionName, username }),
     });
   }
 
   async unlockBins(sessionId: string) {
-    return this.request<{ message: string }>('/bins/unlock', {
-      method: 'POST',
+    return this.request<{ message: string }>("/bins/unlock", {
+      method: "POST",
       body: JSON.stringify({ sessionId }),
     });
   }
 }
 
 export const api = new ApiClient();
-

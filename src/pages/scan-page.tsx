@@ -107,9 +107,17 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem, onStartCount
           },
           (err) => {
             if (err) {
-              console.error("Quagga init error:", err);
-              if (err.name === 'NotAllowedError') {
-                showToast("📷 Camera access denied", "error");
+              const cameraErrorName = (err as any)?.name || "";
+              if (cameraErrorName === "NotFoundError" || cameraErrorName === "DevicesNotFoundError") {
+                console.info("No camera detected; manual lookup remains available.");
+                showToast("📷 No camera detected. Use manual lookup below.", "info");
+              } else {
+                console.error("Quagga init error:", err);
+                if (cameraErrorName === "NotAllowedError") {
+                  showToast("📷 Camera access denied. Use manual lookup below.", "error");
+                } else {
+                  showToast("📷 Camera unavailable. Use manual lookup below.", "error");
+                }
               }
               return;
             }
@@ -382,7 +390,7 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem, onStartCount
                   <button
                     onClick={() => {
                       if (onStartCount) {
-                        onStartCount(scanResult.bin.BinCode);
+                        onStartCount(scanResult.bin!.BinCode);
                         handleClearScan();
                       }
                     }}
