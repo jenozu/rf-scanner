@@ -4,10 +4,10 @@
       {
         "title": "P1: Test harness for API and frontend utilities",
         "description": "Add Vitest (frontend) and an API test setup for server/index.js so later fixes are test-driven.",
-        "status": "pending",
+        "status": "done",
         "priority": "high",
         "dependencies": [],
-        "details": "Server is a single ~890-line server/index.js. Export the Express app without calling listen() when imported (check whether server is ESM or CJS first), point the data directory at a temp folder via env var for tests, add a test script to server/package.json (supertest or node:test). Add Vitest to the root package.json with one smoke test of csv-utils. Do not change app behaviour in this task.",
+        "details": "Server is a single ~890-line server/index.js. Export the Express app without calling listen() when imported (check whether server is ESM or CJS first), point the data directory at a temp folder via env var for tests, add a test script to server/package.json (supertest or node:test). Add Vitest to the root package.json with one smoke test of csv-utils. Do not change app behaviour in this task.\n\n[2026-10-29T19:56:41-04:00] plan: server is ESM (type=module) and starts listening on import (index.js ~L878). Guard listen with NODE_ENV!=='test' (no behaviour change in prod; chosen over argv check because pm2 changes argv[1]). Server tests use built-in node:test + fetch, no new deps; DATA_DIR already env-driven so tests use a temp dir. Root: add vitest devDep, 'test' script, smoke test of mergeCSVData (src/data/csv-utils.ts, pure fn). Note: csv-utils is at src/data/, not src/utils/.\n\n[2026-10-29T19:59:28-04:00] done: server/index.js listen guarded by NODE_ENV!=='test'; server/package.json 'test' = node --test; server/test/smoke.test.js (health 200, /api/users 401 without token) + server/testing/helpers.js (temp DATA_DIR, random port); root vitest@2 + vitest.config.ts scoped to src/**/*.test.*; src/data/csv-utils.test.ts (2 tests on mergeCSVData). Verified: npm test (root) 2 pass, npm test --prefix server 2 pass, tsc --noEmit ok, vite build ok. Drift check: matched task, no scope added. Learned: server has NO dotenv, so server/.env is only read by docker-compose env_file; local 'npm run dev' ignores it (matters for task 5 docs). csv-utils lives in src/data/, not src/utils/.",
         "testStrategy": "'npm test' at root and in server/ run and pass at least one smoke test each",
         "complexity": 4,
         "id": 1,
@@ -230,7 +230,7 @@
     ],
     "metadata": {
       "created": "2026-10-29T19:42:01-04:00",
-      "updated": "2026-10-29T19:47:59-04:00"
+      "updated": "2026-10-29T19:59:28-04:00"
     }
   }
 }

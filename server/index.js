@@ -876,13 +876,16 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Start server
-ensureDataDir().then(() => {
-  app.listen(PORT, () => {
-    console.log(`🚀 RF Scanner API server running on port ${PORT}`);
-    console.log(`📁 Data directory: ${DATA_DIR}`);
+// Start server. Tests import the app and start it themselves on a random port,
+// so listening on import is skipped when NODE_ENV=test.
+if (process.env.NODE_ENV !== 'test') {
+  ensureDataDir().then(() => {
+    app.listen(PORT, () => {
+      console.log(`🚀 RF Scanner API server running on port ${PORT}`);
+      console.log(`📁 Data directory: ${DATA_DIR}`);
+    });
   });
-});
+}
 
 export default app;
 
