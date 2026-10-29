@@ -1,0 +1,236 @@
+{
+  "master": {
+    "tasks": [
+      {
+        "title": "P1: Test harness for API and frontend utilities",
+        "description": "Add Vitest (frontend) and an API test setup for server/index.js so later fixes are test-driven.",
+        "status": "pending",
+        "priority": "high",
+        "dependencies": [],
+        "details": "Server is a single ~890-line server/index.js. Export the Express app without calling listen() when imported (check whether server is ESM or CJS first), point the data directory at a temp folder via env var for tests, add a test script to server/package.json (supertest or node:test). Add Vitest to the root package.json with one smoke test of csv-utils. Do not change app behaviour in this task.",
+        "testStrategy": "'npm test' at root and in server/ run and pass at least one smoke test each",
+        "complexity": 4,
+        "id": 1,
+        "subtasks": []
+      },
+      {
+        "title": "P1: CI on main and pull requests",
+        "description": "Run typecheck, build and tests on every PR and push to main (today CI only runs on the redesign branch).",
+        "status": "pending",
+        "priority": "high",
+        "dependencies": [
+          1
+        ],
+        "details": "Existing workflow: .github/workflows/rf-preview-e2e.yml (branch-limited). Add a new workflow rather than editing it. Node 20. Steps: npm ci, tsc --noEmit, vite build, root tests, server tests.",
+        "testStrategy": "Open a PR with a deliberately failing test and see the check fail; revert and see it pass",
+        "complexity": 2,
+        "id": 2,
+        "subtasks": []
+      },
+      {
+        "title": "P1: Enforce admin role on user routes server-side",
+        "description": "Today any logged-in user can create, promote or delete users, including the admin. Enforce roles in the API.",
+        "status": "pending",
+        "priority": "high",
+        "dependencies": [
+          1
+        ],
+        "details": "server/index.js: authenticateToken only at GET/POST /api/users, PUT/DELETE /api/users/:id (~lines 112, 217, 271, 304). Add requireAdmin middleware. Rules: only admin lists/creates/updates/deletes users; a user may read and change only their own password; nobody can change their own role; the last admin cannot be deleted or demoted. Take the role from the verified token, never from the request body.",
+        "testStrategy": "API tests: operator token gets 403 on create/promote/delete user and on self-promotion; admin succeeds; deleting the last admin is refused",
+        "complexity": 5,
+        "id": 3,
+        "subtasks": []
+      },
+      {
+        "title": "P1: Replace public init-admin with one-time setup",
+        "description": "POST /api/users/init-admin is unauthenticated and creates admin/admin123 when the user list is empty.",
+        "status": "pending",
+        "priority": "high",
+        "dependencies": [
+          3
+        ],
+        "details": "server/index.js ~line 324. Remove the route. First admin is created by a one-time script (server/reset-admin.js exists; review it) or env vars ADMIN_USERNAME/ADMIN_PASSWORD read once at startup only when no users exist, with no default password. Update docs/README for the new first-run step. Check the frontend does not call init-admin.",
+        "testStrategy": "API test: route returns 404; with an empty user list, no account exists until the setup script/env is used; no 'admin123' string remains in the repo (grep)",
+        "complexity": 4,
+        "id": 4,
+        "subtasks": []
+      },
+      {
+        "title": "P1: Require JWT_SECRET at startup",
+        "description": "The server falls back to a public default secret, which allows forged admin tokens.",
+        "status": "pending",
+        "priority": "high",
+        "dependencies": [
+          1
+        ],
+        "details": "server/index.js line 17. Exit with a clear error if JWT_SECRET is missing or shorter than 32 chars. Update .env.example and the Docker/compose docs. DEPLOY RISK: the API will refuse to start on the VPS if JWT_SECRET is not set there. Ask the owner to confirm (open question in PRD) before this reaches production, and note that changing the secret logs everyone out.",
+        "testStrategy": "Starting the server without JWT_SECRET exits non-zero with a message; with a valid secret the existing API tests pass",
+        "complexity": 2,
+        "id": 5,
+        "subtasks": []
+      },
+      {
+        "title": "P1: Login rate limit, password rules, CORS allow-list",
+        "description": "Audit: 51 bad logins in a row all just 401; passwords need only 3 characters; CORS is open.",
+        "status": "pending",
+        "priority": "high",
+        "dependencies": [
+          3
+        ],
+        "details": "server/index.js: cors() at line 26, login route ~line 199. Add express-rate-limit on /api/login (and user creation), minimum password length 10 on create/change, CORS restricted to an origin list from env (default same-origin).",
+        "testStrategy": "API tests: the Nth bad login returns 429; a short password is rejected; request from a non-listed Origin gets no CORS header",
+        "complexity": 3,
+        "id": 6,
+        "subtasks": []
+      },
+      {
+        "title": "P1: Fix data key allow-list",
+        "description": "rf_master_meta, rf_receiving_txns, rf_cycle_count_txns, rf_temporary_locations are rejected with 400, so Export logs are always empty.",
+        "status": "pending",
+        "priority": "high",
+        "dependencies": [
+          1
+        ],
+        "details": "server/index.js validKeys is duplicated at ~lines 361 and 383. Move to one shared constant and add the four keys. Check export-page.tsx and settings-page.tsx:187 for the keys they use.",
+        "testStrategy": "API tests: GET and POST of each of the four keys succeeds for an authenticated user and still returns 400 for an unknown key",
+        "complexity": 2,
+        "id": 7,
+        "subtasks": []
+      },
+      {
+        "title": "P1: Stop tracking company data in git",
+        "description": "Master inventory, real POs, users.json (admin hash), customer address DB and a deploy tarball are committed to a public repo.",
+        "status": "pending",
+        "priority": "high",
+        "dependencies": [],
+        "details": "Tracked files (from git ls-files): data/master_inventory.xlsx, master_inventory.xlsx, PO/*.csv (8), data/users.json, puro/customer_addresses.db, rf-scanner-deploy.tar.gz. Use git rm --cached and add to .gitignore; keep sample fixtures as anonymised files under tests/fixtures if needed later (Phase 3). DEPLOY RISK: check how ./data is mounted on the VPS so a pull cannot delete live data. History scrub is a separate decision (PRD open question). Do not rewrite history in this task.",
+        "testStrategy": "git ls-files shows none of those paths; git status clean after a fresh clone and app start; files still present on disk",
+        "complexity": 2,
+        "id": 8,
+        "subtasks": []
+      },
+      {
+        "title": "P1: Safe dependency updates",
+        "description": "npm audit reports 6 server issues (1 critical, 4 high) and more on the frontend.",
+        "status": "pending",
+        "priority": "medium",
+        "dependencies": [
+          2
+        ],
+        "details": "Run npm audit fix without --force in root and server/. Review each remaining item and note why it is left. Re-run build, typecheck and tests after.",
+        "testStrategy": "npm audit shows no critical issues that have a non-breaking fix; CI green",
+        "complexity": 3,
+        "id": 9,
+        "subtasks": []
+      },
+      {
+        "title": "Phase 2: One source of truth",
+        "description": "Per-record server endpoints, atomic writes, one frontend data layer, visible save errors, browser-data migration, nightly backup.",
+        "status": "pending",
+        "priority": "high",
+        "dependencies": [
+          3,
+          4,
+          5,
+          6,
+          7
+        ],
+        "details": "Expand just-in-time. See PRD Phase 2 and audit sections 4a, 4d, 5.1-5.3. Migration of existing browser data needs the owner's OK.",
+        "testStrategy": "Two-client concurrency test passes; receiving on one device shows on another after refresh; clearing browser storage loses nothing",
+        "complexity": 10,
+        "id": 10,
+        "subtasks": []
+      },
+      {
+        "title": "Phase 3: SAP import fidelity",
+        "description": "Stable line identity (DocNum+LineNum), Warehouse vs Bin, Excel dates, number parsing, validation report, re-import updates.",
+        "status": "pending",
+        "priority": "high",
+        "dependencies": [
+          10
+        ],
+        "details": "BLOCKED ON INPUT: needs one real SAP XLSX export each for POs and Sales Orders. Audit items 4e-4h. csv-utils.ts lines ~502-507, 589, 936.",
+        "testStrategy": "Fixture tests for each format incl. duplicate ItemCodes, closed lines, date cells; same file imported twice gives identical results",
+        "complexity": 8,
+        "id": 11,
+        "subtasks": []
+      },
+      {
+        "title": "Phase 4: Receiving and picking correctness",
+        "description": "Act on line identity, cap over-receipt, scan confirmation for picks, short-pick handling, per-bin stock changes.",
+        "status": "pending",
+        "priority": "high",
+        "dependencies": [
+          11
+        ],
+        "details": "Audit 4b, 4i. receive-page.tsx:99, 73-93; pick-page.tsx.",
+        "testStrategy": "A PO and an SO each with two lines of the same item process correctly end to end; over-receipt and over-pick are refused",
+        "complexity": 8,
+        "id": 12,
+        "subtasks": []
+      },
+      {
+        "title": "Phase 5: SAP-ready exports",
+        "description": "Receipts, deliveries and count results shaped for SAP B1 import with DocNum/LineNum, qty, bin, user, timestamp.",
+        "status": "pending",
+        "priority": "high",
+        "dependencies": [
+          12
+        ],
+        "details": "BLOCKED ON INPUT: needs the target SAP import templates (GRPO, Delivery, Inventory Counting) from the owner. Add an already-exported flag.",
+        "testStrategy": "A sample export imports into the SAP test company without edits",
+        "complexity": 6,
+        "id": 13,
+        "subtasks": []
+      },
+      {
+        "title": "Phase 6: Shipping on the real deployment",
+        "description": "Python in the API image (or port to Node), fix the stdin call, send the auth token, address book on a volume, sandbox first.",
+        "status": "pending",
+        "priority": "medium",
+        "dependencies": [
+          9
+        ],
+        "details": "Audit 4c: shipping-page.tsx:279, server/index.js:87, Dockerfile, puro/customer_addresses.db. puro/test_production_auto.py creates a REAL label, never run it. Use the Purolator sandbox only.",
+        "testStrategy": "A test-account shipment returns a PIN from the production-style container",
+        "complexity": 7,
+        "id": 14,
+        "subtasks": []
+      },
+      {
+        "title": "Phase 7: Counting, bins, dashboard",
+        "description": "Review inventory-page.tsx on the new data layer and split it, numeric-aware bin ranges, variance approval, server-driven dashboard.",
+        "status": "pending",
+        "priority": "medium",
+        "dependencies": [
+          10
+        ],
+        "details": "",
+        "testStrategy": "Bin-range lock tests cover numeric ordering; dashboard shows the same numbers on two devices",
+        "complexity": 8,
+        "id": 15,
+        "subtasks": []
+      },
+      {
+        "title": "Phase 8: Deployment and documentation",
+        "description": "Remove obsolete deploy scripts and stale docs, one README, deploy checklist with rollback.",
+        "status": "pending",
+        "priority": "medium",
+        "dependencies": [
+          13,
+          14,
+          15
+        ],
+        "details": "",
+        "testStrategy": "A fresh VPS can be rebuilt from the README alone",
+        "complexity": 4,
+        "id": 16,
+        "subtasks": []
+      }
+    ],
+    "metadata": {
+      "created": "2026-10-29T19:42:01-04:00",
+      "updated": "2026-10-29T19:47:59-04:00"
+    }
+  }
+}
