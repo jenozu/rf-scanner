@@ -54,6 +54,29 @@ function authenticateToken(req, res, next) {
   });
 }
 
+// Admin-only guard. Runs after authenticateToken. The role is checked against
+// the stored user (not just the token) so a demoted or deactivated admin loses
+// access immediately instead of when the token expires.
+async function requireAdmin(req, res, next) {
+  try {
+    const users = await readJSONFile(USERS_FILE) || [];
+    const me = users.find(u => u.id === req.user?.userId);
+    if (!me || me.isActive === false || me.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    req.currentUser = me;
+    next();
+  } catch (error) {
+    console.error('Error checking admin role:', error);
+    res.status(500).json({ error: 'Failed to verify permissions' });
+  }
+}
+
+const VALID_ROLES = ['admin', 'operator', 'viewer'];
+function isActiveAdmin(u) {
+  return u.role === 'admin' && u.isActive !== false;
+}
+
 // Ensure data directory exists
 async function ensureDataDir() {
   try {
@@ -116,7 +139,7 @@ async function callPythonAPI(command) {
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
 
 // Get all users (admin only)
-app.get('/api/users', authenticateToken, async (req, res) => {
+app.get('/api/users', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const users = await readJSONFile(USERS_FILE) || [];
     // Don't send passwords
@@ -135,6 +158,13 @@ app.get('/api/users', authenticateToken, async (req, res) => {
 app.get('/api/users/:id', authenticateToken, async (req, res) => {
   try {
     const users = await readJSONFile(USERS_FILE) || [];
+    const me = users.find(u => u.id === req.user?.userId);
+    if (!me || me.isActive === false) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+    if (me.role !== 'admin' && me.id !== req.params.id) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
     const user = users.find(u => u.id === req.params.id);
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
@@ -221,7 +251,7 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 // Create user (admin only - check is done in frontend)
-app.post('/api/users', authenticateToken, async (req, res) => {
+app.post('/api/users', authenticateToken, requireAdmin, async (req, res) => {
   try {
     let { username, password, fullName, role, isActive } = req.body;
     
@@ -242,6 +272,11 @@ app.post('/api/users', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'Password must be at least 3 characters' });
     }
 
+    role = role || 'operator';
+    if (!VALID_ROLES.includes(role)) {
+      return res.status(400).json({ error: 'Invalid role' });
+    }
+
     const users = await readJSONFile(USERS_FILE) || [];
     
     // Check if username already exists (case-insensitive)
@@ -257,7 +292,7 @@ app.post('/api/users', authenticateToken, async (req, res) => {
       username,
       passwordHash,
       fullName,
-      role: role || 'operator',
+      role,
       isActive: isActive !== undefined ? isActive : true,
       createdDate: new Date().toISOString(),
     };
@@ -274,29 +309,66 @@ app.post('/api/users', authenticateToken, async (req, res) => {
   }
 });
 
-// Update user (admin only)
+// Update user. Admins may change fullName, role, isActive and password of any
+// user. Everyone else may change only their own password. Nobody may change
+// their own role or active flag, and the last active admin is always kept.
 app.put('/api/users/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const updates = req.body;
+    const body = req.body || {};
 
     const users = await readJSONFile(USERS_FILE) || [];
-    const userIndex = users.findIndex(u => u.id === id);
+    const me = users.find(u => u.id === req.user?.userId);
+    if (!me || me.isActive === false) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+    const isAdmin = me.role === 'admin';
+    const isSelf = me.id === id;
+    if (!isAdmin && !isSelf) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
 
+    const userIndex = users.findIndex(u => u.id === id);
     if (userIndex === -1) {
       return res.status(404).json({ error: 'User not found' });
     }
+    const target = users[userIndex];
 
-    // If password is being updated, hash it
-    if (updates.password) {
-      updates.passwordHash = await bcrypt.hash(updates.password, 10);
+    const allowed = isAdmin ? ['fullName', 'role', 'isActive', 'password'] : ['password'];
+    const forbidden = Object.keys(body).filter(k => !allowed.includes(k) && k !== 'id');
+    if (forbidden.length > 0 && !isAdmin) {
+      return res.status(403).json({ error: 'You can only change your own password' });
+    }
+
+    const updates = {};
+    for (const key of allowed) {
+      if (body[key] !== undefined) updates[key] = body[key];
+    }
+
+    if (isSelf && ((updates.role !== undefined && updates.role !== target.role) ||
+                   (updates.isActive !== undefined && updates.isActive !== (target.isActive !== false)))) {
+      return res.status(403).json({ error: 'You cannot change your own role or active status' });
+    }
+    if (updates.role !== undefined && !VALID_ROLES.includes(updates.role)) {
+      return res.status(400).json({ error: 'Invalid role' });
+    }
+
+    if (updates.password !== undefined) {
+      const pw = typeof updates.password === 'string' ? updates.password.trim() : '';
+      if (pw.length < 3) {
+        return res.status(400).json({ error: 'Password must be at least 3 characters' });
+      }
+      updates.passwordHash = await bcrypt.hash(pw, 10);
       delete updates.password;
     }
 
-    // Don't allow changing ID
-    delete updates.id;
+    const updated = { ...target, ...updates };
+    if (isActiveAdmin(target) && !isActiveAdmin(updated) &&
+        users.filter(isActiveAdmin).length <= 1) {
+      return res.status(400).json({ error: 'Cannot demote or deactivate the last admin' });
+    }
 
-    users[userIndex] = { ...users[userIndex], ...updates };
+    users[userIndex] = updated;
     await writeJSONFile(USERS_FILE, users);
 
     const { password, passwordHash, ...safeUser } = users[userIndex];
@@ -308,18 +380,23 @@ app.put('/api/users/:id', authenticateToken, async (req, res) => {
 });
 
 // Delete user (admin only)
-app.delete('/api/users/:id', authenticateToken, async (req, res) => {
+app.delete('/api/users/:id', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
-    
-    const users = await readJSONFile(USERS_FILE) || [];
-    const filteredUsers = users.filter(u => u.id !== id);
 
-    if (filteredUsers.length === users.length) {
+    const users = await readJSONFile(USERS_FILE) || [];
+    const target = users.find(u => u.id === id);
+    if (!target) {
       return res.status(404).json({ error: 'User not found' });
     }
+    if (target.id === req.currentUser.id) {
+      return res.status(400).json({ error: 'Cannot delete yourself' });
+    }
+    if (isActiveAdmin(target) && users.filter(isActiveAdmin).length <= 1) {
+      return res.status(400).json({ error: 'Cannot delete the last admin' });
+    }
 
-    await writeJSONFile(USERS_FILE, filteredUsers);
+    await writeJSONFile(USERS_FILE, users.filter(u => u.id !== id));
     res.json({ message: 'User deleted' });
   } catch (error) {
     console.error('Error deleting user:', error);

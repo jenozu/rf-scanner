@@ -30,12 +30,12 @@
       {
         "title": "P1: Enforce admin role on user routes server-side",
         "description": "Today any logged-in user can create, promote or delete users, including the admin. Enforce roles in the API.",
-        "status": "pending",
+        "status": "done",
         "priority": "high",
         "dependencies": [
           1
         ],
-        "details": "server/index.js: authenticateToken only at GET/POST /api/users, PUT/DELETE /api/users/:id (~lines 112, 217, 271, 304). Add requireAdmin middleware. Rules: only admin lists/creates/updates/deletes users; a user may read and change only their own password; nobody can change their own role; the last admin cannot be deleted or demoted. Take the role from the verified token, never from the request body.",
+        "details": "server/index.js: authenticateToken only at GET/POST /api/users, PUT/DELETE /api/users/:id (~lines 112, 217, 271, 304). Add requireAdmin middleware. Rules: only admin lists/creates/updates/deletes users; a user may read and change only their own password; nobody can change their own role; the last admin cannot be deleted or demoted. Take the role from the verified token, never from the request body.\n\n[2026-10-29T20:41:44-04:00] plan: server/index.js only (+ new server/test/users-roles.test.js). Add requireAdmin (re-reads users.json so a demoted/deactivated admin loses access immediately; token role not trusted alone). GET/POST /api/users, DELETE: admin only. GET/PUT /api/users/:id: admin or self; self may change only password; admin may change fullName/role/isActive/password via allow-list (no passwordHash/id mass-assignment); nobody changes own role/isActive; last active admin cannot be deleted/demoted/deactivated; self-delete refused (UI already says 'Cannot delete yourself'). Frontend only fetches users when admin, so no UI breakage. Note: useAuth still calls init-admin on load -> task 4 must remove that call.\n\n[2026-10-29T20:44:16-04:00] result: requireAdmin + self/admin rules implemented; 6 new API tests (16 total) pass. Same tests against the OLD index.js: failures (confirms they test the fix). Decisions: role verified against stored user, not token alone; admin can't change own role/isActive; self-delete refused. Drift check: only server/index.js + new test; no frontend change needed.",
         "testStrategy": "API tests: operator token gets 403 on create/promote/delete user and on self-promotion; admin succeeds; deleting the last admin is refused",
         "complexity": 5,
         "id": 3,
@@ -230,7 +230,7 @@
     ],
     "metadata": {
       "created": "2026-10-29T19:42:01-04:00",
-      "updated": "2026-10-29T20:40:46-04:00"
+      "updated": "2026-10-29T20:44:16-04:00"
     }
   }
 }
