@@ -101,7 +101,7 @@ setAuthState(prev => ({ ...prev, users: updatedUsers }));
 3. Should see: Profile → Users → App Settings → Activity
 
 ### Test 2: New User Login ✅
-1. Login as admin (admin/admin123)
+1. Login as admin (your admin account)
 2. Go to Settings → Users tab
 3. Click "Add User"
 4. Create user: username "test", password "test123", role "operator"
@@ -123,7 +123,7 @@ setAuthState(prev => ({ ...prev, users: updatedUsers }));
 ```
 1. App loads
 2. Sees: Login screen
-3. Uses: admin / admin123
+3. Uses: your admin account
 4. Redirected to: Setup page (no data yet)
 5. Uploads inventory
 6. Goes to: Home page
@@ -218,7 +218,7 @@ App opens:
 3. **Test on VPS:**
    - Visit https://rf.andel-vps.space
    - Should see login screen first
-   - Login with admin/admin123
+   - Log in with your admin account
    - Try creating a new user
    - Test tab scrolling on mobile
 

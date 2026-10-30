@@ -404,36 +404,6 @@ app.delete('/api/users/:id', authenticateToken, requireAdmin, async (req, res) =
   }
 });
 
-// Initialize default admin user if none exists
-app.post('/api/users/init-admin', async (req, res) => {
-  try {
-    const users = await readJSONFile(USERS_FILE) || [];
-    
-    if (users.length > 0) {
-      return res.json({ message: 'Users already exist' });
-    }
-
-    const passwordHash = await bcrypt.hash('admin123', 10);
-    const adminUser = {
-      id: 'user-1',
-      username: 'admin',
-      passwordHash,
-      fullName: 'Administrator',
-      role: 'admin',
-      isActive: true,
-      createdDate: new Date().toISOString(),
-    };
-
-    await writeJSONFile(USERS_FILE, [adminUser]);
-    
-    const { passwordHash: _, ...safeUser } = adminUser;
-    res.json({ message: 'Admin user created', user: safeUser });
-  } catch (error) {
-    console.error('Error initializing admin:', error);
-    res.status(500).json({ error: 'Failed to initialize admin' });
-  }
-});
-
 // ============================================
 // DATA STORAGE ENDPOINTS
 // ============================================

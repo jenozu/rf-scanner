@@ -315,10 +315,6 @@ export async function demoRequest<T>(endpoint: string, options: RequestInit = {}
     return { user, token: "demo-preview-token", expiresIn: "preview" } as T;
   }
 
-  if (endpoint === "/users/init-admin" && method === "POST") {
-    return { message: "Demo user ready", user: demoUser } as T;
-  }
-
   if (endpoint === "/users" && method === "GET") {
     return getDemoUsers() as T;
   }

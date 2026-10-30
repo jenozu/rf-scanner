@@ -119,11 +119,6 @@ class ApiClient {
     });
   }
 
-  async initAdmin() {
-    return this.request<{ message: string; user: any }>("/users/init-admin", {
-      method: "POST",
-    });
-  }
 
   async getData(key: string) {
     return this.request<any>(`/data/${key}`);

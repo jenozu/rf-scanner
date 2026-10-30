@@ -401,13 +401,6 @@ export default function SettingsPage({ onLogin }: SettingsPageProps) {
             </button>
           </form>
 
-          <div className="mt-4 p-3 bg-gray-50 rounded-md text-xs text-gray-600">
-            <strong>Default credentials:</strong>
-            <br />
-            Username: admin
-            <br />
-            Password: admin123
-          </div>
         </div>
       </div>
     );

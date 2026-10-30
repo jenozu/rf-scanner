@@ -317,9 +317,7 @@ New: Footer → Transactions → [Pick or Receive]
   ```
 
 **User Features:**
-- **Default Admin Account:**
-  - Username: `admin`
-  - Password: `admin123`
+- **Default Admin Account:** (removed in Phase 1: the first admin is now created with `server/reset-admin.js`, see readme.md)
 - **User Roles:**
   - Admin: Full access, can manage users
   - Operator: Can use all warehouse features

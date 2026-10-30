@@ -44,12 +44,12 @@
       {
         "title": "P1: Replace public init-admin with one-time setup",
         "description": "POST /api/users/init-admin is unauthenticated and creates admin/admin123 when the user list is empty.",
-        "status": "pending",
+        "status": "done",
         "priority": "high",
         "dependencies": [
           3
         ],
-        "details": "server/index.js ~line 324. Remove the route. First admin is created by a one-time script (server/reset-admin.js exists; review it) or env vars ADMIN_USERNAME/ADMIN_PASSWORD read once at startup only when no users exist, with no default password. Update docs/README for the new first-run step. Check the frontend does not call init-admin.",
+        "details": "server/index.js ~line 324. Remove the route. First admin is created by a one-time script (server/reset-admin.js exists; review it) or env vars ADMIN_USERNAME/ADMIN_PASSWORD read once at startup only when no users exist, with no default password. Update docs/README for the new first-run step. Check the frontend does not call init-admin.\n\n[2026-10-29T20:45:22-04:00] plan: (1) delete POST /api/users/init-admin in server/index.js; (2) rewrite server/reset-admin.js as one-time setup: ADMIN_PASSWORD required (>=8 chars), ADMIN_USERNAME default 'admin', creates first admin only when users.json is empty/missing; with existing users refuses unless --reset-password, which changes ONLY that admin's password (old script wiped all users = data-loss risk); (3) remove api.initAdmin + useAuth effect + demo handler; (4) delete 'Default credentials: admin/admin123' box in settings-page; (5) replace admin123 in docs, add first-run step to readme.md + .env.example note. Production already has users so no behavior change there.\n\n[2026-10-29T20:46:25-04:00] result: route removed (404/401, no account created), frontend call+demo handler+login hint removed, reset-admin.js rewritten (no default pw, refuses when users exist, --reset-password touches one admin only; old version wiped ALL users), 10 docs/UI refs fixed, readme first-run step added. Server tests 20 pass, tsc + build ok. Test builds the legacy string as 'admin'+'123' so grep finds none. RISK noted for deploy: a FRESH install has no login until the script is run; existing prod users.json untouched. Drift check: ok, touched only auth-setup files + docs naming admin123.",
         "testStrategy": "API test: route returns 404; with an empty user list, no account exists until the setup script/env is used; no 'admin123' string remains in the repo (grep)",
         "complexity": 4,
         "id": 4,
@@ -230,7 +230,7 @@
     ],
     "metadata": {
       "created": "2026-10-29T19:42:01-04:00",
-      "updated": "2026-10-29T20:44:16-04:00"
+      "updated": "2026-10-29T20:46:25-04:00"
     }
   }
 }

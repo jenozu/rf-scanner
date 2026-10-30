@@ -24,7 +24,7 @@ I analyzed your actual `master_inventory.xlsx` file and made the app compatible 
 ### Step 1: Clear Dummy Data (if you used it)
 1. Open the RF Scanner app
 2. Click **Settings** tab (⚙️ at bottom)
-3. Log in if needed (admin/admin123)
+3. Log in if needed (your admin account)
 4. Scroll down and click **"Clear All Data"** button
 5. Confirm when prompted
 
