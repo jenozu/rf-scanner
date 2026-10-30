@@ -42,6 +42,7 @@ class ApiClient {
   private clearToken(): void {
     sessionStorage.removeItem("rf_auth_token");
     sessionStorage.removeItem("rf_current_user_id");
+    sessionStorage.removeItem("rf_current_username");
   }
 
   private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {

@@ -249,6 +249,7 @@ export function seedDemoData(force = false): void {
   if (!isDemoMode() || typeof window === "undefined") return;
   if (!force && localStorage.getItem("rf_demo_seeded") === DEMO_VERSION) {
     sessionStorage.setItem("rf_current_user_id", demoUser.id);
+    sessionStorage.setItem("rf_current_username", demoUser.username);
     sessionStorage.setItem("rf_auth_token", "demo-preview-token");
     return;
   }
@@ -259,6 +260,7 @@ export function seedDemoData(force = false): void {
   localStorage.setItem("rf_demo_users", JSON.stringify([demoUser]));
   localStorage.setItem("rf_demo_seeded", DEMO_VERSION);
   sessionStorage.setItem("rf_current_user_id", demoUser.id);
+  sessionStorage.setItem("rf_current_username", demoUser.username);
   sessionStorage.setItem("rf_auth_token", "demo-preview-token");
 }
 
@@ -409,6 +411,7 @@ export async function demoRequest<T>(endpoint: string, options: RequestInit = {}
     );
     if (!user) throw new Error("Invalid username or password");
     sessionStorage.setItem("rf_current_user_id", user.id);
+    sessionStorage.setItem("rf_current_username", user.username);
     sessionStorage.setItem("rf_auth_token", "demo-preview-token");
     return { user, token: "demo-preview-token", expiresIn: "preview" } as T;
   }

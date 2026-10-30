@@ -488,7 +488,7 @@ app.get('/api/data/:key', authenticateToken, async (req, res) => {
 });
 
 // Save data
-app.post('/api/data/:key', authenticateToken, async (req, res) => {
+app.post('/api/data/:key', authenticateToken, requireWriter, async (req, res) => {
   try {
     const { key } = req.params;
     const { data, baseRevision } = req.body;
@@ -585,7 +585,7 @@ app.post('/api/bins/check-availability', authenticateToken, async (req, res) => 
 });
 
 // Lock bin range for a session
-app.post('/api/bins/lock', authenticateToken, async (req, res) => {
+app.post('/api/bins/lock', authenticateToken, requireWriter, async (req, res) => {
   try {
     const { startBin, endBin, sessionId, sessionName, username } = req.body;
     
@@ -615,7 +615,7 @@ app.post('/api/bins/lock', authenticateToken, async (req, res) => {
 });
 
 // Release bin lock for a session
-app.post('/api/bins/unlock', authenticateToken, async (req, res) => {
+app.post('/api/bins/unlock', authenticateToken, requireWriter, async (req, res) => {
   try {
     const { sessionId } = req.body;
     
@@ -759,7 +759,7 @@ app.get('/api/shipping/orders/:orderId', authenticateToken, async (req, res) => 
 });
 
 // Create shipment for a single order
-app.post('/api/shipping/shipments/create', authenticateToken, async (req, res) => {
+app.post('/api/shipping/shipments/create', authenticateToken, requireWriter, async (req, res) => {
   try {
     const { orderId, packageData, customerName, customerId, locationId, shipmentData } = req.body;
     
@@ -866,7 +866,7 @@ app.post('/api/shipping/shipments/create', authenticateToken, async (req, res) =
 });
 
 // Create batch shipments for multiple orders
-app.post('/api/shipping/shipments/batch', authenticateToken, async (req, res) => {
+app.post('/api/shipping/shipments/batch', authenticateToken, requireWriter, async (req, res) => {
   try {
     const { orderIds, packageData, orders } = req.body;
     

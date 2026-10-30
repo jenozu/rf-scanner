@@ -26,6 +26,7 @@ import { clearAllData } from "../data/sample-data";
 import { parseCSV } from "../data/csv-utils";
 import { api } from "../services/api";
 import { saveCollection } from "../data/ops";
+import { replaceInventoryWarning } from "../data/setup-guards";
 import MigrationCard from "../components/migration-card";
 import { isDemoMode } from "../demo/demo-mode";
 import { buildBinsFromItems } from "../utils/bin-utils";
@@ -198,8 +199,8 @@ export default function SettingsPage({ onLogin }: SettingsPageProps) {
     if (!file) return;
 
     const confirmed = window.confirm(
-      `Replace the current master inventory with "${file.name}"?\n\n` +
-        "This replaces the app's active inventory quantities and rebuilds bin data from the uploaded file."
+      replaceInventoryWarning(masterItemCount, file.name) ??
+        `Replace the current master inventory with "${file.name}"?`
     );
 
     if (!confirmed) {

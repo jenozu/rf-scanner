@@ -26,6 +26,7 @@ export function useAuth() {
           // Try to get user from API
           try {
             const user = await api.getUser(currentUserId);
+            sessionStorage.setItem("rf_current_username", user.username);
             setAuthState({
               currentUser: user as User,
               users: [],
@@ -106,6 +107,7 @@ export function useAuth() {
       });
 
       sessionStorage.setItem("rf_current_user_id", user.id);
+      sessionStorage.setItem("rf_current_username", user.username);
       
       // Load users if admin
       if (user.role === "admin") {

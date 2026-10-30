@@ -2,6 +2,8 @@ import React, { useState, useEffect, useCallback } from "react";
 import { parseCSV, parsePOFile, parseSalesOrderFile } from "../data/csv-utils";
 import { useCollection } from "../data/hooks";
 import { saveCollection, upsertManyRecords } from "../data/ops";
+import { useAuth } from "../hooks/useAuth";
+import { CLEAR_CONFIRM_WORD, clearDataCheck, replaceInventoryWarning, sampleDataBlockedReason } from "../data/setup-guards";
 import { Item, PageType, PurchaseOrder, SalesOrder } from "../types";
 import { initializeSampleData, clearAllData } from "../data/sample-data";
 import { api } from "../services/api";
@@ -16,6 +18,8 @@ interface SetupPageProps {
 const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const { data } = useCollection<Item[]>("rf_active", [], { refresh: false });
+  const auth = useAuth();
+  const sampleBlockedReason = sampleDataBlockedReason(data.length);
   const [status, setStatus] = useState<string>("");
   const [isLoadingMaster, setIsLoadingMaster] = useState(false);
 
@@ -109,6 +113,8 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
 
   // 🔄 Manual load from server button
   const handleLoadFromServer = async () => {
+    const warning = replaceInventoryWarning(data.length, "master_inventory.xlsx");
+    if (warning && !window.confirm(warning)) return;
     setIsLoadingMaster(true);
     setStatus("📥 Loading master inventory from server...");
 
@@ -150,6 +156,12 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    const warning = replaceInventoryWarning(data.length, file.name);
+    if (warning && !window.confirm(warning)) {
+      e.target.value = "";
+      return;
+    }
+
     setCsvFile(file);
     const fileType = file.name.toLowerCase().endsWith('.xlsx') || file.name.toLowerCase().endsWith('.xls') 
       ? 'Excel' 
@@ -187,6 +199,13 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
 
   // 🎲 Initialize sample data
   const handleInitializeSampleData = async () => {
+    if (sampleBlockedReason) {
+      setStatus(`⚠️ ${sampleBlockedReason}`);
+      return;
+    }
+    if (!window.confirm("Replace the inventory list with a small set of sample items? This is for trying the app out only.")) {
+      return;
+    }
     setStatus("⏳ Initializing sample data...");
     try {
       const sampleItems = await initializeSampleData();
@@ -279,12 +298,22 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
 
   // 🗑️ Clear all data
   const handleClearData = () => {
-    if (confirm("Are you sure you want to clear all data? This cannot be undone.")) {
-      clearAllData();
-      saveCollection("rf_active", [], { overwrite: true, reload: false })
-        .then(() => setStatus("🗑️ All data cleared."))
-        .catch((error: any) => setStatus(`❌ Server data was not cleared: ${error?.message || "server error"}`));
+    if (auth.currentUser?.role !== "admin") {
+      setStatus(`⚠️ ${clearDataCheck(auth.currentUser?.role, CLEAR_CONFIRM_WORD).allowed ? "" : "Only an administrator can clear the shared data."}`);
+      return;
     }
+    const typed = window.prompt(
+      `This clears the shared inventory list for EVERY device and cannot be undone.\n\nType ${CLEAR_CONFIRM_WORD} to continue.`
+    );
+    const check = clearDataCheck(auth.currentUser?.role, typed);
+    if (!check.allowed) {
+      setStatus(`⚠️ ${check.reason}`);
+      return;
+    }
+    clearAllData();
+    saveCollection("rf_active", [], { overwrite: true, reload: false })
+      .then(() => setStatus("🗑️ All data cleared."))
+      .catch((error: any) => setStatus(`❌ Server data was not cleared: ${error?.message || "server error"}`));
   };
 
   return (
@@ -351,11 +380,13 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
           </p>
           <button
             onClick={handleInitializeSampleData}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 rounded-lg transition flex items-center justify-center gap-2"
+            disabled={!!sampleBlockedReason}
+            className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed text-white font-medium py-3 rounded-lg transition flex items-center justify-center gap-2"
           >
             <Play size={20} />
             Initialize Sample Data
           </button>
+          {sampleBlockedReason && <p className="text-xs text-gray-600 mt-2">{sampleBlockedReason}</p>}
         </div>
 
         <div className="text-center text-gray-400 mb-4">OR</div>
@@ -458,10 +489,12 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
         {/* 🗑️ Clear Data Button */}
         <button
           onClick={handleClearData}
-          className="w-full bg-red-100 hover:bg-red-200 text-red-700 font-medium py-2 rounded-lg transition flex items-center justify-center gap-2 text-sm"
+          disabled={auth.currentUser?.role !== "admin"}
+          title={auth.currentUser?.role !== "admin" ? "Only an administrator can do this" : undefined}
+          className="w-full bg-red-100 hover:bg-red-200 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed text-red-700 font-medium py-2 rounded-lg transition flex items-center justify-center gap-2 text-sm"
         >
           <Trash2 size={16} />
-          Clear All Data
+          Clear All Data{auth.currentUser?.role !== "admin" ? " (admin only)" : ""}
         </button>
 
         {/* 🧾 Status Display */}

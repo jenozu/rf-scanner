@@ -6,6 +6,9 @@ import { parseCSV } from "../data/csv-utils";
 import { useCollection } from "../data/hooks";
 import { appendRecords, saveBinChanges, saveRecordChanges } from "../data/ops";
 
+// The signed-in user's name (saved at login); used for count logs and bin locks.
+const currentUsername = () => sessionStorage.getItem("rf_current_username") || "Unknown";
+
 interface InventoryPageProps {
   setPage: (page: any) => void;
 }
@@ -333,10 +336,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
         // Re-lock the bins
         try {
           const { api } = await import("../services/api");
-          const currentUserId = sessionStorage.getItem("rf_current_user_id");
-          const users = JSON.parse(localStorage.getItem("rf_users") || "[]");
-          const currentUser = users.find((u: any) => u.id === currentUserId);
-          const username = currentUser ? currentUser.username : "Unknown";
+          const username = currentUsername();
           
           await api.lockBins(startBin, endBin, session.id, session.name, username);
           console.log("Bins re-locked successfully");
@@ -758,10 +758,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
       }
 
       // Get username for locking
-      const currentUserId = sessionStorage.getItem("rf_current_user_id");
-      const users = JSON.parse(localStorage.getItem("rf_users") || "[]");
-      const currentUser = users.find((u: any) => u.id === currentUserId);
-      const username = currentUser ? currentUser.username : "Unknown";
+      const username = currentUsername();
 
       console.log("Locking bins...");
       // Lock the bin range
@@ -816,10 +813,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     const variance = qty - currentItem.expectedQty;
 
     // Get current user info
-    const currentUserId = sessionStorage.getItem("rf_current_user_id");
-    const users = JSON.parse(localStorage.getItem("rf_users") || "[]");
-    const currentUser = users.find((u: any) => u.id === currentUserId);
-    const username = currentUser ? currentUser.username : "Unknown";
+    const username = currentUsername();
 
     // Create log entry
     const logEntry: SessionCountLog = {
@@ -982,6 +976,16 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
 
   // Numpad functions
   const handleNumpadClick = (digit: string) => {
+    if (digit === "OK") {
+      // The green check on the sequential counting screen: save the entered quantity.
+      // (0 is a valid count, but something must have been typed.)
+      if (numpadValue === "") {
+        showToast("⚠️ Please enter a quantity", "error");
+        return;
+      }
+      submitSequentialCount(Number(numpadValue) || 0);
+      return;
+    }
     if (digit === "C") {
       setNumpadValue("");
       setCountedQty(0);
@@ -1442,6 +1446,21 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
           </button>
         </div>
 
+        {/* Toast (this screen had none, so count results and warnings were invisible) */}
+        {toast && (
+          <div
+            className={`fixed top-20 left-1/2 transform -translate-x-1/2 z-50 px-6 py-3 rounded-lg shadow-lg ${
+              toast.type === "success"
+                ? "bg-green-500 text-white"
+                : toast.type === "error"
+                ? "bg-red-500 text-white"
+                : "bg-blue-500 text-white"
+            }`}
+          >
+            {toast.message}
+          </div>
+        )}
+
         {/* Progress Bar */}
         <div className="mb-6">
           <div className="flex justify-between text-sm text-gray-600 mb-2">
@@ -1547,11 +1566,13 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
                 <span className="text-gray-600">Items Counted:</span>
-                <span className="ml-2 font-bold">{currentItemIndex + 1}</span>
+                <span className="ml-2 font-bold">
+                  {sessionCountLogs.filter((log) => log.sessionId === currentSession.id).length}
+                </span>
               </div>
               <div>
                 <span className="text-gray-600">Remaining:</span>
-                <span className="ml-2 font-bold">{sequentialItems.length - currentItemIndex - 1}</span>
+                <span className="ml-2 font-bold">{Math.max(0, sequentialItems.length - currentItemIndex)}</span>
               </div>
             </div>
           </div>

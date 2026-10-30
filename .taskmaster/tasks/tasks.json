@@ -325,21 +325,35 @@
       {
         "title": "Guard destructive Setup actions (sample data, clear)",
         "description": "Initialize Sample Data and Clear all data can wipe the shared inventory with one tap (audit 4l).",
-        "status": "pending",
+        "status": "done",
         "priority": "high",
         "dependencies": [
           10
         ],
-        "details": "src/pages/setup-page.tsx handleInitializeSampleData and handleClearData. Hide or disable sample data when the server already holds real inventory (more than ~20 items), require typing a word to confirm clear, admin only. Found during 10.5; audit 4l was not in any task.",
+        "details": "src/pages/setup-page.tsx handleInitializeSampleData and handleClearData. Hide or disable sample data when the server already holds real inventory (more than ~20 items), require typing a word to confirm clear, admin only. Found during 10.5; audit 4l was not in any task.\n\n[2026-10-30T10:31:50-04:00] Implemented and verified as part of task 18 (see its log): src/data/setup-guards.ts, Setup page guards, real-browser 13/13.",
         "testStrategy": "Component-level check by hand or a vitest on the guard helper: with 500 items on the server, sample-data is refused; clear needs the typed confirmation and an admin",
         "complexity": 2,
         "id": 17,
+        "subtasks": []
+      },
+      {
+        "title": "Phase 2 hardening: counting verified in a real browser, role gap, count-log username, master-replace warning",
+        "description": "Close the known Phase 2 gaps before Phase 3 (owner asked: sort bugs and issues out first).",
+        "status": "done",
+        "priority": "high",
+        "dependencies": [
+          10
+        ],
+        "details": "Order: (1) drive the Inventory & Counts screens in real Chromium against the real API and fix what breaks; (2) task 17 destructive Setup actions; (3) /api/data/:key writes need admin/operator like the ops routes; (4) count logs use the logged-in user's name instead of 'Unknown'; (5) clearer replace-master warning. Everything found is logged here.\n\n[2026-10-30T10:15:25-04:00] plan: start with the real-browser counting flow (seed items/bins on the real API, drive Inventory & Counts in Chromium: create session, count a bin, check server bins/counts/txns/logs, second device sees them, wipe browser storage), then the smaller fixes.\n\n[2026-10-30T10:22:49-04:00] FOUND BY REAL-BROWSER COUNTING TEST (bug exists on main too, not caused by Phase 2): in the live sequential-count screen (inventory-page 'Counting: <session> / Item i of n') the green check-mark button calls handleNumpadClick('OK'), which has no OK branch: it appends 'OK' to the number and never submits; submitSequentialCount is only wired to a different layout (Confirm/Submit Count buttons) that is not what the user reaches via Sequential Count > By Range. Result: a sequential count could not be saved from that screen. Also the stats panel showed 'Items Counted: 1' before any count (currentItemIndex+1). Fix: OK key submits the entered quantity (requires a quantity; 0 is allowed), stats use the session's real count-log entries.\n\n[2026-10-30T10:25:23-04:00] counting: real-browser test now 12/12 (session, sequential count of 3 bins via the real screens, server bins 8/20/33, 3 logs with real username, 3 txns, device B sees work, wiping A's storage loses nothing). Fixed so far: dead check-mark, missing toast on that screen, wrong 'Items Counted' stat, 'Unknown' username (now saved at login). Next: task 17 destructive Setup actions, /api/data role gap, replace-master warning.\n\n[2026-10-30T10:29:12-04:00] task 17 (destructive Setup actions) done inside this hardening task: src/data/setup-guards.ts (+5 unit tests): sample data disabled with a reason when the server has >20 inventory items and asks for confirmation otherwise; Clear All Data is admin-only (button disabled + 'admin only' for others) and needs typing CLEAR. Real browsers: 13/13 (25 items -> sample disabled; wrong word / cancel -> nothing cleared; CLEAR as admin clears; empty inventory allows sample after confirm; operator cannot clear). Limit: UI guard against accidents, not server enforcement of 'who may clear' (the server cannot tell a clear from a normal save). Now: role gap on routes.\n\n[2026-10-30T10:31:50-04:00] DONE. Role gap: requireWriter now also on POST /api/data/:key, bins lock/unlock and shipment create/batch (a viewer could start real carrier labels before); viewer can still read and check bin availability; deactivated users' old tokens stop writing (5 new server tests, 85 total). Replace-inventory warning: setup-guards.replaceInventoryWarning, used by Setup upload, Setup 'Load from Server' and Settings replace; says ALL bins are rebuilt for EVERY device and what is lost; only shown when the server has real inventory (>20 items); real browser 5/5 (cancel changes nothing, confirm replaces + rebuilds bins as warned). Count logs/bin locks now use the signed-in user's name (saved at login, rf_current_username). Regression pass over every real-browser suite after these changes: two devices 18/18, picking 8/8, counting 12/12, setup guards 13/13, replace warning 5/5, migration 19/19, repo demo smoke test passed. Test scripts live in /tmp (not in the repo). Remaining known, NOT fixed (parked): duplicate unreachable sequential-count block (Phase 7), wave-pick two calls, duplicate PO ids on simultaneous import (Phase 3), shipping label requests without token (Phase 6), Docker backups untested on real Docker, no real handheld/production-data test.",
+        "testStrategy": "Real-browser counting flow passes against the real API; viewer gets 403 on /api/data writes; count log shows the real username; Setup destructive actions need confirmation; all suites green on a fresh clone",
+        "complexity": 4,
+        "id": 18,
         "subtasks": []
       }
     ],
     "metadata": {
       "created": "2026-10-29T19:42:01-04:00",
-      "updated": "2026-10-30T10:11:29-04:00"
+      "updated": "2026-10-30T10:31:50-04:00"
     }
   }
 }
