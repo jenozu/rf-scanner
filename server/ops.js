@@ -70,4 +70,47 @@ export function registerOps(app, { authenticateToken, requireWriter, dataDir }) 
     file: (req) => req.params.key,
     apply: (cur, req) => logic.applyUpsertMany(cur, req.body),
   }));
+
+  // Composite operations: several collections change in one request, under the
+  // locks of all of them (taken in a fixed order by store.lockedMany).
+  function composite(name, { validate, files, apply }) {
+    return async (req, res) => {
+      try {
+        const problem = validate(req.body);
+        if (problem) return res.status(problem.status).json({ error: problem.error });
+        const paths = Object.fromEntries(Object.entries(files).map(([k, key]) => [k, fileFor(key)]));
+        const result = await store.lockedMany(Object.values(paths), async (txs) => {
+          const state = {};
+          for (const [name2, file] of Object.entries(paths)) state[name2] = (await txs[file].read()).data;
+          const out = apply(state, req.body);
+          if (out.data) {
+            for (const [name2, file] of Object.entries(paths)) {
+              if (out.data[name2] !== undefined) await txs[file].write(out.data[name2]);
+            }
+          }
+          return out.result;
+        });
+        if (result?.error) {
+          const { error, status, ...extra } = result;
+          return res.status(status).json({ error, ...extra });
+        }
+        res.json(result);
+      } catch (error) {
+        console.error(`${name} failed:`, error);
+        res.status(500).json({ error: `Failed: ${name}` });
+      }
+    };
+  }
+
+  app.post('/api/ops/receive', ...guard, composite('receive', {
+    validate: logic.validateReceive,
+    files: { pos: 'rf_purchase_orders', bins: 'rf_bins', txns: 'rf_receiving_txns' },
+    apply: logic.applyReceive,
+  }));
+
+  app.post('/api/ops/pick-so', ...guard, composite('pick-so', {
+    validate: logic.validatePickSo,
+    files: { sos: 'rf_sales_orders', bins: 'rf_bins' },
+    apply: logic.applyPickSo,
+  }));
 }

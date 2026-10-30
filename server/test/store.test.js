@@ -99,3 +99,20 @@ test('queues are per file: a slow task on one file does not delay another', asyn
   release();
   assert.equal(await slow, 'a');
 });
+
+test('lockedMany: opposite-order callers on the same two files do not deadlock and do not interleave', async () => {
+  const a = await tmpFile('a.json');
+  const b = await tmpFile('b.json');
+  await store.writeJSON(a, { n: 0 });
+  await store.writeJSON(b, { n: 0 });
+  const bump = (files) => store.lockedMany(files, async (txs) => {
+    for (const f of files) {
+      const { data } = await txs[f].read();
+      await new Promise((r) => setTimeout(r, 1));
+      await txs[f].write({ n: data.n + 1 });
+    }
+  });
+  await Promise.all(Array.from({ length: 20 }, (_, i) => bump(i % 2 ? [a, b] : [b, a])));
+  assert.equal((await store.readJSON(a)).n, 20);
+  assert.equal((await store.readJSON(b)).n, 20);
+});

@@ -204,6 +204,26 @@ class ApiClient {
     return this.post<{ ok: true; so: any }>("/ops/so-pick", params);
   }
 
+  /** One receipt: PO line + bin quantity + receiving log in a single request. Safe to retry with the same txnId. */
+  receiveStock(params: {
+    poId: string;
+    lineIndex: number;
+    qty: number;
+    binCode: string;
+    txnId: string;
+    createBin?: { Zone?: string; Capacity?: number; Status?: string };
+    lots?: Array<{ lotCode: string; qty: number }>;
+    serials?: string[];
+  }) {
+    return this.post<{ ok: true; duplicate?: boolean; po?: any; bin?: any; quantity?: number; txn?: any }>(
+      "/ops/receive", params);
+  }
+
+  /** One pick: sales-order line + stock taken from the bin in a single request. */
+  pickSalesOrderLine(params: { soId: string; lineIndex: number; qty: number; binCode?: string }) {
+    return this.post<{ ok: true; so: any; binQuantity: number | null }>("/ops/pick-so", params);
+  }
+
   upsertRecord(key: string, record: { id: string }) {
     return this.post<{ ok: true; created: boolean }>(
       `/records/${key}/${encodeURIComponent(record.id)}`, { record }, "PUT");

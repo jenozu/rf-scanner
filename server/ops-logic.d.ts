@@ -17,3 +17,7 @@ export function applyRecordUpsert(current: any[] | null, record: any): OpOutcome
 export function applyRecordDelete(current: any[] | null, id: string): OpOutcome;
 export function validateUpsertMany(body: any): OpFailure | null;
 export function applyUpsertMany(current: any[] | null, body: any): OpOutcome;
+export function validateReceive(body: any): OpFailure | null;
+export function applyReceive(state: { pos: any[] | null; bins: any[] | null; txns: any[] | null }, body: any): OpOutcome;
+export function validatePickSo(body: any): OpFailure | null;
+export function applyPickSo(state: { sos: any[] | null; bins: any[] | null }, body: any): OpOutcome;

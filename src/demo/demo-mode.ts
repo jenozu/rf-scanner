@@ -318,6 +318,26 @@ function demoApply(
   return result;
 }
 
+/** Same as demoApply, for operations that change several collections together. */
+function demoApplyMany(
+  files: Record<string, string>,
+  problem: ops.OpFailure | null,
+  apply: (state: any) => ops.OpOutcome
+): any {
+  if (problem) throw new Error(problem.error);
+  const state: Record<string, any> = {};
+  for (const [name, key] of Object.entries(files)) state[name] = demoRead(key);
+  const outcome = apply(state);
+  const result: any = outcome.result;
+  if (result && typeof result === "object" && "error" in result) throw new Error(result.error);
+  if (outcome.data) {
+    for (const [name, key] of Object.entries(files)) {
+      if (outcome.data[name] !== undefined) localStorage.setItem(key, JSON.stringify(outcome.data[name]));
+    }
+  }
+  return result;
+}
+
 /** Returns undefined when the endpoint is not an operation. */
 function demoOperation(endpoint: string, method: string, body: any): unknown {
   if (method === "POST" && endpoint === "/ops/append") {
@@ -331,6 +351,21 @@ function demoOperation(endpoint: string, method: string, body: any): unknown {
   }
   if (method === "POST" && endpoint === "/ops/so-pick") {
     return demoApply("rf_sales_orders", ops.validateSoPick(body), (cur) => ops.applySoPick(cur, body));
+  }
+
+  if (method === "POST" && endpoint === "/ops/receive") {
+    return demoApplyMany(
+      { pos: "rf_purchase_orders", bins: "rf_bins", txns: "rf_receiving_txns" },
+      ops.validateReceive(body),
+      (state) => ops.applyReceive(state, body)
+    );
+  }
+  if (method === "POST" && endpoint === "/ops/pick-so") {
+    return demoApplyMany(
+      { sos: "rf_sales_orders", bins: "rf_bins" },
+      ops.validatePickSo(body),
+      (state) => ops.applyPickSo(state, body)
+    );
   }
 
   const records = endpoint.match(/^\/records\/([^/]+)\/([^/]+)$/);

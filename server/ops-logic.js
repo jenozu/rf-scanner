@@ -197,3 +197,82 @@ export function applyUpsertMany(current, body) {
   }
   return { data: list, result: { added, updated, skipped, total: list.length } };
 }
+
+// --- Composite operations (several collections changed together) ---
+
+export function validateReceive(body) {
+  const problem = validatePoReceive(body);
+  if (problem) return problem;
+  if (typeof body.binCode !== 'string' || !body.binCode) return fail('binCode is required');
+  if (typeof body.txnId !== 'string' || !body.txnId) return fail('txnId is required');
+  return validateBinAdjust({
+    binCode: body.binCode, itemCode: 'x', delta: body.qty, lots: body.lots,
+    serialsAdd: body.serials,
+  });
+}
+
+// One receipt = PO line + bin quantity + receiving log, applied together.
+// state is { pos, bins, txns } (current stored arrays). Retrying the same txnId
+// is a no-op, so a lost response can be retried safely.
+export function applyReceive(state, body) {
+  const { poId, lineIndex, qty, binCode, txnId, lots, serials, createBin } = body;
+  if ((state.txns || []).some(t => t?.id === txnId)) {
+    return { result: { ok: true, duplicate: true } };
+  }
+  const po = applyPoReceive(state.pos, { poId, lineIndex, qty, binCode, lots, serials });
+  if (po.result.error) return { result: po.result };
+  const line = po.result.po.items[lineIndex];
+
+  const bin = applyBinAdjust(state.bins, {
+    binCode, itemCode: line.ItemCode, description: line.Description, delta: qty,
+    createBin: createBin || {}, lots, serialsAdd: serials,
+  });
+  if (bin.result.error) return { result: bin.result };
+
+  const txn = {
+    id: txnId,
+    poNumber: po.result.po.poNumber,
+    itemCode: line.ItemCode,
+    description: line.Description,
+    qty,
+    binCode,
+    lots,
+    serials,
+    timestamp: new Date().toISOString(),
+  };
+  const txns = applyAppend(state.txns, { key: 'rf_receiving_txns', record: txn });
+  return {
+    data: { pos: po.data, bins: bin.data, txns: txns.data },
+    result: { ok: true, po: po.result.po, bin: bin.result.bin, quantity: bin.result.quantity, txn },
+  };
+}
+
+export function validatePickSo(body) {
+  const problem = validateSoPick(body);
+  if (problem) return problem;
+  if (body.binCode !== undefined && (typeof body.binCode !== 'string' || !body.binCode)) {
+    return fail('binCode must be a non-empty string');
+  }
+  return null;
+}
+
+// One pick = sales-order line + stock taken out of the bin (never below zero; a
+// bin that does not exist is skipped, as the page always did).
+// state is { sos, bins }.
+export function applyPickSo(state, body) {
+  const so = applySoPick(state.sos, body);
+  if (so.result.error) return { result: so.result };
+  const line = so.result.so.items[body.lineIndex];
+  const binCode = body.binCode || line.BinCode;
+  let bins = state.bins;
+  let quantity = null;
+  if (binCode && (state.bins || []).some(b => b.BinCode === binCode)) {
+    const bin = applyBinAdjust(state.bins, {
+      binCode, itemCode: line.ItemCode, delta: -body.qty, clampAtZero: true,
+    });
+    if (bin.result.error) return { result: bin.result };
+    bins = bin.data;
+    quantity = bin.result.quantity;
+  }
+  return { data: { sos: so.data, bins }, result: { ok: true, so: so.result.so, binQuantity: quantity } };
+}

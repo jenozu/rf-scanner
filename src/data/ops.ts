@@ -29,6 +29,24 @@ export function pickSoLine(params: ApiParams<"pickSoLine">[0]) {
   return dataStore.mutate(() => api.pickSoLine(params), { reload: ["rf_sales_orders"] });
 }
 
+/**
+ * Receive stock: updates the PO line, the bin and the receiving log together.
+ * The txnId makes a retry harmless; if the first attempt actually went through,
+ * the second one is reported as duplicate and changes nothing.
+ */
+export function receiveStock(params: ApiParams<"receiveStock">[0]) {
+  return dataStore.mutate(() => api.receiveStock(params), {
+    reload: ["rf_purchase_orders", "rf_bins", "rf_receiving_txns"],
+  });
+}
+
+/** Pick against one sales-order line and take the stock from its bin. */
+export function pickSalesOrderLine(params: ApiParams<"pickSalesOrderLine">[0]) {
+  return dataStore.mutate(() => api.pickSalesOrderLine(params), {
+    reload: ["rf_sales_orders", "rf_bins"],
+  });
+}
+
 type RecordKey = "rf_purchase_orders" | "rf_sales_orders" | "rf_waves" | "rf_orders";
 
 export function upsertRecord(key: RecordKey, record: { id: string }) {

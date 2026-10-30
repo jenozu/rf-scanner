@@ -106,8 +106,19 @@ function update(file, fn, options = {}) {
   });
 }
 
+// Hold the locks of several files at once. Locks are always taken in sorted path
+// order, so two callers locking overlapping sets cannot deadlock. fn receives an
+// object { [file]: tx } with the same tx as locked().
+function lockedMany(files, fn) {
+  const ordered = [...new Set(files)].sort();
+  const run = (i, txs) => (i === ordered.length
+    ? fn(txs)
+    : locked(ordered[i], (tx) => run(i + 1, { ...txs, [ordered[i]]: tx })));
+  return run(0, {});
+}
+
 function writeJSON(file, data, options = {}) {
   return locked(file, (tx) => tx.write(data, options));
 }
 
-export const store = { readJSON, readWithRevision, writeJSON, locked, update };
+export const store = { readJSON, readWithRevision, writeJSON, locked, lockedMany, update };

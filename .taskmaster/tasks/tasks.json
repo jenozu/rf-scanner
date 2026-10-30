@@ -177,11 +177,11 @@
           {
             "title": "Convert Receive and Pick pages to the data layer",
             "description": "Receiving and picking read/write the server through the data layer.",
-            "status": "pending",
+            "status": "done",
             "dependencies": [
               "10.3"
             ],
-            "details": "src/pages/receive-page.tsx, pick-page.tsx: replace localStorage reads/writes for rf_purchase_orders, rf_sales_orders, rf_orders, rf_waves, rf_bins, rf_receiving_txns with the data layer and ops endpoints; keep behaviour (ItemCode matching bug stays for Phase 4, noted in code comments only).",
+            "details": "src/pages/receive-page.tsx, pick-page.tsx: replace localStorage reads/writes for rf_purchase_orders, rf_sales_orders, rf_orders, rf_waves, rf_bins, rf_receiving_txns with the data layer and ops endpoints; keep behaviour (ItemCode matching bug stays for Phase 4, noted in code comments only).\n\n[2026-10-30T00:00:14-04:00] plan: composite server ops so one receipt/pick cannot be half-saved by a dropped connection between three browser calls: POST /api/ops/receive {poId,lineIndex,qty,binCode,txnId,lots?,serials?,createBin?} updates PO line + bin + rf_receiving_txns in ONE request under locks on all three files (store.lockedMany, sorted order = no deadlock); idempotent by txnId (retry returns duplicate:true, nothing re-applied); the txn record is built server-side from the PO line. POST /api/ops/pick-so {soId,lineIndex,qty,binCode?} = SO line + bin decrement (clampAtZero, bin missing is skipped, both = today's behavior). Pages: receive-page tracks selected PO by id and the line by INDEX (derived from live data; fixes duplicate-ItemCode highlight/key in the UI too), new-bin and PO import go through saveCollection / upsertManyRecords; pick-page SO flow uses pick-so; legacy wave flow (waves/orders, only demo/sample data) uses upsertRecord + adjustBin (two calls, noted). Behavior change to flag: selecting an SO no longer writes status 'picking' immediately (avoids a whole-record overwrite race); the first confirmed pick sets it.\n\n[2026-10-30T00:04:40-04:00] result: receive-page and pick-page no longer touch localStorage (grep 0 in both). New server composite ops /api/ops/receive (PO line + bin + log, idempotent by txnId, locks on 3 files via store.lockedMany) and /api/ops/pick-so (SO line + bin, clamp, missing bin skipped); demo backend + parity tests. Receive: selected PO by id and line by index from live data (fixes duplicate-ItemCode highlight/React key), attempt id reused for identical retries, form kept on failure, buttons disabled while saving, new bin via conflict-checked saveCollection, PO imports via upsert-many. Pick: SO flow via pick-so using live remaining qty; wave flow via upsertRecord + adjustBin. Tests: server 67, frontend 22 incl. src/data/two-devices.test.ts (real API, two client stores: receipt on A visible on B after refresh; 10 simultaneous receipts from both = exact sum; retry with same txnId not applied twice; pick on B lowers stock seen on A; failed save surfaces in status; no browser storage involved). tsc + build ok. BEHAVIOR CHANGES to flag to owner: (1) selecting a sales order no longer marks it 'picking' until the first confirmed pick; (2) save errors now show 'Not saved' and keep the form instead of silently succeeding locally; (3) receiving works on the server's copy of POs/bins - existing browser-only data is invisible until the 10.7 migration button is used. NOT verified: real browser/handheld click-through (no browser in this session). Drift check: composite ops are a design addition beyond 10.2 but within Phase 2 goal; logged.",
             "testStrategy": "build+tests pass; manual API-level check: a receipt posted by client A appears for client B after refresh; no business-data localStorage left in these two files (grep)",
             "complexity": 5,
             "id": 4
@@ -325,7 +325,7 @@
     ],
     "metadata": {
       "created": "2026-10-29T19:42:01-04:00",
-      "updated": "2026-10-29T23:55:08-04:00"
+      "updated": "2026-10-30T00:04:41-04:00"
     }
   }
 }

@@ -190,3 +190,134 @@ test('parallel record upserts to different records are all kept', async () => {
     post(op, `/api/records/rf_orders/o${i}`, { record: { id: `o${i}` } }, 'PUT')));
   assert.equal((await read('rf_orders')).length, 15);
 });
+
+// ---------- composite operations ----------
+
+const seedReceiving = async () => {
+  await write('rf_purchase_orders', [{
+    id: 'poR', poNumber: '4001', vendor: 'V', status: 'pending', expectedDate: '2026-01-01',
+    items: [
+      { LineNumber: 1, ItemCode: 'A', Description: 'Widget', OrderedQty: 100, ReceivedQty: 0 },
+      { LineNumber: 2, ItemCode: 'A', Description: 'Widget', OrderedQty: 100, ReceivedQty: 0 },
+    ],
+  }]);
+  await write('rf_bins', []);
+  await write('rf_receiving_txns', []);
+};
+
+test('receive: updates the PO line, the bin and the receiving log together; the log is built from the PO', async () => {
+  await seedReceiving();
+  const res = await post(op, '/api/ops/receive', {
+    poId: 'poR', lineIndex: 1, qty: 7, binCode: 'DOCK', txnId: 'RCV-1', createBin: { Zone: 'Dock' },
+  });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.quantity, 7);
+  const po = (await read('rf_purchase_orders'))[0];
+  assert.deepEqual(po.items.map(i => i.ReceivedQty), [0, 7]);
+  assert.equal(po.items[1].BinCode, 'DOCK');
+  const bins = await read('rf_bins');
+  assert.equal(bins[0].Zone, 'Dock');
+  assert.equal(bins[0].Items[0].Quantity, 7);
+  const [txn] = await read('rf_receiving_txns');
+  assert.deepEqual([txn.id, txn.poNumber, txn.itemCode, txn.description, txn.qty, txn.binCode],
+    ['RCV-1', '4001', 'A', 'Widget', 7, 'DOCK']);
+  assert.ok(txn.timestamp);
+});
+
+test('receive: retrying the same txnId changes nothing (safe after a lost response)', async () => {
+  await seedReceiving();
+  const body = { poId: 'poR', lineIndex: 0, qty: 5, binCode: 'DOCK', txnId: 'RCV-X', createBin: {} };
+  assert.equal((await post(op, '/api/ops/receive', body)).status, 200);
+  const retry = await (await post(op, '/api/ops/receive', body)).json();
+  assert.equal(retry.duplicate, true);
+  assert.equal((await read('rf_purchase_orders'))[0].items[0].ReceivedQty, 5);
+  assert.equal((await read('rf_bins'))[0].Items[0].Quantity, 5);
+  assert.equal((await read('rf_receiving_txns')).length, 1);
+});
+
+test('receive: two devices receiving at once add up across PO, bin and log', async () => {
+  await seedReceiving();
+  const op2 = await login('op');
+  const results = await Promise.all(Array.from({ length: 12 }, (_, i) => post(i % 2 ? op : op2, '/api/ops/receive', {
+    poId: 'poR', lineIndex: 0, qty: 2, binCode: 'DOCK', txnId: `RCV-P${i}`, createBin: {},
+  })));
+  assert.ok(results.every(r => r.status === 200));
+  assert.equal((await read('rf_purchase_orders'))[0].items[0].ReceivedQty, 24);
+  assert.equal((await read('rf_bins'))[0].Items[0].Quantity, 24);
+  assert.equal((await read('rf_receiving_txns')).length, 12);
+});
+
+test('receive: a rejected request leaves all three collections untouched', async () => {
+  await seedReceiving();
+  const before = [await read('rf_purchase_orders'), await read('rf_bins'), await read('rf_receiving_txns')];
+  assert.equal((await post(op, '/api/ops/receive', { poId: 'nope', lineIndex: 0, qty: 1, binCode: 'D', txnId: 't1' })).status, 404);
+  assert.equal((await post(op, '/api/ops/receive', { poId: 'poR', lineIndex: 9, qty: 1, binCode: 'D', txnId: 't2' })).status, 404);
+  assert.equal((await post(op, '/api/ops/receive', { poId: 'poR', lineIndex: 0, qty: 1, binCode: 'D' })).status, 400);
+  assert.equal((await post(op, '/api/ops/receive', { poId: 'poR', lineIndex: 0, qty: 1, txnId: 't3' })).status, 400);
+  assert.deepEqual([await read('rf_purchase_orders'), await read('rf_bins'), await read('rf_receiving_txns')], before);
+  assert.equal((await post(viewer, '/api/ops/receive', { poId: 'poR', lineIndex: 0, qty: 1, binCode: 'D', txnId: 't5' })).status, 403);
+});
+
+test('receive: lots and serials reach the PO line, the bin item and the log', async () => {
+  await seedReceiving();
+  await post(op, '/api/ops/receive', {
+    poId: 'poR', lineIndex: 0, qty: 3, binCode: 'DOCK', txnId: 'RCV-L', createBin: {},
+    lots: [{ lotCode: 'L1', qty: 3 }],
+  });
+  await post(op, '/api/ops/receive', {
+    poId: 'poR', lineIndex: 1, qty: 2, binCode: 'DOCK', txnId: 'RCV-S', createBin: {},
+    serials: ['S1', 'S2'],
+  });
+  const item = (await read('rf_bins'))[0].Items[0];
+  assert.equal(item.Quantity, 5);
+  assert.deepEqual(item.Lots, [{ lotCode: 'L1', qty: 3 }]);
+  assert.deepEqual(item.Serials, ['S1', 'S2']);
+  const po = (await read('rf_purchase_orders'))[0];
+  assert.deepEqual(po.items[0].Lots, [{ lotCode: 'L1', qty: 3 }]);
+  assert.deepEqual(po.items[1].Serials, ['S1', 'S2']);
+});
+
+test('pick-so: updates the SO line and takes stock from the bin; clamps at zero; missing bin is skipped', async () => {
+  await write('rf_sales_orders', [{
+    id: 'soP', soNumber: '9', status: 'pending',
+    items: [
+      { ItemCode: 'A', OrderedQty: 4, DeliveredQty: 0, RemainingQty: 4, BinCode: 'B-1' },
+      { ItemCode: 'A', OrderedQty: 3, DeliveredQty: 0, RemainingQty: 3, BinCode: 'GONE' },
+    ],
+  }]);
+  await write('rf_bins', [bin('B-1', [{ ItemCode: 'A', Description: 'a', Quantity: 3 }])]);
+  const first = await (await post(op, '/api/ops/pick-so', { soId: 'soP', lineIndex: 0, qty: 4 })).json();
+  assert.equal(first.so.status, 'picking');
+  assert.equal(first.binQuantity, 0); // 3 in stock, 4 picked: clamps like the page always did
+  const second = await (await post(op, '/api/ops/pick-so', { soId: 'soP', lineIndex: 1, qty: 3 })).json();
+  assert.equal(second.so.status, 'picked');
+  assert.equal(second.binQuantity, null);
+  const so = (await read('rf_sales_orders'))[0];
+  assert.deepEqual(so.items.map(i => i.DeliveredQty), [4, 3]);
+});
+
+test('pick-so: parallel picks on one bin all land; errors change nothing', async () => {
+  await write('rf_sales_orders', [{
+    id: 'soQ', soNumber: '10', status: 'pending',
+    items: [{ ItemCode: 'A', OrderedQty: 40, DeliveredQty: 0, RemainingQty: 40, BinCode: 'B-1' }],
+  }]);
+  await write('rf_bins', [bin('B-1', [{ ItemCode: 'A', Description: 'a', Quantity: 100 }])]);
+  const results = await Promise.all(Array.from({ length: 20 }, () =>
+    post(op, '/api/ops/pick-so', { soId: 'soQ', lineIndex: 0, qty: 2 })));
+  assert.ok(results.every(r => r.status === 200));
+  assert.equal((await read('rf_sales_orders'))[0].items[0].DeliveredQty, 40);
+  assert.equal((await read('rf_bins'))[0].Items[0].Quantity, 60);
+  assert.equal((await post(op, '/api/ops/pick-so', { soId: 'zzz', lineIndex: 0, qty: 1 })).status, 404);
+  assert.equal((await post(viewer, '/api/ops/pick-so', { soId: 'soQ', lineIndex: 0, qty: 1 })).status, 403);
+  assert.equal((await read('rf_bins'))[0].Items[0].Quantity, 60);
+});
+
+test('receive: a bin that does not exist yet is created (as the page always did)', async () => {
+  await seedReceiving();
+  const res = await post(op, '/api/ops/receive', { poId: 'poR', lineIndex: 0, qty: 1, binCode: 'NEWBIN', txnId: 'RCV-NB' });
+  assert.equal(res.status, 200);
+  const created = (await read('rf_bins')).find(b => b.BinCode === 'NEWBIN');
+  assert.equal(created.Zone, 'Main');
+  assert.equal(created.Items[0].Quantity, 1);
+});

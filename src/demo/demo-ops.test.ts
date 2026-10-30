@@ -50,4 +50,28 @@ describe("demo backend operations (shared logic with the server)", () => {
     expect(JSON.parse(store.get("rf_waves")!).map((w: any) => w.id)).toEqual(["w2"]);
     await expect(post("/records/rf_bins/x", { record: { id: "x" } }, "PUT")).rejects.toThrow("Invalid key");
   });
+
+  it("receives stock across PO, bin and log in one call, and ignores a repeated txnId", async () => {
+    store.set("rf_purchase_orders", JSON.stringify([{ id: "p", poNumber: "7", items: [
+      { ItemCode: "A", Description: "a", OrderedQty: 5, ReceivedQty: 0 },
+    ] }]));
+    const body = { poId: "p", lineIndex: 0, qty: 3, binCode: "A", txnId: "RCV-1" };
+    await post("/ops/receive", body);
+    const again = await post("/ops/receive", body);
+    expect(again.duplicate).toBe(true);
+    expect(JSON.parse(store.get("rf_purchase_orders")!)[0].items[0].ReceivedQty).toBe(3);
+    expect(JSON.parse(store.get("rf_bins")!)[0].Items[0].Quantity).toBe(3);
+    expect(JSON.parse(store.get("rf_receiving_txns")!)).toHaveLength(1);
+  });
+
+  it("picks a sales-order line and takes the stock from the bin", async () => {
+    store.set("rf_bins", JSON.stringify([{ BinCode: "A", Zone: "Z", Capacity: 10, Status: "active",
+      Items: [{ ItemCode: "X", Description: "x", Quantity: 5 }] }]));
+    store.set("rf_sales_orders", JSON.stringify([{ id: "s", items: [
+      { ItemCode: "X", OrderedQty: 2, DeliveredQty: 0, RemainingQty: 2, BinCode: "A" },
+    ] }]));
+    const res = await post("/ops/pick-so", { soId: "s", lineIndex: 0, qty: 2 });
+    expect(res.so.status).toBe("picked");
+    expect(JSON.parse(store.get("rf_bins")!)[0].Items[0].Quantity).toBe(3);
+  });
 });
