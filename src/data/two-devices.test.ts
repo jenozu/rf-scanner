@@ -7,7 +7,10 @@ import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { AddressInfo } from "node:net";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 let server: import("node:http").Server;
 let dataDir: string;
@@ -21,6 +24,12 @@ const bins = (store: { getSnapshot: (k: string) => any }) => store.getSnapshot("
 const po = (store: { getSnapshot: (k: string) => any }) => store.getSnapshot("rf_purchase_orders").data[0];
 
 beforeAll(async () => {
+  // This test runs the real API, so the server's own packages must be installed.
+  try {
+    await fs.access(path.resolve(__dirname, "../../server/node_modules/express"));
+  } catch {
+    throw new Error("The server's packages are missing. Run `npm ci` in the server/ folder first, then run the tests again.");
+  }
   dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "rf-two-devices-"));
   process.env.NODE_ENV = "test";
   process.env.DATA_DIR = dataDir;
@@ -65,8 +74,8 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await new Promise((r) => server.close(r));
-  await fs.rm(dataDir, { recursive: true, force: true });
+  if (server) await new Promise((r) => server.close(r));
+  if (dataDir) await fs.rm(dataDir, { recursive: true, force: true });
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
 });
