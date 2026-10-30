@@ -153,11 +153,11 @@
           {
             "title": "Server operations: transactions, bin deltas, record upsert",
             "description": "Endpoints that change one thing atomically so two handhelds add up instead of overwriting.",
-            "status": "pending",
+            "status": "done",
             "dependencies": [
               "10.1"
             ],
-            "details": "server/index.js (or server/routes/): POST /api/ops/append (rf_receiving_txns, rf_cycle_count_txns, rf_activity_logs only), POST /api/ops/bin-adjust (binCode+itemCode+delta, refuses negative), PUT/DELETE /api/records/:key/:id for id'd collections (POs, SOs, waves, orders), all through the 10.1 queue and token-authenticated. Role rules: viewer cannot write. Line identity by DocNum+LineNum stays Phase 3/4.",
+            "details": "server/index.js (or server/routes/): POST /api/ops/append (rf_receiving_txns, rf_cycle_count_txns, rf_activity_logs only), POST /api/ops/bin-adjust (binCode+itemCode+delta, refuses negative), PUT/DELETE /api/records/:key/:id for id'd collections (POs, SOs, waves, orders), all through the 10.1 queue and token-authenticated. Role rules: viewer cannot write. Line identity by DocNum+LineNum stays Phase 3/4.\n\n[2026-10-29T23:41:26-04:00] plan: new server/ops.js registered from index.js (+ requireWriter = active admin/operator, viewer 403). Endpoints, all under store locks: POST /api/ops/append {key,record(s)} for rf_receiving_txns/rf_cycle_count_txns (newest first, no cap) and rf_activity_logs (cap 100 like useAuth today), idempotent by id; POST /api/ops/bin-adjust {binCode,itemCode,delta|setQuantity,clampAtZero?,createBin?,lots?,serialsAdd/Remove?}; POST /api/ops/po-receive {poId,lineIndex,qty,...} and POST /api/ops/so-pick {soId,lineIndex,qty} update exactly one line by INDEX (not ItemCode, so the duplicate-ItemCode bug cannot occur through these ops; Phase 4 adds DocNum+LineNum identity and caps); PUT/DELETE /api/records/:key/:id and POST /api/records/:key/upsert-many for rf_purchase_orders/rf_sales_orders/rf_waves/rf_orders. Status/receivedDate/RemainingQty formulas copied from today's receive/pick pages. clampAtZero exists so 10.4 can keep today's silent clamp in pick; strict refusal (409) is the default and the Phase 4 target. NOT changed: /api/data/:key still lets a viewer write (parking lot; tighten after pages are converted).\n\n[2026-10-29T23:43:34-04:00] result: server/ops.js + requireWriter. 12 tests (58 server total) pass incl. two-client concurrency: 20 parallel +1 adjustments from two logins = 20; 25 parallel appends kept; 10 parallel receipts on one PO line = 10 and the same-ItemCode second line untouched; 15 parallel record upserts kept; viewer 403 everywhere, anon 401; idempotent append; negative stock refused (409) unless clampAtZero. Contract for 10.4: pages must pass lineIndex (position of the line shown), bin-adjust with createBin for receiving, clampAtZero:true in pick to keep today's behavior until Phase 4. Drift check: ok; server-only; one parking-lot item added (viewer can still write via /api/data).",
             "testStrategy": "two-client concurrency test: 20 parallel adjusts of +1 on one bin sum to 20; parallel appends all kept; viewer gets 403; unknown key 400",
             "complexity": 5,
             "id": 2
@@ -325,7 +325,7 @@
     ],
     "metadata": {
       "created": "2026-10-29T19:42:01-04:00",
-      "updated": "2026-10-29T23:40:01-04:00"
+      "updated": "2026-10-29T23:43:34-04:00"
     }
   }
 }

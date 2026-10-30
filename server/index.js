@@ -10,6 +10,7 @@ import { promisify } from 'util';
 import { resolveJwtSecret } from './config.js';
 import { createLoginLimiter } from './login-limiter.js';
 import { store, ConflictError } from './store.js';
+import { registerOps } from './ops.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -86,6 +87,22 @@ async function requireAdmin(req, res, next) {
     next();
   } catch (error) {
     console.error('Error checking admin role:', error);
+    res.status(500).json({ error: 'Failed to verify permissions' });
+  }
+}
+
+// Guard for routes that change warehouse data: active admin or operator (not viewer).
+async function requireWriter(req, res, next) {
+  try {
+    const users = await readJSONFile(USERS_FILE) || [];
+    const me = users.find(u => u.id === req.user?.userId);
+    if (!me || me.isActive === false || !['admin', 'operator'].includes(me.role)) {
+      return res.status(403).json({ error: 'Write access required' });
+    }
+    req.currentUser = me;
+    next();
+  } catch (error) {
+    console.error('Error checking write role:', error);
     res.status(500).json({ error: 'Failed to verify permissions' });
   }
 }
@@ -495,6 +512,8 @@ app.post('/api/data/:key', authenticateToken, async (req, res) => {
     res.status(500).json({ error: 'Failed to save data' });
   }
 });
+
+registerOps(app, { authenticateToken, requireWriter, dataDir: DATA_DIR });
 
 // ============================================
 // BIN LOCKING ENDPOINTS
