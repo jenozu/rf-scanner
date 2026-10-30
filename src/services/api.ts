@@ -12,6 +12,18 @@ export interface ApiResponse<T> {
   error?: string;
 }
 
+/** Error from the API with the HTTP status and any extra fields the server sent. */
+export class ApiError extends Error {
+  status: number;
+  details: Record<string, unknown>;
+  constructor(message: string, status: number, details: Record<string, unknown> = {}) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.details = details;
+  }
+}
+
 export interface AuthResponse {
   user: any;
   token: string;
@@ -30,11 +42,20 @@ class ApiClient {
   private clearToken(): void {
     sessionStorage.removeItem("rf_auth_token");
     sessionStorage.removeItem("rf_current_user_id");
+    sessionStorage.removeItem("rf_current_username");
   }
 
   private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+    return (await this.requestFull<T>(endpoint, options)).body;
+  }
+
+  /** Like request, but also returns the response headers (null in demo mode). */
+  private async requestFull<T>(
+    endpoint: string,
+    options: RequestInit = {}
+  ): Promise<{ body: T; headers: Headers | null }> {
     if (isDemoMode()) {
-      return demoRequest<T>(endpoint, options);
+      return { body: await demoRequest<T>(endpoint, options), headers: null };
     }
 
     const url = `${API_BASE}${endpoint}`;
@@ -55,15 +76,19 @@ class ApiClient {
 
         if (response.status === 401 && error.expired) {
           this.clearToken();
-          throw new Error("Session expired. Please login again.");
+          throw new ApiError("Session expired. Please login again.", 401, error);
         }
 
-        throw new Error(error.error || `HTTP ${response.status}`);
+        throw new ApiError(error.error || `HTTP ${response.status}`, response.status, error);
       }
 
-      return await response.json();
+      return { body: (await response.json()) as T, headers: response.headers };
     } catch (error) {
       console.error(`API request failed: ${endpoint}`, error);
+      // fetch() throws a TypeError when the server cannot be reached at all.
+      if (error instanceof TypeError) {
+        throw new ApiError("Can't reach the server. Check the connection and try again.", 0);
+      }
       throw error;
     }
   }
@@ -124,10 +149,126 @@ class ApiClient {
     return this.request<any>(`/data/${key}`);
   }
 
-  async saveData(key: string, data: any) {
-    return this.request<{ message: string }>(`/data/${key}`, {
+  /** Data plus its revision (null when the server does not report one). */
+  async getDataWithRevision(key: string): Promise<{ data: any; revision: string | null }> {
+    const { body, headers } = await this.requestFull<any>(`/data/${key}`);
+    return { data: body, revision: headers?.get("X-Revision") ?? null };
+  }
+
+  /**
+   * Replace a whole collection. With baseRevision the server refuses (409) if the
+   * data changed since it was read; without it the last save wins.
+   */
+  async saveData(key: string, data: any, baseRevision?: string | null) {
+    return this.request<{ message: string; revision?: string }>(`/data/${key}`, {
       method: "POST",
-      body: JSON.stringify({ data }),
+      body: JSON.stringify({ data, ...(baseRevision ? { baseRevision } : {}) }),
+    });
+  }
+
+  // --- Operations that change one thing atomically on the server (server/ops.js) ---
+
+  private post<T>(endpoint: string, body: unknown, method = "POST") {
+    return this.request<T>(endpoint, {
+      method,
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+  }
+
+  appendRecords(key: string, records: any[]) {
+    return this.post<{ added: number; total: number }>("/ops/append", { key, records });
+  }
+
+  adjustBin(params: {
+    binCode: string;
+    itemCode: string;
+    description?: string;
+    delta?: number;
+    setQuantity?: number;
+    clampAtZero?: boolean;
+    createBin?: { Zone?: string; Capacity?: number; Status?: string };
+    lots?: Array<{ lotCode: string; qty: number }>;
+    serialsAdd?: string[];
+    serialsRemove?: string[];
+  }) {
+    return this.post<{ ok: true; bin: any; quantity: number; previous: number }>("/ops/bin-adjust", params);
+  }
+
+  receivePoLine(params: {
+    poId: string;
+    lineIndex: number;
+    qty: number;
+    binCode?: string;
+    lots?: Array<{ lotCode: string; qty: number }>;
+    serials?: string[];
+  }) {
+    return this.post<{ ok: true; po: any }>("/ops/po-receive", params);
+  }
+
+  pickSoLine(params: { soId: string; lineIndex: number; qty: number }) {
+    return this.post<{ ok: true; so: any }>("/ops/so-pick", params);
+  }
+
+  /** One receipt: PO line + bin quantity + receiving log in a single request. Safe to retry with the same txnId. */
+  receiveStock(params: {
+    poId: string;
+    lineIndex: number;
+    qty: number;
+    binCode: string;
+    txnId: string;
+    createBin?: { Zone?: string; Capacity?: number; Status?: string };
+    lots?: Array<{ lotCode: string; qty: number }>;
+    serials?: string[];
+  }) {
+    return this.post<{ ok: true; duplicate?: boolean; po?: any; bin?: any; quantity?: number; txn?: any }>(
+      "/ops/receive", params);
+  }
+
+  /** One pick: sales-order line + stock taken from the bin in a single request. */
+  pickSalesOrderLine(params: { soId: string; lineIndex: number; qty: number; binCode?: string }) {
+    return this.post<{ ok: true; so: any; binQuantity: number | null }>("/ops/pick-so", params);
+  }
+
+  upsertRecord(key: string, record: { id: string }) {
+    return this.post<{ ok: true; created: boolean }>(
+      `/records/${key}/${encodeURIComponent(record.id)}`, { record }, "PUT");
+  }
+
+  deleteRecord(key: string, id: string) {
+    return this.post<{ message: string }>(`/records/${key}/${encodeURIComponent(id)}`, undefined, "DELETE");
+  }
+
+  /** Several record changes in one request: add/replace the upserted records, delete the removed ids. */
+  applyRecordChanges(key: string, changes: { upsert: Array<{ id: string }>; remove: string[] }) {
+    return this.post<{ ok: true; added: number; updated: number; removed: number }>(
+      `/records/${key}/apply`, changes);
+  }
+
+  /** Create bins and set item quantities (absolute, as counting does), all or nothing. */
+  setBinQuantities(params: {
+    newBins?: Array<{ BinCode: string; Zone?: string; Capacity?: number; Status?: string }>;
+    changes?: Array<{ binCode: string; itemCode: string; description?: string; setQuantity: number }>;
+  }) {
+    return this.post<{ ok: true; bins: number; changed: number; created: number }>("/ops/bins-set", params);
+  }
+
+  upsertManyRecords(key: string, records: Array<{ id: string }>, skipExisting = false) {
+    return this.post<{ added: number; updated: number; skipped: number; total: number }>(
+      `/records/${key}/upsert-many`, { records, skipExisting });
+  }
+
+  // --- One-time migration of a device's old browser data (admin only) ---
+
+  getMigrationStatus() {
+    return this.request<{ counts: Record<string, number> }>("/migrate/status");
+  }
+
+  migrateBrowserData(collections: Record<string, unknown>, replace: string[] = []) {
+    return this.request<{
+      results: Array<{ key: string; status: string; count: number; backup?: string }>;
+    }>("/migrate/browser-data", {
+      method: "POST",
+      body: JSON.stringify({ collections, replace }),
     });
   }
 

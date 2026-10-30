@@ -13,6 +13,7 @@ import {
   User,
   Wave,
 } from "../types";
+import * as ops from "../../server/ops-logic.js";
 
 const DEMO_VERSION = "premium-wms-v1";
 
@@ -248,6 +249,7 @@ export function seedDemoData(force = false): void {
   if (!isDemoMode() || typeof window === "undefined") return;
   if (!force && localStorage.getItem("rf_demo_seeded") === DEMO_VERSION) {
     sessionStorage.setItem("rf_current_user_id", demoUser.id);
+    sessionStorage.setItem("rf_current_username", demoUser.username);
     sessionStorage.setItem("rf_auth_token", "demo-preview-token");
     return;
   }
@@ -258,6 +260,7 @@ export function seedDemoData(force = false): void {
   localStorage.setItem("rf_demo_users", JSON.stringify([demoUser]));
   localStorage.setItem("rf_demo_seeded", DEMO_VERSION);
   sessionStorage.setItem("rf_current_user_id", demoUser.id);
+  sessionStorage.setItem("rf_current_username", demoUser.username);
   sessionStorage.setItem("rf_auth_token", "demo-preview-token");
 }
 
@@ -293,6 +296,103 @@ function jsonBody(options: RequestInit): any {
   }
 }
 
+// --- Operations (same logic as the real server: server/ops-logic.js) ---
+
+function demoRead(key: string): any[] | null {
+  try {
+    return JSON.parse(localStorage.getItem(key) || "null");
+  } catch {
+    return null;
+  }
+}
+
+/** Validate, apply to the stored value, save, and return the result (or throw like the API would). */
+function demoApply(
+  key: string,
+  problem: ops.OpFailure | null,
+  apply: (current: any[] | null) => ops.OpOutcome
+): any {
+  if (problem) throw new Error(problem.error);
+  const outcome = apply(demoRead(key));
+  const result: any = outcome.result;
+  if (result && typeof result === "object" && "error" in result) throw new Error(result.error);
+  if (outcome.data !== undefined) localStorage.setItem(key, JSON.stringify(outcome.data));
+  return result;
+}
+
+/** Same as demoApply, for operations that change several collections together. */
+function demoApplyMany(
+  files: Record<string, string>,
+  problem: ops.OpFailure | null,
+  apply: (state: any) => ops.OpOutcome
+): any {
+  if (problem) throw new Error(problem.error);
+  const state: Record<string, any> = {};
+  for (const [name, key] of Object.entries(files)) state[name] = demoRead(key);
+  const outcome = apply(state);
+  const result: any = outcome.result;
+  if (result && typeof result === "object" && "error" in result) throw new Error(result.error);
+  if (outcome.data) {
+    for (const [name, key] of Object.entries(files)) {
+      if (outcome.data[name] !== undefined) localStorage.setItem(key, JSON.stringify(outcome.data[name]));
+    }
+  }
+  return result;
+}
+
+/** Returns undefined when the endpoint is not an operation. */
+function demoOperation(endpoint: string, method: string, body: any): unknown {
+  if (method === "POST" && endpoint === "/ops/append") {
+    return demoApply(body.key, ops.validateAppend(body), (cur) => ops.applyAppend(cur, body));
+  }
+  if (method === "POST" && endpoint === "/ops/bin-adjust") {
+    return demoApply("rf_bins", ops.validateBinAdjust(body), (cur) => ops.applyBinAdjust(cur, body));
+  }
+  if (method === "POST" && endpoint === "/ops/po-receive") {
+    return demoApply("rf_purchase_orders", ops.validatePoReceive(body), (cur) => ops.applyPoReceive(cur, body));
+  }
+  if (method === "POST" && endpoint === "/ops/so-pick") {
+    return demoApply("rf_sales_orders", ops.validateSoPick(body), (cur) => ops.applySoPick(cur, body));
+  }
+
+  if (method === "POST" && endpoint === "/ops/bins-set") {
+    return demoApply("rf_bins", ops.validateBinsSet(body), (cur) => ops.applyBinsSet(cur, body));
+  }
+  if (method === "POST" && endpoint === "/ops/receive") {
+    return demoApplyMany(
+      { pos: "rf_purchase_orders", bins: "rf_bins", txns: "rf_receiving_txns" },
+      ops.validateReceive(body),
+      (state) => ops.applyReceive(state, body)
+    );
+  }
+  if (method === "POST" && endpoint === "/ops/pick-so") {
+    return demoApplyMany(
+      { sos: "rf_sales_orders", bins: "rf_bins" },
+      ops.validatePickSo(body),
+      (state) => ops.applyPickSo(state, body)
+    );
+  }
+
+  const records = endpoint.match(/^\/records\/([^/]+)\/([^/]+)$/);
+  if (records) {
+    const key = records[1];
+    const id = decodeURIComponent(records[2]);
+    if (method === "POST" && id === "apply") {
+      return demoApply(key, ops.validateRecordKey(key) || ops.validateRecordChanges(body), (cur) => ops.applyRecordChanges(cur, body));
+    }
+    if (method === "POST" && id === "upsert-many") {
+      return demoApply(key, ops.validateRecordKey(key) || ops.validateUpsertMany(body), (cur) => ops.applyUpsertMany(cur, body));
+    }
+    if (method === "PUT") {
+      return demoApply(key, ops.validateRecordKey(key) || ops.validateRecordUpsert(id, body), (cur) => ops.applyRecordUpsert(cur, body.record));
+    }
+    if (method === "DELETE") {
+      return demoApply(key, ops.validateRecordKey(key), (cur) => ops.applyRecordDelete(cur, id));
+    }
+  }
+  return undefined;
+}
+
 export async function demoRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   seedDemoData();
   const method = (options.method || "GET").toUpperCase();
@@ -311,6 +411,7 @@ export async function demoRequest<T>(endpoint: string, options: RequestInit = {}
     );
     if (!user) throw new Error("Invalid username or password");
     sessionStorage.setItem("rf_current_user_id", user.id);
+    sessionStorage.setItem("rf_current_username", user.username);
     sessionStorage.setItem("rf_auth_token", "demo-preview-token");
     return { user, token: "demo-preview-token", expiresIn: "preview" } as T;
   }
@@ -369,6 +470,9 @@ export async function demoRequest<T>(endpoint: string, options: RequestInit = {}
       return null as T;
     }
   }
+
+  const opResult = demoOperation(endpoint, method, body);
+  if (opResult !== undefined) return opResult as T;
 
   if (endpoint === "/bins/check-availability") {
     return { available: true, conflicts: [] } as T;

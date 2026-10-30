@@ -1,6 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { PageType, SalesOrder, Order } from "../types";
 import { isDemoMode } from "../demo/demo-mode";
+import { useCollection } from "../data/hooks";
+import { saveRecordChanges } from "../data/ops";
 import { 
   Package, 
   Truck, 
@@ -21,7 +23,9 @@ interface ShippingPageProps {
 const API_BASE_URL = import.meta.env.VITE_API_URL || "";
 
 export default function ShippingPage({ setPage }: ShippingPageProps) {
-  const [orders, setOrders] = useState<SalesOrder[]>([]);
+  // Orders come from the server (shared by every device), not from this browser.
+  const { data: salesOrdersData } = useCollection<SalesOrder[]>("rf_sales_orders", []);
+  const { data: regularOrders } = useCollection<Order[]>("rf_orders", []);
   const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "picked" | "shipped">("all");
@@ -29,39 +33,10 @@ export default function ShippingPage({ setPage }: ShippingPageProps) {
   const [error, setError] = useState<string | null>(null);
   const [successMessages, setSuccessMessages] = useState<Map<string, string>>(new Map());
 
-  useEffect(() => {
-    loadOrders();
-  }, []);
-
-  const loadOrders = async () => {
-    if (isDemoMode()) {
-      const salesOrders = JSON.parse(localStorage.getItem("rf_sales_orders") || "[]") as SalesOrder[];
-      setOrders(salesOrders);
-      return;
-    }
-
-    try {
-      // Try to load from server first
-      const response = await fetch(`${API_BASE_URL}/api/data/rf_sales_orders`);
-      if (response.ok) {
-        const serverOrders = await response.json() as SalesOrder[];
-        if (serverOrders && serverOrders.length > 0) {
-          setOrders(serverOrders);
-          return;
-        }
-      }
-    } catch (e) {
-      console.log('Server not available, using localStorage');
-    }
-    
-    // Fallback to localStorage
-    const salesOrders = JSON.parse(localStorage.getItem("rf_sales_orders") || "[]") as SalesOrder[];
-    
-    // Also check regular orders
-    const regularOrders = JSON.parse(localStorage.getItem("rf_orders") || "[]") as Order[];
-    
-    // Convert regular orders to sales order format for display
-    const convertedOrders: SalesOrder[] = regularOrders
+  // Sales orders, or (only when there are none) legacy wave orders shown in the same format.
+  const orders = useMemo<SalesOrder[]>(() => {
+    if (salesOrdersData.length > 0) return salesOrdersData;
+    return regularOrders
       .filter(o => o.status === "picked" || o.status === "pending")
       .map(o => ({
         id: o.id,
@@ -77,31 +52,12 @@ export default function ShippingPage({ setPage }: ShippingPageProps) {
         })),
         status: o.status === "picked" ? "picked" : "pending",
         createdDate: new Date().toISOString(),
-      }));
-    
-    const allOrders = [...salesOrders, ...convertedOrders];
-    setOrders(allOrders);
-  };
+      })) as SalesOrder[];
+  }, [salesOrdersData, regularOrders]);
 
+  // Save only the orders whose status changed. A failure is thrown to the caller.
   const saveOrders = async (updatedOrders: SalesOrder[]) => {
-    if (isDemoMode()) {
-      localStorage.setItem("rf_sales_orders", JSON.stringify(updatedOrders));
-      return;
-    }
-
-    try {
-      // Try to save to server
-      await fetch(`${API_BASE_URL}/api/data/rf_sales_orders`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: updatedOrders })
-      });
-    } catch (e) {
-      console.log('Server not available, using localStorage');
-    }
-    
-    // Also save to localStorage as backup
-    localStorage.setItem("rf_sales_orders", JSON.stringify(updatedOrders));
+    await saveRecordChanges("rf_sales_orders", salesOrdersData, updatedOrders);
   };
 
   const filteredOrders = orders.filter(order => {
@@ -207,7 +163,6 @@ export default function ShippingPage({ setPage }: ShippingPageProps) {
               }
             : candidate
         );
-        setOrders(updatedOrders);
         await saveOrders(updatedOrders);
         setSuccessMessages((previous) =>
           new Map(previous).set(orderId, `Preview shipment created · ${shipmentPin}`)
@@ -291,7 +246,6 @@ export default function ShippingPage({ setPage }: ShippingPageProps) {
             ? { ...o, status: 'shipped' as const, shipmentPin: result.shipmentPin, shippedDate: new Date().toISOString() }
             : o
         );
-        setOrders(updatedOrders);
         await saveOrders(updatedOrders);
         
         // Show success message
@@ -342,7 +296,6 @@ export default function ShippingPage({ setPage }: ShippingPageProps) {
               }
             : order
         );
-        setOrders(updatedOrders);
         await saveOrders(updatedOrders);
         const shippedCount = selectedOrders.size;
         setSelectedOrders(new Set());
@@ -388,7 +341,6 @@ export default function ShippingPage({ setPage }: ShippingPageProps) {
           }
           return o;
         });
-        setOrders(updatedOrders);
         await saveOrders(updatedOrders);
         
         // Clear selection

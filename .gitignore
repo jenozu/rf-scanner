@@ -79,3 +79,7 @@ server/data/
 
 # Local Claude Code permissions (per-machine)
 .claude/settings.local.json
+
+# Data backups written by scripts/backup-data.sh (company data: never commit)
+/backups/
+/backups-host/

@@ -27,15 +27,19 @@ jobs:
             server/package-lock.json
       - name: Install frontend dependencies
         run: npm ci
+      # The frontend tests include one that runs the real API (src/data/two-devices.test.ts),
+      # so the server's dependencies must be installed before them.
+      - name: Install server dependencies
+        run: npm ci
+        working-directory: server
       - name: Type-check
         run: npm run check
       - name: Frontend tests
         run: npm test
       - name: Build
         run: npm run build
-      - name: Install server dependencies
-        run: npm ci
-        working-directory: server
       - name: Server tests
         run: npm test
         working-directory: server
+      - name: Backup and restore script tests
+        run: bash scripts/test-backup.sh

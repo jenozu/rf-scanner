@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Wave, Order, OrderItem, BinLocation, SalesOrder, SOItem } from "../types";
+import { useCollection } from "../data/hooks";
+import { adjustBin, pickSalesOrderLine, upsertRecord } from "../data/ops";
 import { Truck, Package, MapPin, Check, AlertTriangle, ShoppingCart } from "lucide-react";
 
 interface PickPageProps {
@@ -7,30 +9,21 @@ interface PickPageProps {
 }
 
 export default function PickPage({ setPage }: PickPageProps) {
-  const [waves, setWaves] = useState<Wave[]>([]);
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [salesOrders, setSalesOrders] = useState<SalesOrder[]>([]);
-  const [bins, setBins] = useState<BinLocation[]>([]);
+  // Shared server data (the same on every device); refreshes on focus and every 30 s.
+  const { data: waves } = useCollection<Wave[]>("rf_waves", []);
+  const { data: orders } = useCollection<Order[]>("rf_orders", []);
+  const { data: salesOrders } = useCollection<SalesOrder[]>("rf_sales_orders", []);
+  const { data: bins } = useCollection<BinLocation[]>("rf_bins", []);
+  const [isSaving, setIsSaving] = useState(false);
   const [selectedWave, setSelectedWave] = useState<Wave | null>(null);
   const [selectedSalesOrder, setSelectedSalesOrder] = useState<SalesOrder | null>(null);
   const [waveOrders, setWaveOrders] = useState<Order[]>([]);
   const [currentPickIndex, setCurrentPickIndex] = useState(0);
-  const [pickList, setPickList] = useState<{ order: Order; item: OrderItem }[]>([]);
-  const [soPickList, setSoPickList] = useState<{ so: SalesOrder; item: SOItem }[]>([]);
+  const [pickList, setPickList] = useState<{ order: Order; item: OrderItem; itemIndex: number }[]>([]);
+  // lineIndex = position of the line in the sales order; picks act on that exact line.
+  const [soPickList, setSoPickList] = useState<{ so: SalesOrder; item: SOItem; lineIndex: number }[]>([]);
   const [pickedQty, setPickedQty] = useState<number>(0);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
-
-  // Load data
-  useEffect(() => {
-    const wavesData = JSON.parse(localStorage.getItem("rf_waves") || "[]");
-    const ordersData = JSON.parse(localStorage.getItem("rf_orders") || "[]");
-    const salesOrdersData = JSON.parse(localStorage.getItem("rf_sales_orders") || "[]");
-    const binsData = JSON.parse(localStorage.getItem("rf_bins") || "[]");
-    setWaves(wavesData);
-    setOrders(ordersData);
-    setSalesOrders(salesOrdersData);
-    setBins(binsData);
-  }, []);
 
   // Toast auto-dismiss
   useEffect(() => {
@@ -49,11 +42,10 @@ export default function PickPage({ setPage }: PickPageProps) {
     setSelectedSalesOrder(so);
     
     // Build pick list from SO items that need picking
-    const itemsToPick = so.items.filter(item => (item.RemainingQty || 0) > 0);
-    const picks: { so: SalesOrder; item: SOItem }[] = itemsToPick.map(item => ({
-      so,
-      item
-    }));
+    const picks: { so: SalesOrder; item: SOItem; lineIndex: number }[] = [];
+    so.items.forEach((item, lineIndex) => {
+      if ((item.RemainingQty || 0) > 0) picks.push({ so, item, lineIndex });
+    });
 
     // Sort by bin location for efficient picking
     picks.sort((a, b) => {
@@ -64,84 +56,44 @@ export default function PickPage({ setPage }: PickPageProps) {
     
     setSoPickList(picks);
     setCurrentPickIndex(0);
+    // The order becomes "picking" on the server with the first confirmed pick.
+  };
 
-    // Mark SO as picking
-    const updatedSOs = salesOrders.map((s) =>
-      s.id === so.id ? { ...s, status: "picking" as const } : s
-    );
-    setSalesOrders(updatedSOs);
-    localStorage.setItem("rf_sales_orders", JSON.stringify(updatedSOs));
+  // Remaining quantity for a pick line, from the latest server data (another
+  // device may have picked from the same line since this list was built).
+  const liveRemaining = (entry: { so: SalesOrder; item: SOItem; lineIndex: number }) => {
+    const liveLine = salesOrders.find((s) => s.id === entry.so.id)?.items[entry.lineIndex];
+    return (liveLine ?? entry.item).RemainingQty || 0;
   };
 
   // Confirm pick for Sales Order
-  const handleConfirmSOPick = () => {
-    if (currentPickIndex >= soPickList.length || !selectedSalesOrder) return;
+  const handleConfirmSOPick = async () => {
+    if (currentPickIndex >= soPickList.length || !selectedSalesOrder || isSaving) return;
 
     const currentPick = soPickList[currentPickIndex];
-    const { so, item } = currentPick;
+    const { so, item, lineIndex } = currentPick;
 
     if (pickedQty <= 0) {
       showToast("⚠️ Picked quantity must be greater than 0", "error");
       return;
     }
 
-    const remainingQty = item.RemainingQty || 0;
+    const remainingQty = liveRemaining(currentPick);
     if (pickedQty > remainingQty) {
       showToast("⚠️ Picked quantity exceeds remaining quantity", "error");
       return;
     }
 
-    // Update Sales Order
-    const updatedSOs = salesOrders.map((s) => {
-      if (s.id === so.id) {
-        const updatedItems = s.items.map((i) => {
-          if (i.ItemCode === item.ItemCode) {
-            const newDeliveredQty = i.DeliveredQty + pickedQty;
-            const newRemainingQty = i.OrderedQty - newDeliveredQty;
-            return {
-              ...i,
-              DeliveredQty: newDeliveredQty,
-              RemainingQty: newRemainingQty,
-            };
-          }
-          return i;
-        });
-
-        // Check if all items picked
-        const allPicked = updatedItems.every((i) => (i.RemainingQty || 0) === 0);
-
-        return {
-          ...s,
-          items: updatedItems,
-          status: allPicked ? ("picked" as const) : ("picking" as const),
-          shippedDate: allPicked ? new Date().toISOString().split('T')[0] : undefined,
-        };
-      }
-      return s;
-    });
-
-    // Update bin inventory
-    const updatedBins = bins.map((bin) => {
-      if (bin.BinCode === item.BinCode) {
-        const updatedItems = bin.Items.map((binItem) => {
-          if (binItem.ItemCode === item.ItemCode) {
-            return {
-              ...binItem,
-              Quantity: Math.max(0, binItem.Quantity - pickedQty),
-            };
-          }
-          return binItem;
-        });
-        return { ...bin, Items: updatedItems };
-      }
-      return bin;
-    });
-
-    // Save updates
-    localStorage.setItem("rf_sales_orders", JSON.stringify(updatedSOs));
-    localStorage.setItem("rf_bins", JSON.stringify(updatedBins));
-    setSalesOrders(updatedSOs);
-    setBins(updatedBins);
+    setIsSaving(true);
+    try {
+      // One request: sales-order line + stock taken from the bin.
+      await pickSalesOrderLine({ soId: so.id, lineIndex, qty: pickedQty, binCode: item.BinCode });
+    } catch (error: any) {
+      showToast(`❌ Pick not saved: ${error?.message || "server error"}. Try again.`, "error");
+      setIsSaving(false);
+      return;
+    }
+    setIsSaving(false);
 
     showToast(`✅ Picked ${pickedQty} of ${item.Description}`, "success");
 
@@ -158,7 +110,7 @@ export default function PickPage({ setPage }: PickPageProps) {
       }, 2000);
     } else {
       setCurrentPickIndex(nextIndex);
-      setPickedQty(soPickList[nextIndex].item.RemainingQty || 0);
+      setPickedQty(liveRemaining(soPickList[nextIndex]));
     }
   };
 
@@ -171,10 +123,10 @@ export default function PickPage({ setPage }: PickPageProps) {
     setWaveOrders(ordersInWave);
 
     // Build consolidated pick list (group by bin)
-    const picks: { order: Order; item: OrderItem }[] = [];
+    const picks: { order: Order; item: OrderItem; itemIndex: number }[] = [];
     ordersInWave.forEach((order) => {
-      order.items.forEach((item) => {
-        picks.push({ order, item });
+      order.items.forEach((item, itemIndex) => {
+        picks.push({ order, item, itemIndex });
       });
     });
 
@@ -184,19 +136,22 @@ export default function PickPage({ setPage }: PickPageProps) {
     setCurrentPickIndex(0);
 
     // Mark wave as active
-    const updatedWaves = waves.map((w) =>
-      w.id === wave.id ? { ...w, status: "active" as const } : w
+    saveWaveStatus({ ...wave, status: "active" as const });
+  };
+
+  // Wave status changes are saved to the server; a failure is shown, not hidden.
+  const saveWaveStatus = (wave: Wave) => {
+    upsertRecord("rf_waves", wave).catch((error: any) =>
+      showToast(`❌ Wave status not saved: ${error?.message || "server error"}`, "error")
     );
-    setWaves(updatedWaves);
-    localStorage.setItem("rf_waves", JSON.stringify(updatedWaves));
   };
 
   // Confirm pick
-  const handleConfirmPick = () => {
-    if (currentPickIndex >= pickList.length) return;
+  const handleConfirmPick = async () => {
+    if (currentPickIndex >= pickList.length || isSaving) return;
 
     const currentPick = pickList[currentPickIndex];
-    const { order, item } = currentPick;
+    const { order, item, itemIndex } = currentPick;
 
     if (pickedQty <= 0) {
       showToast("⚠️ Picked quantity must be greater than 0", "error");
@@ -208,50 +163,35 @@ export default function PickPage({ setPage }: PickPageProps) {
       return;
     }
 
-    // Update order
-    const updatedOrders = orders.map((o) => {
-      if (o.id === order.id) {
-        const updatedItems = o.items.map((i) => {
-          if (i.ItemCode === item.ItemCode) {
-            return { ...i, PickedQty: pickedQty };
-          }
-          return i;
-        });
+    // Update the order from its latest server copy, changing only the picked line.
+    const liveOrder = orders.find((o) => o.id === order.id) ?? order;
+    const updatedItems = liveOrder.items.map((i, idx) =>
+      idx === itemIndex ? { ...i, PickedQty: pickedQty } : i
+    );
+    const allPicked = updatedItems.every((i) => i.PickedQty >= i.OrderedQty);
+    const updatedOrder: Order = {
+      ...liveOrder,
+      items: updatedItems,
+      status: allPicked ? ("picked" as const) : ("picking" as const),
+    };
 
-        // Check if all items picked
-        const allPicked = updatedItems.every((i) => i.PickedQty >= i.OrderedQty);
-
-        return {
-          ...o,
-          items: updatedItems,
-          status: allPicked ? ("picked" as const) : ("picking" as const),
-        };
+    setIsSaving(true);
+    try {
+      await upsertRecord("rf_orders", updatedOrder);
+    } catch (error: any) {
+      showToast(`❌ Pick not saved: ${error?.message || "server error"}. Try again.`, "error");
+      setIsSaving(false);
+      return;
+    }
+    try {
+      // Take the stock out of the bin (never below zero; unknown bins are skipped).
+      if (bins.some((b) => b.BinCode === item.BinCode)) {
+        await adjustBin({ binCode: item.BinCode, itemCode: item.ItemCode, delta: -pickedQty, clampAtZero: true });
       }
-      return o;
-    });
-
-    // Update bin inventory
-    const updatedBins = bins.map((bin) => {
-      if (bin.BinCode === item.BinCode) {
-        const updatedItems = bin.Items.map((binItem) => {
-          if (binItem.ItemCode === item.ItemCode) {
-            return {
-              ...binItem,
-              Quantity: Math.max(0, binItem.Quantity - pickedQty),
-            };
-          }
-          return binItem;
-        });
-        return { ...bin, Items: updatedItems };
-      }
-      return bin;
-    });
-
-    // Save updates
-    localStorage.setItem("rf_orders", JSON.stringify(updatedOrders));
-    localStorage.setItem("rf_bins", JSON.stringify(updatedBins));
-    setOrders(updatedOrders);
-    setBins(updatedBins);
+    } catch (error: any) {
+      showToast(`⚠️ Pick recorded but the bin stock was not reduced (${error?.message || "server error"}). Tell a supervisor.`, "error");
+    }
+    setIsSaving(false);
 
     showToast(`✅ Picked ${pickedQty} of ${item.Description}`, "success");
 
@@ -259,13 +199,9 @@ export default function PickPage({ setPage }: PickPageProps) {
     const nextIndex = currentPickIndex + 1;
     if (nextIndex >= pickList.length) {
       // Wave complete
-      const updatedWaves = waves.map((w) =>
-        w.id === selectedWave?.id
-          ? { ...w, status: "completed" as const, completedDate: new Date().toISOString() }
-          : w
-      );
-      setWaves(updatedWaves);
-      localStorage.setItem("rf_waves", JSON.stringify(updatedWaves));
+      if (selectedWave) {
+        saveWaveStatus({ ...selectedWave, status: "completed" as const, completedDate: new Date().toISOString() });
+      }
       showToast("🎉 Wave picking completed!", "success");
       
       // Return to wave list after brief delay
@@ -292,13 +228,9 @@ export default function PickPage({ setPage }: PickPageProps) {
     const nextIndex = currentPickIndex + 1;
     if (nextIndex >= pickList.length) {
       // Wave complete (with short picks)
-      const updatedWaves = waves.map((w) =>
-        w.id === selectedWave?.id
-          ? { ...w, status: "completed" as const, completedDate: new Date().toISOString() }
-          : w
-      );
-      setWaves(updatedWaves);
-      localStorage.setItem("rf_waves", JSON.stringify(updatedWaves));
+      if (selectedWave) {
+        saveWaveStatus({ ...selectedWave, status: "completed" as const, completedDate: new Date().toISOString() });
+      }
       showToast("⚠️ Wave completed with short picks", "info");
       
       setTimeout(() => {
@@ -316,7 +248,7 @@ export default function PickPage({ setPage }: PickPageProps) {
   // Initialize picked qty when pick changes
   useEffect(() => {
     if (soPickList.length > 0 && currentPickIndex < soPickList.length) {
-      setPickedQty(soPickList[currentPickIndex].item.RemainingQty || 0);
+      setPickedQty(liveRemaining(soPickList[currentPickIndex]));
     } else if (pickList.length > 0 && currentPickIndex < pickList.length) {
       setPickedQty(pickList[currentPickIndex].item.OrderedQty);
     }
@@ -425,9 +357,10 @@ export default function PickPage({ setPage }: PickPageProps) {
           <div className="flex gap-2">
             <button
               onClick={handleConfirmSOPick}
-              className="flex-1 bg-green-600 text-white py-3 rounded-md hover:bg-green-700 font-medium text-lg"
+              disabled={isSaving}
+              className="flex-1 bg-green-600 text-white py-3 rounded-md hover:bg-green-700 font-medium text-lg disabled:bg-gray-400"
             >
-              Confirm Pick
+              {isSaving ? "Saving..." : "Confirm Pick"}
             </button>
             <button
               onClick={() => {
@@ -438,7 +371,7 @@ export default function PickPage({ setPage }: PickPageProps) {
                   setCurrentPickIndex(0);
                 } else {
                   setCurrentPickIndex(nextIndex);
-                  setPickedQty(soPickList[nextIndex].item.RemainingQty || 0);
+                  setPickedQty(liveRemaining(soPickList[nextIndex]));
                 }
               }}
               className="px-6 bg-gray-200 text-gray-700 py-3 rounded-md hover:bg-gray-300"
@@ -751,9 +684,10 @@ export default function PickPage({ setPage }: PickPageProps) {
         <div className="flex gap-2">
           <button
             onClick={handleConfirmPick}
-            className="flex-1 bg-green-600 text-white py-3 rounded-md hover:bg-green-700 font-medium text-lg"
+            disabled={isSaving}
+            className="flex-1 bg-green-600 text-white py-3 rounded-md hover:bg-green-700 font-medium text-lg disabled:bg-gray-400"
           >
-            Confirm Pick
+            {isSaving ? "Saving..." : "Confirm Pick"}
           </button>
           <button
             onClick={handleSkipPick}

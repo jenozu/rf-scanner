@@ -1,21 +1,32 @@
-import React, { useState, useEffect } from "react";
-import { PurchaseOrder, POItem, BinLocation, ReceivingTransaction } from "../types";
+import React, { useState, useEffect, useRef } from "react";
+import { PurchaseOrder, POItem, BinLocation } from "../types";
 import { Package, Check, AlertCircle, Plus, Upload, Search as SearchIcon, Download, Calculator } from "lucide-react";
 import { getStagingBinCode } from "../utils/config";
 import { parsePOFile } from "../data/csv-utils";
 import QuantityNumpad from "../components/quantity-numpad";
+import { useCollection } from "../data/hooks";
+import { receiveStock, saveCollection, upsertManyRecords } from "../data/ops";
 
 interface ReceivePageProps {
   setPage: (page: any) => void;
 }
 
 export default function ReceivePage({ setPage }: ReceivePageProps) {
-  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
-  const [selectedPO, setSelectedPO] = useState<PurchaseOrder | null>(null);
-  const [receivingItem, setReceivingItem] = useState<POItem | null>(null);
+  // Orders and bins come from the server (shared by every device). The selected
+  // PO and line are remembered by id/position so they follow the live data.
+  const { data: purchaseOrders } = useCollection<PurchaseOrder[]>("rf_purchase_orders", []);
+  const { data: bins } = useCollection<BinLocation[]>("rf_bins", []);
+  const [selectedPOId, setSelectedPOId] = useState<string | null>(null);
+  const [receivingIndex, setReceivingIndex] = useState<number | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  // Same attempt (same payload) keeps the same transaction id, so a retry after a
+  // lost response cannot receive the stock twice.
+  const attemptRef = useRef<{ key: string; id: string } | null>(null);
+  const selectedPO = purchaseOrders.find((po) => po.id === selectedPOId) ?? null;
+  const receivingItem: POItem | null =
+    selectedPO && receivingIndex !== null ? selectedPO.items[receivingIndex] ?? null : null;
   const [receivedQty, setReceivedQty] = useState<number>(0);
   const [selectedBin, setSelectedBin] = useState<string>("");
-  const [bins, setBins] = useState<BinLocation[]>([]);
   const [newBinCode, setNewBinCode] = useState<string>("");
   const [showNewBinModal, setShowNewBinModal] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
@@ -31,12 +42,7 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
   const [serverLoading, setServerLoading] = useState<boolean>(false);
   const [serverError, setServerError] = useState<string>("");
 
-  // Load data
   useEffect(() => {
-    const pos = JSON.parse(localStorage.getItem("rf_purchase_orders") || "[]");
-    const binData = JSON.parse(localStorage.getItem("rf_bins") || "[]");
-    setPurchaseOrders(pos);
-    setBins(binData);
     setSelectedBin(getStagingBinCode());
   }, []);
 
@@ -54,13 +60,13 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
 
   // Select PO
   const handleSelectPO = (po: PurchaseOrder) => {
-    setSelectedPO(po);
-    setReceivingItem(null);
+    setSelectedPOId(po.id);
+    setReceivingIndex(null);
   };
 
   // Start receiving an item
-  const handleReceiveItem = (item: POItem) => {
-    setReceivingItem(item);
+  const handleReceiveItem = (item: POItem, index: number) => {
+    setReceivingIndex(index);
     setReceivedQty(item.OrderedQty - item.ReceivedQty); // Default to remaining qty
     // Pre-fill with PO's bin code as default
     setSelectedBin(item.BinCode || getStagingBinCode());
@@ -70,7 +76,7 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
   };
 
   // Save received quantity
-  const handleSaveReceive = () => {
+  const handleSaveReceive = async () => {
     if (!selectedPO || !receivingItem) return;
 
     // Bin is optional - use PO's bin or skip assignment if blank
@@ -92,146 +98,55 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
       }
     }
 
-    // Update PO
-    const updatedPOs = purchaseOrders.map((po) => {
-      if (po.id === selectedPO.id) {
-        const updatedItems = po.items.map((item) => {
-          if (item.ItemCode === receivingItem.ItemCode) {
-            const newReceivedQty = item.ReceivedQty + receivedQty;
-            return {
-              ...item,
-              ReceivedQty: newReceivedQty,
-              BinCode: finalBin,
-              RemainingQty: Math.max(0, item.OrderedQty - newReceivedQty),
-              Lots: lotMode === "lots" ? lots : item.Lots,
-              Serials: lotMode === "serials" ? serials : item.Serials,
-            };
-          }
-          return item;
-        });
+    if (isSaving || receivingIndex === null) return;
 
-        // Check if all items fully received
-        const allReceived = updatedItems.every(
-          (item) => item.ReceivedQty >= item.OrderedQty
-        );
-
-        return {
-          ...po,
-          items: updatedItems,
-          status: allReceived ? "completed" : "receiving",
-          receivedDate: allReceived ? new Date().toISOString() : po.receivedDate,
-        } as PurchaseOrder;
-      }
-      return po;
-    });
-
-    // Update bin location (use final bin determined above)
-    const updatedBins = bins.map((bin) => {
-      if (bin.BinCode === finalBin) {
-        const existingItemIndex = bin.Items.findIndex(
-          (i) => i.ItemCode === receivingItem.ItemCode
-        );
-        
-        if (existingItemIndex >= 0) {
-          // Update existing item quantity
-          const updatedItems = [...bin.Items];
-          updatedItems[existingItemIndex].Quantity += receivedQty;
-          // merge lots/serials if provided
-          if (receivingItem.RequiresLotSerial) {
-            const current = updatedItems[existingItemIndex];
-            if (lotMode === "lots") {
-              const existingLots = current.Lots || [];
-              const mergedLots = [...existingLots];
-              lots.forEach((l) => {
-                const idx = mergedLots.findIndex((e) => e.lotCode === l.lotCode);
-                if (idx >= 0) mergedLots[idx] = { lotCode: l.lotCode, qty: mergedLots[idx].qty + l.qty };
-                else mergedLots.push({ lotCode: l.lotCode, qty: l.qty });
-              });
-              current.Lots = mergedLots;
-            }
-            if (lotMode === "serials") {
-              const existingSerials = current.Serials || [];
-              current.Serials = [...existingSerials, ...serials];
-            }
-            updatedItems[existingItemIndex] = current;
-          }
-          return { ...bin, Items: updatedItems };
-        } else {
-          // Add new item to bin
-          return {
-            ...bin,
-            Items: [
-              ...bin.Items,
-              {
-                ItemCode: receivingItem.ItemCode,
-                Description: receivingItem.Description,
-                Quantity: receivedQty,
-                Lots: lotMode === "lots" ? lots : undefined,
-                Serials: lotMode === "serials" ? serials : undefined,
-              },
-            ],
-          };
-        }
-      }
-      return bin;
-    });
-
-    // Ensure bin exists, create if it doesn't (with the item already in it)
-    let finalBins = updatedBins;
-    const binExists = finalBins.find(b => b.BinCode === finalBin);
-    if (!binExists) {
-      const newBin: BinLocation = {
-        BinCode: finalBin,
-        Zone: "Main",
-        Capacity: 1000,
-        Status: "active",
-        Items: [
-          {
-            ItemCode: receivingItem.ItemCode,
-            Description: receivingItem.Description,
-            Quantity: receivedQty,
-            Lots: lotMode === "lots" ? lots : undefined,
-            Serials: lotMode === "serials" ? serials : undefined,
-          },
-        ],
+    const lotsToSend = lotMode === "lots" ? lots : undefined;
+    const serialsToSend = lotMode === "serials" ? serials : undefined;
+    const attemptKey = JSON.stringify([selectedPO.id, receivingIndex, receivedQty, finalBin, lotsToSend, serialsToSend]);
+    if (attemptRef.current?.key !== attemptKey) {
+      attemptRef.current = {
+        key: attemptKey,
+        id: `RCV-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       };
-      finalBins = [...finalBins, newBin];
     }
 
-    // Write receiving transaction
-    const txn: ReceivingTransaction = {
-      id: `RCV-${Date.now()}`,
-      poNumber: selectedPO.poNumber,
-      itemCode: receivingItem.ItemCode,
-      description: receivingItem.Description,
-      qty: receivedQty,
-      binCode: finalBin,
-      lots: lotMode === "lots" ? lots : undefined,
-      serials: lotMode === "serials" ? serials : undefined,
-      timestamp: new Date().toISOString(),
-    };
-    const existingTxns: ReceivingTransaction[] = JSON.parse(localStorage.getItem("rf_receiving_txns") || "[]");
-    localStorage.setItem("rf_receiving_txns", JSON.stringify([txn, ...existingTxns]));
+    setIsSaving(true);
+    try {
+      // One request: PO line + bin quantity + receiving log, all or nothing.
+      const result = await receiveStock({
+        poId: selectedPO.id,
+        lineIndex: receivingIndex,
+        qty: receivedQty,
+        binCode: finalBin,
+        txnId: attemptRef.current.id,
+        createBin: { Zone: "Main", Capacity: 1000, Status: "active" },
+        lots: lotsToSend,
+        serials: serialsToSend,
+      });
+      attemptRef.current = null;
 
-    // Save to localStorage
-    localStorage.setItem("rf_purchase_orders", JSON.stringify(updatedPOs));
-    localStorage.setItem("rf_bins", JSON.stringify(finalBins));
+      setReceivingIndex(null);
+      setReceivedQty(0);
+      setSelectedBin("");
+      setLots([]);
+      setSerials([]);
 
-    // Update state
-    setPurchaseOrders(updatedPOs);
-    setBins(finalBins);
-    setSelectedPO(updatedPOs.find((po) => po.id === selectedPO.id) || null);
-    setReceivingItem(null);
-    setReceivedQty(0);
-    setSelectedBin("");
-    setLots([]);
-    setSerials([]);
-
-    showToast(`✅ Received ${receivedQty} of ${receivingItem.Description} → Bin: ${finalBin}`, "success");
+      showToast(
+        result.duplicate
+          ? "ℹ️ This receipt was already saved"
+          : `✅ Received ${receivedQty} of ${receivingItem.Description} → Bin: ${finalBin}`,
+        "success"
+      );
+    } catch (error: any) {
+      // Nothing was saved (or the same attempt can be retried safely). Keep the form.
+      showToast(`❌ Not saved: ${error?.message || "server error"}. Try again.`, "error");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   // Create new bin
-  const handleCreateBin = () => {
+  const handleCreateBin = async () => {
     if (!newBinCode.trim()) {
       showToast("⚠️ Please enter a bin code", "error");
       return;
@@ -251,13 +166,17 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
       Items: [],
     };
 
-    const updatedBins = [...bins, newBin];
-    localStorage.setItem("rf_bins", JSON.stringify(updatedBins));
-    setBins(updatedBins);
-    setSelectedBin(newBin.BinCode);
-    setNewBinCode("");
-    setShowNewBinModal(false);
-    showToast(`✅ Created new bin: ${newBin.BinCode}`, "success");
+    try {
+      // Refused (and reloaded) if someone else changed the bin list since this
+      // device last loaded it; the user just taps Create again.
+      await saveCollection("rf_bins", [...bins, newBin]);
+      setSelectedBin(newBin.BinCode);
+      setNewBinCode("");
+      setShowNewBinModal(false);
+      showToast(`✅ Created new bin: ${newBin.BinCode}`, "success");
+    } catch (error: any) {
+      showToast(`❌ Bin not created: ${error?.message || "server error"}`, "error");
+    }
   };
 
   // Fetch server PO file index from /data/pos/ (nginx autoindex)
@@ -295,12 +214,9 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
       const blob = await res.blob();
       const file = new File([blob], filename, { type: blob.type || (filename.toLowerCase().endsWith('.csv') ? 'text/csv' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') });
       const newPOs = await parsePOFile(file);
-      const existingPOs = JSON.parse(localStorage.getItem("rf_purchase_orders") || "[]") as PurchaseOrder[];
-      const existingPONumbers = new Set(existingPOs.map(po => po.poNumber));
+      const existingPONumbers = new Set(purchaseOrders.map(po => po.poNumber));
       const uniqueNewPOs = newPOs.filter(po => !existingPONumbers.has(po.poNumber));
-      const merged = [...existingPOs, ...uniqueNewPOs];
-      localStorage.setItem("rf_purchase_orders", JSON.stringify(merged));
-      setPurchaseOrders(merged);
+      if (uniqueNewPOs.length > 0) await upsertManyRecords("rf_purchase_orders", uniqueNewPOs, true);
       showToast(`✅ Imported ${uniqueNewPOs.length} PO(s) from server file`, "success");
     } catch (e: any) {
       showToast(`❌ Import failed: ${e.message || e}`, "error");
@@ -318,8 +234,7 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
       const newPOs = await parsePOFile(file);
       
       // Merge with existing POs (don't duplicate if PO number exists)
-      const existingPOs = JSON.parse(localStorage.getItem("rf_purchase_orders") || "[]") as PurchaseOrder[];
-      const existingPONumbers = new Set(existingPOs.map(po => po.poNumber));
+      const existingPONumbers = new Set(purchaseOrders.map(po => po.poNumber));
       
       const uniqueNewPOs = newPOs.filter(po => !existingPONumbers.has(po.poNumber));
       
@@ -329,15 +244,13 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
         return;
       }
 
-      const mergedPOs = [...existingPOs, ...uniqueNewPOs];
-      localStorage.setItem("rf_purchase_orders", JSON.stringify(mergedPOs));
-      setPurchaseOrders(mergedPOs);
+      await upsertManyRecords("rf_purchase_orders", uniqueNewPOs, true);
       
       showToast(`✅ Loaded ${uniqueNewPOs.length} purchase order(s) from ${file.name}`, "success");
       e.target.value = ""; // Reset file input
     } catch (err) {
-      console.error("Error parsing PO file:", err);
-      showToast("❌ Error reading file. Please check PO file format.", "error");
+      console.error("Error importing PO file:", err);
+      showToast("❌ Could not import the file. Check the PO file format and try again.", "error");
       e.target.value = ""; // Reset file input
     }
   };
@@ -490,7 +403,7 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
   return (
     <div className="p-4 max-w-4xl mx-auto">
       <button
-        onClick={() => setSelectedPO(null)}
+        onClick={() => { setSelectedPOId(null); setReceivingIndex(null); }}
         className="mb-4 text-blue-600 hover:underline"
       >
         ← Back to PO List
@@ -522,14 +435,14 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
       <h3 className="font-semibold text-lg mb-3">Items to Receive</h3>
 
       <div className="space-y-3">
-        {selectedPO.items.map((item) => {
-          const isReceiving = receivingItem?.ItemCode === item.ItemCode;
+        {selectedPO.items.map((item, index) => {
+          const isReceiving = receivingIndex === index;
           const remaining = item.OrderedQty - item.ReceivedQty;
           const isComplete = remaining === 0;
 
           return (
             <div
-              key={item.ItemCode}
+              key={`${item.LineNumber ?? index}-${item.ItemCode}`}
               className={`bg-white rounded-lg shadow p-4 ${
                 isComplete ? "opacity-60" : ""
               }`}
@@ -547,7 +460,7 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
                   <Check className="text-green-600" size={24} />
                 ) : (
                   <button
-                    onClick={() => handleReceiveItem(item)}
+                    onClick={() => handleReceiveItem(item, index)}
                     disabled={isReceiving}
                     className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:bg-gray-400"
                   >
@@ -691,12 +604,14 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
                   <div className="flex gap-2">
                     <button
                       onClick={handleSaveReceive}
-                      className="flex-1 bg-green-600 text-white py-2 rounded-md hover:bg-green-700 font-medium"
+                      disabled={isSaving}
+                      className="flex-1 bg-green-600 text-white py-2 rounded-md hover:bg-green-700 font-medium disabled:bg-gray-400"
                     >
-                      Confirm Receive to Staging
+                      {isSaving ? "Saving..." : "Confirm Receive to Staging"}
                     </button>
                     <button
-                      onClick={() => setReceivingItem(null)}
+                      onClick={() => setReceivingIndex(null)}
+                      disabled={isSaving}
                       className="px-4 bg-gray-200 text-gray-700 py-2 rounded-md hover:bg-gray-300"
                     >
                       Cancel

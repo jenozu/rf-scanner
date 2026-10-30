@@ -6,6 +6,8 @@ import {
   CycleCount, 
   Item 
 } from "../types";
+import { api } from "../services/api";
+import { saveCollection } from "./ops";
 
 /**
  * Sample Purchase Orders for Receiving module
@@ -315,20 +317,31 @@ export const sampleItems: Item[] = [
 ];
 
 /**
- * Initialize all sample data in localStorage
+ * Put the sample orders, waves and counts on the server and return the sample
+ * inventory items (the caller saves those as the inventory). Orders, waves and
+ * counts are only added where the server has none yet, so sample data can never
+ * replace real orders that other devices are working on.
  */
-export function initializeSampleData() {
-  localStorage.setItem("rf_purchase_orders", JSON.stringify(samplePurchaseOrders));
-  localStorage.setItem("rf_orders", JSON.stringify(sampleOrders));
-  localStorage.setItem("rf_waves", JSON.stringify(sampleWaves));
-  localStorage.setItem("rf_bins", JSON.stringify(sampleBinLocations));
-  localStorage.setItem("rf_cycle_counts", JSON.stringify(sampleCycleCounts));
-  localStorage.setItem("rf_active", JSON.stringify(sampleItems));
+export async function initializeSampleData(): Promise<Item[]> {
+  const samples: Array<[string, unknown[]]> = [
+    ["rf_purchase_orders", samplePurchaseOrders],
+    ["rf_orders", sampleOrders],
+    ["rf_waves", sampleWaves],
+    ["rf_cycle_counts", sampleCycleCounts],
+  ];
+  for (const [key, sample] of samples) {
+    const existing = await api.getData(key);
+    if (!Array.isArray(existing) || existing.length === 0) {
+      await saveCollection(key, sample, { overwrite: true, reload: false });
+    }
+  }
   console.log("✅ Sample data initialized");
+  return sampleItems;
 }
 
 /**
- * Clear all data from localStorage
+ * Remove the old browser-only copies of warehouse data (left over from before data
+ * moved to the server). Does not touch the server.
  */
 export function clearAllData() {
   localStorage.removeItem("rf_purchase_orders");

@@ -10,6 +10,7 @@ import {
   TrendingUp,
   Truck,
 } from "lucide-react";
+import { useCollection } from "../data/hooks";
 import {
   BinLocation,
   CycleCount,
@@ -60,14 +61,6 @@ const emptyStats: Stats = {
   shipped: 0,
 };
 
-function read<T>(key: string, fallback: T): T {
-  try {
-    return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback));
-  } catch {
-    return fallback;
-  }
-}
-
 function timeLabel(value: string) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return "";
@@ -78,16 +71,18 @@ export default function HomePage({ setPage }: HomePageProps) {
   const [stats, setStats] = useState<Stats>(emptyStats);
   const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
 
-  useEffect(() => {
-    const pos = read<PurchaseOrder[]>("rf_purchase_orders", []);
-    const orders = read<Order[]>("rf_orders", []);
-    const salesOrders = read<SalesOrder[]>("rf_sales_orders", []);
-    const waves = read<Wave[]>("rf_waves", []);
-    const counts = read<CycleCount[]>("rf_cycle_counts", []);
-    const bins = read<BinLocation[]>("rf_bins", []);
-    const receiving = read<ReceivingTransaction[]>("rf_receiving_txns", []);
-    const countTxns = read<CycleCountTransaction[]>("rf_cycle_count_txns", []);
+  // Everything comes from the server and refreshes on focus and every 30 s, so the
+  // dashboard shows the whole warehouse, not just this device's work.
+  const { data: pos } = useCollection<PurchaseOrder[]>("rf_purchase_orders", []);
+  const { data: orders } = useCollection<Order[]>("rf_orders", []);
+  const { data: salesOrders } = useCollection<SalesOrder[]>("rf_sales_orders", []);
+  const { data: waves } = useCollection<Wave[]>("rf_waves", []);
+  const { data: counts } = useCollection<CycleCount[]>("rf_cycle_counts", []);
+  const { data: bins } = useCollection<BinLocation[]>("rf_bins", []);
+  const { data: receiving } = useCollection<ReceivingTransaction[]>("rf_receiving_txns", []);
+  const { data: countTxns } = useCollection<CycleCountTransaction[]>("rf_cycle_count_txns", []);
 
+  useEffect(() => {
     const completedCounts = counts.filter((count) => count.Status === "completed");
     const accurateCounts = completedCounts.filter((count) => count.Variance === 0).length;
     const accuracy =
@@ -147,7 +142,7 @@ export default function HomePage({ setPage }: HomePageProps) {
         .slice(0, 6)
         .map(({ stamp: _stamp, ...entry }) => entry)
     );
-  }, []);
+  }, [pos, orders, salesOrders, waves, counts, bins, receiving, countTxns]);
 
   const workload = useMemo(
     () => [

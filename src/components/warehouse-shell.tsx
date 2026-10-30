@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import SyncStatus from "./sync-status";
 import {
   Activity,
   Camera,
@@ -158,6 +159,7 @@ export default function WarehouseShell({
           </div>
 
           <div className="wms-topbar-right">
+            {isLoggedIn && <SyncStatus />}
             {isDemo && <span className="wms-preview-pill">DEMO · SAFE MODE</span>}
             {isLoggedIn && (
               <button className="wms-command-button" type="button" onClick={() => navigate("scan")}>

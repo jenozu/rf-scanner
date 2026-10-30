@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { parseCSV, parsePOFile, parseSalesOrderFile } from "../data/csv-utils";
-import useServerStorage from "../hooks/useServerStorage";
+import { useCollection } from "../data/hooks";
+import { saveCollection, upsertManyRecords } from "../data/ops";
+import { useAuth } from "../hooks/useAuth";
+import { CLEAR_CONFIRM_WORD, clearDataCheck, replaceInventoryWarning, sampleDataBlockedReason } from "../data/setup-guards";
 import { Item, PageType, PurchaseOrder, SalesOrder } from "../types";
 import { initializeSampleData, clearAllData } from "../data/sample-data";
 import { api } from "../services/api";
@@ -14,7 +17,9 @@ interface SetupPageProps {
 
 const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
   const [csvFile, setCsvFile] = useState<File | null>(null);
-  const [data, setData, isLoadingData] = useServerStorage<Item[]>("rf_active", []);
+  const { data } = useCollection<Item[]>("rf_active", [], { refresh: false });
+  const auth = useAuth();
+  const sampleBlockedReason = sampleDataBlockedReason(data.length);
   const [status, setStatus] = useState<string>("");
   const [isLoadingMaster, setIsLoadingMaster] = useState(false);
 
@@ -22,21 +27,16 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
     async (items: Item[], options: { syncToServer?: boolean } = {}) => {
       const { syncToServer = true } = options;
       const safeItems = Array.isArray(items) ? items : [];
-      await setData(safeItems);
-      localStorage.setItem("rf_active", JSON.stringify(safeItems));
-      localStorage.setItem("rf_master", JSON.stringify(safeItems));
-
       const bins = buildBinsFromItems(safeItems);
-      localStorage.setItem("rf_bins", JSON.stringify(bins));
 
       let serverSynced = true;
       if (syncToServer) {
         try {
-          await Promise.all([
-            api.saveData("rf_master", safeItems),
-            api.saveData("rf_active", safeItems),
-            api.saveData("rf_bins", bins),
-          ]);
+          // Explicit "replace everything": overwrite, no conflict check. The big
+          // inventory files are not downloaded again after saving.
+          await saveCollection("rf_master", safeItems, { overwrite: true, reload: false });
+          await saveCollection("rf_active", safeItems, { overwrite: true, reload: false });
+          await saveCollection("rf_bins", bins, { overwrite: true });
         } catch (error) {
           serverSynced = false;
           console.error("Error syncing inventory data to server:", error);
@@ -45,7 +45,7 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
 
       return { bins, serverSynced };
     },
-    [setData]
+    []
   );
 
   // 🔄 Auto-load master inventory from VPS on mount
@@ -83,7 +83,7 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
           const parsedData = await parseCSV(file);
           
           const { serverSynced } = await persistInventoryData(parsedData);
-          const syncNote = serverSynced ? "" : " ⚠️ Saved locally; server sync failed.";
+          const syncNote = serverSynced ? "" : " ⚠️ Could not save to the server.";
           setStatus(`✅ Loaded ${parsedData.length} items from master inventory${syncNote}`);
           
           // Auto-complete setup after successful load
@@ -113,6 +113,8 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
 
   // 🔄 Manual load from server button
   const handleLoadFromServer = async () => {
+    const warning = replaceInventoryWarning(data.length, "master_inventory.xlsx");
+    if (warning && !window.confirm(warning)) return;
     setIsLoadingMaster(true);
     setStatus("📥 Loading master inventory from server...");
 
@@ -126,7 +128,7 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
         const parsedData = await parseCSV(file);
         
         const { serverSynced } = await persistInventoryData(parsedData);
-        const syncNote = serverSynced ? "" : " ⚠️ Saved locally; server sync failed.";
+        const syncNote = serverSynced ? "" : " ⚠️ Could not save to the server.";
         setStatus(`✅ Loaded ${parsedData.length} items from master inventory${syncNote}`);
         
         setTimeout(() => {
@@ -154,6 +156,12 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    const warning = replaceInventoryWarning(data.length, file.name);
+    if (warning && !window.confirm(warning)) {
+      e.target.value = "";
+      return;
+    }
+
     setCsvFile(file);
     const fileType = file.name.toLowerCase().endsWith('.xlsx') || file.name.toLowerCase().endsWith('.xls') 
       ? 'Excel' 
@@ -164,7 +172,7 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
       const parsedData = await parseCSV(file);
 
       const { serverSynced } = await persistInventoryData(parsedData);
-      const syncNote = serverSynced ? "" : " ⚠️ Saved locally; server sync failed.";
+      const syncNote = serverSynced ? "" : " ⚠️ Could not save to the server.";
       setStatus(`✅ Loaded ${parsedData.length} items from ${fileType} file${syncNote}`);
       
       // Automatically navigate to home if data is loaded successfully
@@ -191,12 +199,18 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
 
   // 🎲 Initialize sample data
   const handleInitializeSampleData = async () => {
+    if (sampleBlockedReason) {
+      setStatus(`⚠️ ${sampleBlockedReason}`);
+      return;
+    }
+    if (!window.confirm("Replace the inventory list with a small set of sample items? This is for trying the app out only.")) {
+      return;
+    }
     setStatus("⏳ Initializing sample data...");
     try {
-      initializeSampleData();
-      const sampleItems = JSON.parse(localStorage.getItem("rf_active") || "[]");
+      const sampleItems = await initializeSampleData();
       const { serverSynced } = await persistInventoryData(sampleItems);
-      const syncNote = serverSynced ? "" : " ⚠️ Saved locally; server sync failed.";
+      const syncNote = serverSynced ? "" : " ⚠️ Could not save to the server.";
       setStatus(`✅ Sample data initialized! Ready to use.${syncNote}`);
       setTimeout(() => {
         if (onSetupComplete) onSetupComplete();
@@ -220,7 +234,7 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
     try {
       const newPOs = await parsePOFile(file);
       
-      // Get existing POs or create empty array
+      // Compare against the server's current list; the merge itself happens on the server.
       const existingPOs = ((await api.getData("rf_purchase_orders")) as PurchaseOrder[] | null) || [];
       const existingPONumbers = new Set(existingPOs.map(po => po.poNumber));
       
@@ -233,15 +247,14 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
         return;
       }
 
-      const mergedPOs = [...existingPOs, ...uniqueNewPOs];
-      await api.saveData("rf_purchase_orders", mergedPOs);
+      await upsertManyRecords("rf_purchase_orders", uniqueNewPOs, true);
       
       const totalItems = uniqueNewPOs.reduce((sum, po) => sum + po.items.length, 0);
       setStatus(`✅ Loaded ${uniqueNewPOs.length} purchase order(s) with ${totalItems} total line items from ${fileType} file`);
       e.target.value = "";
     } catch (err) {
-      console.error("Error parsing PO file:", err);
-      setStatus(`❌ Error reading PO ${fileType} file. Please check format. Required columns: poNumber, vendor, expectedDate, ItemCode, Description, OrderedQty`);
+      console.error("Error importing PO file:", err);
+      setStatus(`❌ Could not import the PO ${fileType} file (${(err as Error)?.message || "unknown error"}). Check the format. Required columns: poNumber, vendor, expectedDate, ItemCode, Description, OrderedQty`);
       e.target.value = "";
     }
   };
@@ -259,7 +272,7 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
     try {
       const newSOs = await parseSalesOrderFile(file);
       
-      // Get existing SOs or create empty array
+      // Compare against the server's current list; the merge itself happens on the server.
       const existingSOs = ((await api.getData("rf_sales_orders")) as SalesOrder[] | null) || [];
       const existingSONumbers = new Set(existingSOs.map(so => so.soNumber));
       
@@ -272,25 +285,35 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
         return;
       }
 
-      const mergedSOs = [...existingSOs, ...uniqueNewSOs];
-      await api.saveData("rf_sales_orders", mergedSOs);
+      await upsertManyRecords("rf_sales_orders", uniqueNewSOs, true);
       
       setStatus(`✅ Loaded ${uniqueNewSOs.length} sales order(s) with ${newSOs.reduce((sum, so) => sum + so.items.length, 0)} total line items from ${fileType} file`);
       e.target.value = "";
     } catch (err) {
-      console.error("Error parsing Sales Order file:", err);
-      setStatus(`❌ Error reading Sales Order ${fileType} file. Please check format. Required columns: soNumber, customer, CardCode, ItemCode, Description, OrderedQty, DeliveredQty`);
+      console.error("Error importing Sales Order file:", err);
+      setStatus(`❌ Could not import the Sales Order ${fileType} file (${(err as Error)?.message || "unknown error"}). Check the format. Required columns: soNumber, customer, CardCode, ItemCode, Description, OrderedQty, DeliveredQty`);
       e.target.value = "";
     }
   };
 
   // 🗑️ Clear all data
   const handleClearData = () => {
-    if (confirm("Are you sure you want to clear all data? This cannot be undone.")) {
-      clearAllData();
-      setData([]);
-      setStatus("🗑️ All data cleared.");
+    if (auth.currentUser?.role !== "admin") {
+      setStatus(`⚠️ ${clearDataCheck(auth.currentUser?.role, CLEAR_CONFIRM_WORD).allowed ? "" : "Only an administrator can clear the shared data."}`);
+      return;
     }
+    const typed = window.prompt(
+      `This clears the shared inventory list for EVERY device and cannot be undone.\n\nType ${CLEAR_CONFIRM_WORD} to continue.`
+    );
+    const check = clearDataCheck(auth.currentUser?.role, typed);
+    if (!check.allowed) {
+      setStatus(`⚠️ ${check.reason}`);
+      return;
+    }
+    clearAllData();
+    saveCollection("rf_active", [], { overwrite: true, reload: false })
+      .then(() => setStatus("🗑️ All data cleared."))
+      .catch((error: any) => setStatus(`❌ Server data was not cleared: ${error?.message || "server error"}`));
   };
 
   return (
@@ -307,9 +330,9 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
         <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-gray-700">
           <p className="font-medium text-blue-900 mb-1">ℹ️ Data Storage Information</p>
           <p className="text-gray-600">
-            Data is stored locally in your browser. Each user/browser has their own copy. 
-            <strong className="text-blue-700"> To share the same inventory data, use "Load from Server"</strong> - 
-            all users will load from the same master inventory file on the server.
+            Warehouse data is stored on the server and shared by every device and user.
+            <strong className="text-blue-700"> Use "Load from Server"</strong> to load the master
+            inventory file, or upload your own file below.
           </p>
         </div>
 
@@ -357,11 +380,13 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
           </p>
           <button
             onClick={handleInitializeSampleData}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 rounded-lg transition flex items-center justify-center gap-2"
+            disabled={!!sampleBlockedReason}
+            className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed text-white font-medium py-3 rounded-lg transition flex items-center justify-center gap-2"
           >
             <Play size={20} />
             Initialize Sample Data
           </button>
+          {sampleBlockedReason && <p className="text-xs text-gray-600 mt-2">{sampleBlockedReason}</p>}
         </div>
 
         <div className="text-center text-gray-400 mb-4">OR</div>
@@ -464,10 +489,12 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
         {/* 🗑️ Clear Data Button */}
         <button
           onClick={handleClearData}
-          className="w-full bg-red-100 hover:bg-red-200 text-red-700 font-medium py-2 rounded-lg transition flex items-center justify-center gap-2 text-sm"
+          disabled={auth.currentUser?.role !== "admin"}
+          title={auth.currentUser?.role !== "admin" ? "Only an administrator can do this" : undefined}
+          className="w-full bg-red-100 hover:bg-red-200 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed text-red-700 font-medium py-2 rounded-lg transition flex items-center justify-center gap-2 text-sm"
         >
           <Trash2 size={16} />
-          Clear All Data
+          Clear All Data{auth.currentUser?.role !== "admin" ? " (admin only)" : ""}
         </button>
 
         {/* 🧾 Status Display */}
