@@ -9,6 +9,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import { resolveJwtSecret } from './config.js';
 import { createLoginLimiter } from './login-limiter.js';
+import { store, ConflictError } from './store.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -104,24 +105,12 @@ async function ensureDataDir() {
   }
 }
 
-// Helper function to read JSON file
-async function readJSONFile(filePath) {
-  try {
-    const data = await fs.readFile(filePath, 'utf8');
-    return JSON.parse(data);
-  } catch (error) {
-    if (error.code === 'ENOENT') {
-      return null; // File doesn't exist
-    }
-    throw error;
-  }
-}
-
-// Helper function to write JSON file
-async function writeJSONFile(filePath, data) {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, JSON.stringify(data, null, 2), 'utf8');
-}
+// File helpers. All reads/writes go through store.js (atomic writes, per-file queue).
+// Code that reads, changes and writes the same file must use store.update or
+// store.locked so two requests cannot overwrite each other.
+const readJSONFile = (filePath) => store.readJSON(filePath);
+const writeJSONFile = (filePath, data) => store.writeJSON(filePath, data);
+const BIN_LOCKS_FILE = path.join(DATA_DIR, 'rf_bin_locks.json');
 
 // Helper function to call Python shipping API
 async function callPythonAPI(command) {
@@ -237,7 +226,14 @@ app.post('/api/auth/login', async (req, res) => {
       if (passwordMatch) {
         user.passwordHash = await bcrypt.hash(password, 10);
         delete user.password;
-        await writeJSONFile(USERS_FILE, users);
+        await store.update(USERS_FILE, (current) => {
+          const fresh = (current || []).find(u => u.id === user.id);
+          if (fresh) {
+            fresh.passwordHash = user.passwordHash;
+            delete fresh.password;
+          }
+          return { data: current || [] };
+        });
       }
     }
 
@@ -251,7 +247,11 @@ app.post('/api/auth/login', async (req, res) => {
 
     // Update last login
     user.lastLogin = new Date().toISOString();
-    await writeJSONFile(USERS_FILE, users);
+    await store.update(USERS_FILE, (current) => {
+      const fresh = (current || []).find(u => u.id === user.id);
+      if (fresh) fresh.lastLogin = user.lastLogin;
+      return { data: current || [] };
+    });
 
     // Generate JWT token with 24-hour expiration
     const token = jwt.sign(
@@ -304,13 +304,6 @@ app.post('/api/users', authenticateToken, requireAdmin, async (req, res) => {
       return res.status(400).json({ error: 'Invalid role' });
     }
 
-    const users = await readJSONFile(USERS_FILE) || [];
-    
-    // Check if username already exists (case-insensitive)
-    if (users.some(u => u.username?.toLowerCase() === username.toLowerCase())) {
-      return res.status(400).json({ error: 'Username already exists' });
-    }
-
     // Hash password
     const passwordHash = await bcrypt.hash(password, 10);
 
@@ -324,8 +317,18 @@ app.post('/api/users', authenticateToken, requireAdmin, async (req, res) => {
       createdDate: new Date().toISOString(),
     };
 
-    users.push(newUser);
-    await writeJSONFile(USERS_FILE, users);
+    const created = await store.update(USERS_FILE, (current) => {
+      const users = current || [];
+      // Check if username already exists (case-insensitive)
+      if (users.some(u => u.username?.toLowerCase() === username.toLowerCase())) {
+        return { result: false };
+      }
+      users.push(newUser);
+      return { data: users, result: true };
+    });
+    if (!created) {
+      return res.status(400).json({ error: 'Username already exists' });
+    }
 
     console.log(`User created successfully: ${username}`);
     const { passwordHash: _, ...safeUser } = newUser;
@@ -344,7 +347,8 @@ app.put('/api/users/:id', authenticateToken, async (req, res) => {
     const { id } = req.params;
     const body = req.body || {};
 
-    const users = await readJSONFile(USERS_FILE) || [];
+    await store.locked(USERS_FILE, async (tx) => {
+    const users = (await tx.read()).data || [];
     const me = users.find(u => u.id === req.user?.userId);
     if (!me || me.isActive === false) {
       return res.status(403).json({ error: 'Access denied' });
@@ -396,10 +400,11 @@ app.put('/api/users/:id', authenticateToken, async (req, res) => {
     }
 
     users[userIndex] = updated;
-    await writeJSONFile(USERS_FILE, users);
+    await tx.write(users);
 
     const { password, passwordHash, ...safeUser } = users[userIndex];
     res.json(safeUser);
+    });
   } catch (error) {
     console.error('Error updating user:', error);
     res.status(500).json({ error: 'Failed to update user' });
@@ -411,7 +416,8 @@ app.delete('/api/users/:id', authenticateToken, requireAdmin, async (req, res) =
   try {
     const { id } = req.params;
 
-    const users = await readJSONFile(USERS_FILE) || [];
+    await store.locked(USERS_FILE, async (tx) => {
+    const users = (await tx.read()).data || [];
     const target = users.find(u => u.id === id);
     if (!target) {
       return res.status(404).json({ error: 'User not found' });
@@ -423,8 +429,9 @@ app.delete('/api/users/:id', authenticateToken, requireAdmin, async (req, res) =
       return res.status(400).json({ error: 'Cannot delete the last admin' });
     }
 
-    await writeJSONFile(USERS_FILE, users.filter(u => u.id !== id));
+    await tx.write(users.filter(u => u.id !== id));
     res.json({ message: 'User deleted' });
+    });
   } catch (error) {
     console.error('Error deleting user:', error);
     res.status(500).json({ error: 'Failed to delete user' });
@@ -453,7 +460,8 @@ app.get('/api/data/:key', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'Invalid data key' });
     }
 
-    const data = await readJSONFile(path.join(DATA_DIR, `${key}.json`));
+    const { data, revision } = await store.readWithRevision(path.join(DATA_DIR, `${key}.json`));
+    res.set('X-Revision', revision);
     res.json(data || (OBJECT_DATA_KEYS.includes(key) ? {} : []));
   } catch (error) {
     console.error(`Error reading ${req.params.key}:`, error);
@@ -465,7 +473,7 @@ app.get('/api/data/:key', authenticateToken, async (req, res) => {
 app.post('/api/data/:key', authenticateToken, async (req, res) => {
   try {
     const { key } = req.params;
-    const { data } = req.body;
+    const { data, baseRevision } = req.body;
     
     if (!VALID_DATA_KEYS.includes(key)) {
       return res.status(400).json({ error: 'Invalid data key' });
@@ -475,9 +483,14 @@ app.post('/api/data/:key', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'Data is required' });
     }
 
-    await writeJSONFile(path.join(DATA_DIR, `${key}.json`), data);
-    res.json({ message: 'Data saved successfully' });
+    // baseRevision is optional: when sent (from the X-Revision header of the last
+    // GET) a save made on stale data is rejected instead of overwriting newer data.
+    const revision = await store.writeJSON(path.join(DATA_DIR, `${key}.json`), data, { baseRevision });
+    res.json({ message: 'Data saved successfully', revision });
   } catch (error) {
+    if (error instanceof ConflictError) {
+      return res.status(409).json({ error: 'Data changed since it was loaded', currentRevision: error.currentRevision });
+    }
     console.error(`Error saving ${req.params.key}:`, error);
     res.status(500).json({ error: 'Failed to save data' });
   }
@@ -496,7 +509,7 @@ app.post('/api/bins/check-availability', authenticateToken, async (req, res) => 
       return res.status(400).json({ error: 'startBin, endBin, and sessionId are required' });
     }
 
-    const locks = await readJSONFile(path.join(DATA_DIR, 'rf_bin_locks.json')) || [];
+    const locks = await readJSONFile(BIN_LOCKS_FILE) || [];
     
     // Clean up expired locks (older than 24 hours)
     const now = new Date().getTime();
@@ -536,9 +549,11 @@ app.post('/api/bins/check-availability', authenticateToken, async (req, res) => 
       });
     }
     
-    // Save cleaned locks
+    // Save cleaned locks (re-filtered from the fresh file under the lock)
     if (validLocks.length !== locks.length) {
-      await writeJSONFile(path.join(DATA_DIR, 'rf_bin_locks.json'), validLocks);
+      await store.update(BIN_LOCKS_FILE, (current) => ({
+        data: (current || []).filter(lock => (now - new Date(lock.lockedAt).getTime()) < (24 * 60 * 60 * 1000)),
+      }));
     }
     
     res.json({ available: true, conflicts: [] });
@@ -557,22 +572,19 @@ app.post('/api/bins/lock', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'All fields are required' });
     }
 
-    const locks = await readJSONFile(path.join(DATA_DIR, 'rf_bin_locks.json')) || [];
-    
-    // Remove any existing lock for this session
-    const filteredLocks = locks.filter(lock => lock.sessionId !== sessionId);
-    
-    // Add new lock
-    filteredLocks.push({
-      sessionId,
-      sessionName,
-      username,
-      startBin,
-      endBin,
-      lockedAt: new Date().toISOString()
+    await store.update(BIN_LOCKS_FILE, (current) => {
+      // Remove any existing lock for this session, then add the new one
+      const filteredLocks = (current || []).filter(lock => lock.sessionId !== sessionId);
+      filteredLocks.push({
+        sessionId,
+        sessionName,
+        username,
+        startBin,
+        endBin,
+        lockedAt: new Date().toISOString()
+      });
+      return { data: filteredLocks };
     });
-    
-    await writeJSONFile(path.join(DATA_DIR, 'rf_bin_locks.json'), filteredLocks);
     
     res.json({ message: 'Bins locked successfully' });
   } catch (error) {
@@ -590,12 +602,10 @@ app.post('/api/bins/unlock', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'sessionId is required' });
     }
 
-    const locks = await readJSONFile(path.join(DATA_DIR, 'rf_bin_locks.json')) || [];
-    
     // Remove lock for this session
-    const filteredLocks = locks.filter(lock => lock.sessionId !== sessionId);
-    
-    await writeJSONFile(path.join(DATA_DIR, 'rf_bin_locks.json'), filteredLocks);
+    await store.update(BIN_LOCKS_FILE, (current) => ({
+      data: (current || []).filter(lock => lock.sessionId !== sessionId),
+    }));
     
     res.json({ message: 'Bins unlocked successfully' });
   } catch (error) {

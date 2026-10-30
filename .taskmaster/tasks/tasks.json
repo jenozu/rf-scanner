@@ -126,7 +126,7 @@
       {
         "title": "Phase 2: One source of truth",
         "description": "Per-record server endpoints, atomic writes, one frontend data layer, visible save errors, browser-data migration, nightly backup.",
-        "status": "pending",
+        "status": "in-progress",
         "priority": "high",
         "dependencies": [
           3,
@@ -135,11 +135,106 @@
           6,
           7
         ],
-        "details": "Expand just-in-time. See PRD Phase 2 and audit sections 4a, 4d, 5.1-5.3. Migration of existing browser data needs the owner's OK.\n\n[2026-10-29T21:38:07-04:00] design drafted in .taskmaster/docs/phase-2-design.md; waiting for owner yes before any build or subtask expansion. Survey: ~150 localStorage call sites in 12 files; keys by use: rf_bins 21, rf_active 13, rf_inventory_sessions 12, rf_purchase_orders 8, rf_master 8, rf_sales_orders 7.",
+        "details": "Expand just-in-time. See PRD Phase 2 and audit sections 4a, 4d, 5.1-5.3. Migration of existing browser data needs the owner's OK.\n\n[2026-10-29T21:38:07-04:00] design drafted in .taskmaster/docs/phase-2-design.md; waiting for owner yes before any build or subtask expansion. Survey: ~150 localStorage call sites in 12 files; keys by use: rf_bins 21, rf_active 13, rf_inventory_sessions 12, rf_purchase_orders 8, rf_master 8, rf_sales_orders 7.\n\n[2026-10-29T21:45:43-04:00] owner approved design 2026-10-29: refresh = focus + every 30s; migration = manual admin button (empty collections only, never deletes browser copy); backup = I write script+docs, owner installs cron. Expanding into subtasks 10.1-10.8.",
         "testStrategy": "Two-client concurrency test passes; receiving on one device shows on another after refresh; clearing browser storage loses nothing",
         "complexity": 10,
         "id": 10,
-        "subtasks": []
+        "subtasks": [
+          {
+            "title": "Server store: atomic writes, write queue, revisions",
+            "description": "Safe file writes and conflict detection for every JSON collection.",
+            "status": "done",
+            "dependencies": [],
+            "details": "New server/store.js: write temp file then rename; per-file promise queue so read-modify-write cannot interleave; revision number kept beside each collection (rf_x.rev.json or wrapper-free sidecar so existing files stay readable); /api/data/:key POST accepts optional baseRevision and returns 409 if stale; GET returns revision in a header. Replace writeJSONFile use for data keys, users and bin locks.\n\n[2026-10-29T21:46:46-04:00] plan: server/store.js (new): enqueue per-file promise chain; atomic write = JSON.stringify first (so bad data can't touch disk), temp file in same dir, fsync, rename, unlink temp on failure; revision = sha1(file bytes)[:16] (or 'none') so there is no sidecar that can disagree with the data; API: readJSON, readWithRevision, writeJSON(file,data,{baseRevision}) -> 409-able ConflictError, locked(file, tx=>...), update(file, fn). index.js: readJSONFile/writeJSONFile become store wrappers; users routes (create/put/delete, login lastLogin+hash upgrade) and bin-lock routes run read-modify-write inside the lock (login now updates the FRESH record instead of writing back a stale snapshot, which could clobber a concurrent admin edit). /api/data/:key: GET sends X-Revision, POST accepts optional baseRevision -> 409. Without baseRevision it stays last-write-wins (compatible with current pages). Shipping SO status writes left alone (Phase 6) but go through atomic writeJSONFile. Parking: bin lock check-then-lock is still two calls (TOCTOU) -> Phase 7.\n\n[2026-10-29T23:40:01-04:00] result: server/store.js (atomic temp+fsync+rename, per-file queue, content-hash revision, ConflictError) + 9 unit tests; index.js wired: users create/put/delete and login writes, bin locks, /api/data GET X-Revision + POST baseRevision->409. New data-safety tests: against the OLD index.js 5 of 7 fail (parallel user creates and bin locks lost records, login could undo a concurrent admin edit); with the change all pass. Server total 46 pass, tsc ok. Left as-is: shipping SO status writes (Phase 6, now atomic anyway); bin lock check-then-lock is still two calls (TOCTOU, parking lot, Phase 7). Drift check: ok, server-only.",
+            "testStrategy": "node tests: interrupted write leaves old file readable; 50 parallel increments through the queue all land; stale baseRevision returns 409; existing data files still read",
+            "complexity": 4,
+            "id": 1
+          },
+          {
+            "title": "Server operations: transactions, bin deltas, record upsert",
+            "description": "Endpoints that change one thing atomically so two handhelds add up instead of overwriting.",
+            "status": "pending",
+            "dependencies": [
+              "10.1"
+            ],
+            "details": "server/index.js (or server/routes/): POST /api/ops/append (rf_receiving_txns, rf_cycle_count_txns, rf_activity_logs only), POST /api/ops/bin-adjust (binCode+itemCode+delta, refuses negative), PUT/DELETE /api/records/:key/:id for id'd collections (POs, SOs, waves, orders), all through the 10.1 queue and token-authenticated. Role rules: viewer cannot write. Line identity by DocNum+LineNum stays Phase 3/4.",
+            "testStrategy": "two-client concurrency test: 20 parallel adjusts of +1 on one bin sum to 20; parallel appends all kept; viewer gets 403; unknown key 400",
+            "complexity": 5,
+            "id": 2
+          },
+          {
+            "title": "Frontend data layer and sync status",
+            "description": "One typed layer replacing scattered localStorage business-data access.",
+            "status": "pending",
+            "dependencies": [
+              "10.2"
+            ],
+            "details": "src/data/: store with collections cache, useCollection(key) hook, mutation helpers that await the server and surface errors with retry, refresh on window focus and every 30s, SyncStatus indicator (saved/saving/failed) in the app shell. src/demo/demo-mode.ts supports the new endpoints so the Vercel demo works. useServerStorage kept until pages are converted.",
+            "testStrategy": "Vitest: hook loads from mocked api, shows error on failed save and does not pretend success, refreshes on focus and on 30s timer (fake timers)",
+            "complexity": 5,
+            "id": 3
+          },
+          {
+            "title": "Convert Receive and Pick pages to the data layer",
+            "description": "Receiving and picking read/write the server through the data layer.",
+            "status": "pending",
+            "dependencies": [
+              "10.3"
+            ],
+            "details": "src/pages/receive-page.tsx, pick-page.tsx: replace localStorage reads/writes for rf_purchase_orders, rf_sales_orders, rf_orders, rf_waves, rf_bins, rf_receiving_txns with the data layer and ops endpoints; keep behaviour (ItemCode matching bug stays for Phase 4, noted in code comments only).",
+            "testStrategy": "build+tests pass; manual API-level check: a receipt posted by client A appears for client B after refresh; no business-data localStorage left in these two files (grep)",
+            "complexity": 5,
+            "id": 4
+          },
+          {
+            "title": "Convert Home, Export, Setup, Settings and app shell",
+            "description": "Dashboard, exports, setup and settings use the shared data.",
+            "status": "pending",
+            "dependencies": [
+              "10.4"
+            ],
+            "details": "home-page.tsx, export-page.tsx, setup-page.tsx, settings-page.tsx, app.tsx, utils: replace localStorage business-data reads/writes; Home dashboard now computes from server data; Setup uploads write once through the layer.",
+            "testStrategy": "build+tests pass; grep shows no business-data localStorage in these files; Export shows receiving/count logs from the server",
+            "complexity": 4,
+            "id": 5
+          },
+          {
+            "title": "Convert Inventory and counting storage calls",
+            "description": "inventory-page.tsx and scan-page.tsx stop using localStorage for business data (storage calls only).",
+            "status": "pending",
+            "dependencies": [
+              "10.5"
+            ],
+            "details": "inventory-page.tsx (45 call sites), scan-page.tsx, numpad-modal as needed, keys rf_inventory_sessions, rf_current_inventory_session, rf_cycle_counts, rf_temporary_locations, rf_bins, rf_session_count_logs. No restructuring or splitting of the file (Phase 7).",
+            "testStrategy": "build+tests pass; grep clean for business-data keys; bin-lock endpoints still work; session saved on one client visible on another",
+            "complexity": 6,
+            "id": 6
+          },
+          {
+            "title": "Migration: upload this device's browser data (admin button)",
+            "description": "Manual, admin-only, one-time copy of browser data to the server.",
+            "status": "pending",
+            "dependencies": [
+              "10.6"
+            ],
+            "details": "Settings page: admin-only button shows a summary per collection (browser count vs server count), uploads only into collections that are empty on the server, records a migration log entry, never clears browser data. Server route requires admin.",
+            "testStrategy": "tests: only empty collections filled; non-admin gets 403; nothing deleted from browser; second run is a no-op",
+            "complexity": 4,
+            "id": 7
+          },
+          {
+            "title": "Backup script and restore docs",
+            "description": "Timestamped backups of the server data folder.",
+            "status": "pending",
+            "dependencies": [
+              "10.7"
+            ],
+            "details": "scripts/backup-data.sh (tar the DATA_DIR volume contents, keep 14), docs section with the cron line and a restore procedure. Not installed on the VPS by me.",
+            "testStrategy": "run the script against a temp data folder: archive created, 15th run prunes oldest, restore into an empty folder reproduces files",
+            "complexity": 2,
+            "id": 8
+          }
+        ]
       },
       {
         "title": "Phase 3: SAP import fidelity",
@@ -230,7 +325,7 @@
     ],
     "metadata": {
       "created": "2026-10-29T19:42:01-04:00",
-      "updated": "2026-10-29T21:38:07-04:00"
+      "updated": "2026-10-29T23:40:01-04:00"
     }
   }
 }
