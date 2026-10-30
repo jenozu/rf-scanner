@@ -29,6 +29,7 @@ beforeAll(async () => {
     { id: "u1", username: "picker", password: "picker-password-1", fullName: "Picker", role: "operator", isActive: true },
   ]));
 
+  // @ts-expect-error the server is plain JavaScript without type declarations
   const { default: app } = await import("../../server/index.js");
   server = await new Promise((resolve) => { const s = app.listen(0, () => resolve(s)); });
   const port = (server.address() as AddressInfo).port;
