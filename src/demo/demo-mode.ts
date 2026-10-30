@@ -13,6 +13,7 @@ import {
   User,
   Wave,
 } from "../types";
+import * as ops from "../../server/ops-logic.js";
 
 const DEMO_VERSION = "premium-wms-v1";
 
@@ -293,6 +294,62 @@ function jsonBody(options: RequestInit): any {
   }
 }
 
+// --- Operations (same logic as the real server: server/ops-logic.js) ---
+
+function demoRead(key: string): any[] | null {
+  try {
+    return JSON.parse(localStorage.getItem(key) || "null");
+  } catch {
+    return null;
+  }
+}
+
+/** Validate, apply to the stored value, save, and return the result (or throw like the API would). */
+function demoApply(
+  key: string,
+  problem: ops.OpFailure | null,
+  apply: (current: any[] | null) => ops.OpOutcome
+): any {
+  if (problem) throw new Error(problem.error);
+  const outcome = apply(demoRead(key));
+  const result: any = outcome.result;
+  if (result && typeof result === "object" && "error" in result) throw new Error(result.error);
+  if (outcome.data !== undefined) localStorage.setItem(key, JSON.stringify(outcome.data));
+  return result;
+}
+
+/** Returns undefined when the endpoint is not an operation. */
+function demoOperation(endpoint: string, method: string, body: any): unknown {
+  if (method === "POST" && endpoint === "/ops/append") {
+    return demoApply(body.key, ops.validateAppend(body), (cur) => ops.applyAppend(cur, body));
+  }
+  if (method === "POST" && endpoint === "/ops/bin-adjust") {
+    return demoApply("rf_bins", ops.validateBinAdjust(body), (cur) => ops.applyBinAdjust(cur, body));
+  }
+  if (method === "POST" && endpoint === "/ops/po-receive") {
+    return demoApply("rf_purchase_orders", ops.validatePoReceive(body), (cur) => ops.applyPoReceive(cur, body));
+  }
+  if (method === "POST" && endpoint === "/ops/so-pick") {
+    return demoApply("rf_sales_orders", ops.validateSoPick(body), (cur) => ops.applySoPick(cur, body));
+  }
+
+  const records = endpoint.match(/^\/records\/([^/]+)\/([^/]+)$/);
+  if (records) {
+    const key = records[1];
+    const id = decodeURIComponent(records[2]);
+    if (method === "POST" && id === "upsert-many") {
+      return demoApply(key, ops.validateRecordKey(key) || ops.validateUpsertMany(body), (cur) => ops.applyUpsertMany(cur, body));
+    }
+    if (method === "PUT") {
+      return demoApply(key, ops.validateRecordKey(key) || ops.validateRecordUpsert(id, body), (cur) => ops.applyRecordUpsert(cur, body.record));
+    }
+    if (method === "DELETE") {
+      return demoApply(key, ops.validateRecordKey(key), (cur) => ops.applyRecordDelete(cur, id));
+    }
+  }
+  return undefined;
+}
+
 export async function demoRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   seedDemoData();
   const method = (options.method || "GET").toUpperCase();
@@ -369,6 +426,9 @@ export async function demoRequest<T>(endpoint: string, options: RequestInit = {}
       return null as T;
     }
   }
+
+  const opResult = demoOperation(endpoint, method, body);
+  if (opResult !== undefined) return opResult as T;
 
   if (endpoint === "/bins/check-availability") {
     return { available: true, conflicts: [] } as T;

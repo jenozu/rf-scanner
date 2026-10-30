@@ -165,11 +165,11 @@
           {
             "title": "Frontend data layer and sync status",
             "description": "One typed layer replacing scattered localStorage business-data access.",
-            "status": "pending",
+            "status": "done",
             "dependencies": [
               "10.2"
             ],
-            "details": "src/data/: store with collections cache, useCollection(key) hook, mutation helpers that await the server and surface errors with retry, refresh on window focus and every 30s, SyncStatus indicator (saved/saving/failed) in the app shell. src/demo/demo-mode.ts supports the new endpoints so the Vercel demo works. useServerStorage kept until pages are converted.",
+            "details": "src/data/: store with collections cache, useCollection(key) hook, mutation helpers that await the server and surface errors with retry, refresh on window focus and every 30s, SyncStatus indicator (saved/saving/failed) in the app shell. src/demo/demo-mode.ts supports the new endpoints so the Vercel demo works. useServerStorage kept until pages are converted.\n\n[2026-10-29T23:48:59-04:00] plan: (1) refactor: pure ops logic moved to server/ops-logic.js (+ .d.ts) so demo-mode.ts and the server share ONE implementation; server/ops.js keeps only HTTP + store.update; existing ops tests must pass unchanged. (2) api.ts: getDataWithRevision, saveData(key,data,baseRevision), ops methods; request() keeps returning body but exposes response headers for revision. (3) src/data/store.ts: framework-free DataStore (cache, subscribe, load/refresh, mutate with pending/error tracking, focus + 30s refresh for mounted keys only), React glue via useSyncExternalStore (no new deps; vitest runs in node so the store takes injectable api/timers/focus target and is tested without a DOM). (4) src/data/ops.ts typed wrappers; hooks useCollection/useSyncStatus; SyncStatus indicator in the shell. (5) demo-mode.ts handles the new endpoints using ops-logic. useServerStorage stays until pages are converted.\n\n[2026-10-29T23:55:08-04:00] result: ops logic extracted to server/ops-logic.js(+.d.ts) shared by server and demo; api.ts: ApiError(status), getDataWithRevision, saveData(baseRevision), ops methods; src/data/store.ts (DataStore: cache, retain/release, serialized loads so a reload after a save is never stale, mutate with pending/saveError, focus+visibility+30s refresh for on-screen keys only), hooks.ts (useCollection, useSyncStatus via useSyncExternalStore, no new deps), ops.ts (typed wrappers; saveCollection sends baseRevision and reloads on 409), sync-status.tsx mounted in the top bar, demo-mode.ts handles /ops and /records. Tests: store 13 + demo parity 4 (vitest 19 total), server 58, tsc + build ok. Not tested: the thin React glue in hooks.ts/sync-status.tsx (needs jsdom + testing-library = new dependencies not in the PRD; verified by tsc/build and by the pages converted in 10.4+). Drift check: ok; the shared-logic refactor was an in-scope design choice to keep demo and server identical.",
             "testStrategy": "Vitest: hook loads from mocked api, shows error on failed save and does not pretend success, refreshes on focus and on 30s timer (fake timers)",
             "complexity": 5,
             "id": 3
@@ -325,7 +325,7 @@
     ],
     "metadata": {
       "created": "2026-10-29T19:42:01-04:00",
-      "updated": "2026-10-29T23:43:34-04:00"
+      "updated": "2026-10-29T23:55:08-04:00"
     }
   }
 }

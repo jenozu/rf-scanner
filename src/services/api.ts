@@ -12,6 +12,18 @@ export interface ApiResponse<T> {
   error?: string;
 }
 
+/** Error from the API with the HTTP status and any extra fields the server sent. */
+export class ApiError extends Error {
+  status: number;
+  details: Record<string, unknown>;
+  constructor(message: string, status: number, details: Record<string, unknown> = {}) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.details = details;
+  }
+}
+
 export interface AuthResponse {
   user: any;
   token: string;
@@ -33,8 +45,16 @@ class ApiClient {
   }
 
   private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+    return (await this.requestFull<T>(endpoint, options)).body;
+  }
+
+  /** Like request, but also returns the response headers (null in demo mode). */
+  private async requestFull<T>(
+    endpoint: string,
+    options: RequestInit = {}
+  ): Promise<{ body: T; headers: Headers | null }> {
     if (isDemoMode()) {
-      return demoRequest<T>(endpoint, options);
+      return { body: await demoRequest<T>(endpoint, options), headers: null };
     }
 
     const url = `${API_BASE}${endpoint}`;
@@ -55,13 +75,13 @@ class ApiClient {
 
         if (response.status === 401 && error.expired) {
           this.clearToken();
-          throw new Error("Session expired. Please login again.");
+          throw new ApiError("Session expired. Please login again.", 401, error);
         }
 
-        throw new Error(error.error || `HTTP ${response.status}`);
+        throw new ApiError(error.error || `HTTP ${response.status}`, response.status, error);
       }
 
-      return await response.json();
+      return { body: (await response.json()) as T, headers: response.headers };
     } catch (error) {
       console.error(`API request failed: ${endpoint}`, error);
       throw error;
@@ -124,11 +144,78 @@ class ApiClient {
     return this.request<any>(`/data/${key}`);
   }
 
-  async saveData(key: string, data: any) {
-    return this.request<{ message: string }>(`/data/${key}`, {
+  /** Data plus its revision (null when the server does not report one). */
+  async getDataWithRevision(key: string): Promise<{ data: any; revision: string | null }> {
+    const { body, headers } = await this.requestFull<any>(`/data/${key}`);
+    return { data: body, revision: headers?.get("X-Revision") ?? null };
+  }
+
+  /**
+   * Replace a whole collection. With baseRevision the server refuses (409) if the
+   * data changed since it was read; without it the last save wins.
+   */
+  async saveData(key: string, data: any, baseRevision?: string | null) {
+    return this.request<{ message: string; revision?: string }>(`/data/${key}`, {
       method: "POST",
-      body: JSON.stringify({ data }),
+      body: JSON.stringify({ data, ...(baseRevision ? { baseRevision } : {}) }),
     });
+  }
+
+  // --- Operations that change one thing atomically on the server (server/ops.js) ---
+
+  private post<T>(endpoint: string, body: unknown, method = "POST") {
+    return this.request<T>(endpoint, {
+      method,
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+  }
+
+  appendRecords(key: string, records: any[]) {
+    return this.post<{ added: number; total: number }>("/ops/append", { key, records });
+  }
+
+  adjustBin(params: {
+    binCode: string;
+    itemCode: string;
+    description?: string;
+    delta?: number;
+    setQuantity?: number;
+    clampAtZero?: boolean;
+    createBin?: { Zone?: string; Capacity?: number; Status?: string };
+    lots?: Array<{ lotCode: string; qty: number }>;
+    serialsAdd?: string[];
+    serialsRemove?: string[];
+  }) {
+    return this.post<{ ok: true; bin: any; quantity: number; previous: number }>("/ops/bin-adjust", params);
+  }
+
+  receivePoLine(params: {
+    poId: string;
+    lineIndex: number;
+    qty: number;
+    binCode?: string;
+    lots?: Array<{ lotCode: string; qty: number }>;
+    serials?: string[];
+  }) {
+    return this.post<{ ok: true; po: any }>("/ops/po-receive", params);
+  }
+
+  pickSoLine(params: { soId: string; lineIndex: number; qty: number }) {
+    return this.post<{ ok: true; so: any }>("/ops/so-pick", params);
+  }
+
+  upsertRecord(key: string, record: { id: string }) {
+    return this.post<{ ok: true; created: boolean }>(
+      `/records/${key}/${encodeURIComponent(record.id)}`, { record }, "PUT");
+  }
+
+  deleteRecord(key: string, id: string) {
+    return this.post<{ message: string }>(`/records/${key}/${encodeURIComponent(id)}`, undefined, "DELETE");
+  }
+
+  upsertManyRecords(key: string, records: Array<{ id: string }>, skipExisting = false) {
+    return this.post<{ added: number; updated: number; skipped: number; total: number }>(
+      `/records/${key}/upsert-many`, { records, skipExisting });
   }
 
   async healthCheck() {
