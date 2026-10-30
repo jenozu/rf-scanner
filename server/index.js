@@ -8,6 +8,7 @@ import jwt from 'jsonwebtoken';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { resolveJwtSecret } from './config.js';
+import { createLoginLimiter } from './login-limiter.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -30,7 +31,23 @@ const PURO_DIR = path.join(__dirname, '..', 'puro');
 const PYTHON_API_SCRIPT = path.join(PURO_DIR, 'shipping_api_server.py');
 
 // Middleware
-app.use(cors());
+// Behind Traefik/nginx the real client IP arrives in X-Forwarded-For; only trust
+// it from private-network proxies so it cannot be spoofed from the internet.
+app.set('trust proxy', 'loopback, linklocal, uniquelocal');
+
+// CORS: the app is served from the same origin as /api (nginx or the Vite proxy),
+// so by default no cross-origin access is granted. To allow another origin, set
+// CORS_ORIGINS=https://a.example,https://b.example
+const CORS_ORIGINS = (process.env.CORS_ORIGINS || '')
+  .split(',').map(o => o.trim()).filter(Boolean);
+app.use(cors({
+  origin(origin, callback) {
+    callback(null, !origin || CORS_ORIGINS.includes(origin));
+  },
+}));
+
+const loginLimiter = createLoginLimiter();
+const MIN_PASSWORD_LENGTH = 10;
 app.use(express.json({ limit: '50mb' }));
 
 // JWT verification middleware
@@ -190,6 +207,12 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(400).json({ error: 'Username and password required' });
     }
 
+    const retryAfter = loginLimiter.blockedFor(username, req.ip);
+    if (retryAfter > 0) {
+      res.set('Retry-After', String(retryAfter));
+      return res.status(429).json({ error: 'Too many failed logins. Try again later.', retryAfter });
+    }
+
     const users = await readJSONFile(USERS_FILE) || [];
     // Case-insensitive username matching
     const user = users.find(u => 
@@ -199,6 +222,7 @@ app.post('/api/auth/login', async (req, res) => {
 
     if (!user) {
       console.log(`Login failed: User not found or inactive - username: "${username}"`);
+      loginLimiter.recordFailure(username, req.ip);
       return res.status(401).json({ error: 'Invalid username or password' });
     }
 
@@ -219,8 +243,11 @@ app.post('/api/auth/login', async (req, res) => {
 
     if (!passwordMatch) {
       console.log(`Login failed: Invalid password for user "${username}"`);
+      loginLimiter.recordFailure(username, req.ip);
       return res.status(401).json({ error: 'Invalid username or password' });
     }
+
+    loginLimiter.recordSuccess(username);
 
     // Update last login
     user.lastLogin = new Date().toISOString();
@@ -268,8 +295,8 @@ app.post('/api/users', authenticateToken, requireAdmin, async (req, res) => {
       return res.status(400).json({ error: 'Username must be at least 2 characters' });
     }
 
-    if (password.length < 3) {
-      return res.status(400).json({ error: 'Password must be at least 3 characters' });
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      return res.status(400).json({ error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters` });
     }
 
     role = role || 'operator';
@@ -355,8 +382,8 @@ app.put('/api/users/:id', authenticateToken, async (req, res) => {
 
     if (updates.password !== undefined) {
       const pw = typeof updates.password === 'string' ? updates.password.trim() : '';
-      if (pw.length < 3) {
-        return res.status(400).json({ error: 'Password must be at least 3 characters' });
+      if (pw.length < MIN_PASSWORD_LENGTH) {
+        return res.status(400).json({ error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters` });
       }
       updates.passwordHash = await bcrypt.hash(pw, 10);
       delete updates.password;

@@ -16,7 +16,7 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
-const MIN_LENGTH = 8;
+const MIN_LENGTH = 10;
 
 function fail(message) {
   console.error(`Error: ${message}`);

@@ -72,12 +72,12 @@
       {
         "title": "P1: Login rate limit, password rules, CORS allow-list",
         "description": "Audit: 51 bad logins in a row all just 401; passwords need only 3 characters; CORS is open.",
-        "status": "pending",
+        "status": "done",
         "priority": "high",
         "dependencies": [
           3
         ],
-        "details": "server/index.js: cors() at line 26, login route ~line 199. Add express-rate-limit on /api/login (and user creation), minimum password length 10 on create/change, CORS restricted to an origin list from env (default same-origin).",
+        "details": "server/index.js: cors() at line 26, login route ~line 199. Add express-rate-limit on /api/login (and user creation), minimum password length 10 on create/change, CORS restricted to an origin list from env (default same-origin).\n\n[2026-10-29T20:47:04-04:00] plan: NO new dependency (task text suggested express-rate-limit but PRD didn't choose a library; adding deps needs user OK) -> own small in-memory limiter server/login-limiter.js: failed logins only, 10 fails/15min per username and 50/15min per IP -> 429 with Retry-After, success clears username bucket. trust proxy for private ranges so req.ip is the real client behind Traefik/nginx (nginx-docker.conf untouched; if IP resolves to the proxy the per-username bucket still protects accounts). Password min 10 on create + change (existing weak passwords still log in; only new ones enforced); align reset-admin.js (8->10) and UI check (3->10). CORS: CORS_ORIGINS env list, default none => no CORS headers (same-origin via nginx/vite proxy keeps working). Update my earlier tests' short passwords. Not doing: separate limit on user creation (already admin-only after task 3).\n\n[2026-10-29T20:49:11-04:00] result: login-limiter.js (own code, no new dep), 429+Retry-After after 10 fails/user or 50/IP, min password 10 on create/change (existing weak passwords can still log in), CORS_ORIGINS allow-list default none, reset-admin/readme/UI aligned to 10. 24 server tests pass, tsc ok. PRE-DEPLOY NOTE: nginx-docker.conf sets X-Real-IP but not X-Forwarded-For; per-IP bucket may see the proxy IP (50/15min shared) until Phase 8 fixes nginx; per-username bucket is unaffected. Lockout is per account so someone can deliberately lock a user for 15 min (accepted tradeoff). Drift check: ok.",
         "testStrategy": "API tests: the Nth bad login returns 429; a short password is rejected; request from a non-listed Origin gets no CORS header",
         "complexity": 3,
         "id": 6,
@@ -230,7 +230,7 @@
     ],
     "metadata": {
       "created": "2026-10-29T19:42:01-04:00",
-      "updated": "2026-10-29T20:46:25-04:00"
+      "updated": "2026-10-29T20:49:11-04:00"
     }
   }
 }

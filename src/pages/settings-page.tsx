@@ -317,8 +317,8 @@ export default function SettingsPage({ onLogin }: SettingsPageProps) {
       return;
     }
 
-    if (trimmedUser.password.length < 3) {
-      alert("Password must be at least 3 characters");
+    if (trimmedUser.password.length < 10) {
+      alert("Password must be at least 10 characters");
       return;
     }
 

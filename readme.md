@@ -148,7 +148,7 @@ Your app will open at [http://localhost:5173](http://localhost:5173)
 ### 4️⃣ First run: create the admin account
 
 There is no default login. On a new install (no users yet), create the first
-admin once from the `server/` folder, choosing your own password (8+ characters):
+admin once from the `server/` folder, choosing your own password (10+ characters):
 
 ```bash
 cd server

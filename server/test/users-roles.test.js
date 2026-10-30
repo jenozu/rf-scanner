@@ -44,7 +44,7 @@ test('operator cannot list, create, or delete users', async () => {
   await seed();
   const op = await login('op');
   assert.equal((await call('GET', '/api/users', op)).status, 403);
-  assert.equal((await call('POST', '/api/users', op, { username: 'x1', password: 'abc123', fullName: 'X', role: 'admin' })).status, 403);
+  assert.equal((await call('POST', '/api/users', op, { username: 'x1', password: 'abc1234567', fullName: 'X', role: 'admin' })).status, 403);
   assert.equal((await call('DELETE', '/api/users/u-admin', op)).status, 403);
   assert.equal((await call('DELETE', '/api/users/u-op2', op)).status, 403);
 });
@@ -54,7 +54,7 @@ test('operator cannot promote self or edit others', async () => {
   const op = await login('op');
   assert.equal((await call('PUT', '/api/users/u-op', op, { role: 'admin' })).status, 403);
   assert.equal((await call('PUT', '/api/users/u-op2', op, { fullName: 'hacked' })).status, 403);
-  assert.equal((await call('PUT', '/api/users/u-admin', op, { password: 'newpass' })).status, 403);
+  assert.equal((await call('PUT', '/api/users/u-admin', op, { password: 'newpass1234' })).status, 403);
   const users = JSON.parse(await fs.readFile(path.join(srv.dataDir, 'users.json'), 'utf8'));
   assert.equal(users.find(u => u.id === 'u-op').role, 'operator');
 });
@@ -62,7 +62,7 @@ test('operator cannot promote self or edit others', async () => {
 test('operator can change only own password, and cannot inject fields', async () => {
   await seed();
   const op = await login('op');
-  assert.equal((await call('PUT', '/api/users/u-op', op, { password: 'newpass' })).status, 200);
+  assert.equal((await call('PUT', '/api/users/u-op', op, { password: 'newpass1234' })).status, 200);
   assert.equal((await call('PUT', '/api/users/u-op', op, { passwordHash: 'x', fullName: 'Z' })).status, 403);
   assert.equal((await call('GET', '/api/users/u-op', op)).status, 200);
   assert.equal((await call('GET', '/api/users/u-admin', op)).status, 403);
@@ -74,11 +74,11 @@ test('admin can list, create, update, and delete users', async () => {
   const list = await call('GET', '/api/users', admin);
   assert.equal(list.status, 200);
   assert.equal((await list.json()).length, 3);
-  const created = await call('POST', '/api/users', admin, { username: 'newop', password: 'abc123', fullName: 'New Op', role: 'operator' });
+  const created = await call('POST', '/api/users', admin, { username: 'newop', password: 'abc1234567', fullName: 'New Op', role: 'operator' });
   assert.equal(created.status, 201);
   const { id } = await created.json();
   assert.equal((await call('PUT', `/api/users/${id}`, admin, { role: 'viewer' })).status, 200);
-  assert.equal((await call('POST', '/api/users', admin, { username: 'bad', password: 'abc123', fullName: 'B', role: 'root' })).status, 400);
+  assert.equal((await call('POST', '/api/users', admin, { username: 'bad', password: 'abc1234567', fullName: 'B', role: 'root' })).status, 400);
   assert.equal((await call('DELETE', `/api/users/${id}`, admin)).status, 200);
 });
 
