@@ -24,11 +24,17 @@ export interface Collection<T> {
 /**
  * Read a server collection. It loads when the page mounts, refreshes on window
  * focus and every 30 seconds, and updates after any change made through ops.ts.
+ * Use { refresh: false } for large, rarely changing data to load it once only.
  */
-export function useCollection<T>(key: string, initial: T): Collection<T> {
+export function useCollection<T>(
+  key: string,
+  initial: T,
+  options: { refresh?: boolean } = {}
+): Collection<T> {
   const initialRef = useRef(initial);
+  const refresh = options.refresh !== false;
 
-  useEffect(() => dataStore.retain(key), [key]);
+  useEffect(() => dataStore.retain(key, { refresh }), [key, refresh]);
 
   const snapshot = useSyncExternalStore(
     dataStore.subscribe,

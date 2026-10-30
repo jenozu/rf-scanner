@@ -189,11 +189,11 @@
           {
             "title": "Convert Home, Export, Setup, Settings and app shell",
             "description": "Dashboard, exports, setup and settings use the shared data.",
-            "status": "pending",
+            "status": "done",
             "dependencies": [
               "10.4"
             ],
-            "details": "home-page.tsx, export-page.tsx, setup-page.tsx, settings-page.tsx, app.tsx, utils: replace localStorage business-data reads/writes; Home dashboard now computes from server data; Setup uploads write once through the layer.",
+            "details": "home-page.tsx, export-page.tsx, setup-page.tsx, settings-page.tsx, app.tsx, utils: replace localStorage business-data reads/writes; Home dashboard now computes from server data; Setup uploads write once through the layer.\n\n[2026-10-30T00:08:24-04:00] plan/deviation: Scan and Inventory pages still read the localStorage mirror that app.tsx/setup/settings write until 10.6 converts them, so removing the mirror now would break those pages on this branch. Therefore 10.5 = (a) store option refresh:false for big static collections (rf_active, rf_master are MBs; no 30s polling for them) + saveCollection reload:false; (b) Home fully on useCollection (stats recompute as data refreshes); (c) Export on useCollection; (d) Setup: PO/SO uploads via upsertManyRecords (server-side merge, no client read-merge-write), inventory persist via saveCollection(overwrite) with visible failure instead of console-only; (e) Settings: master replace/reload via saveCollection with visible failure, master summary from server. The mirror writes stay, marked for removal in 10.6 together with app.tsx hydration and the Setup info-box wording. utils/config.ts rf_config_staging_bin and settings rf_app_settings are per-device preferences, not business data: stay in localStorage by design. NOTE for owner: 'Replace master inventory' rebuilds ALL bins from the file (existing behavior, confirm dialog) so it discards receipt/pick changes to bin quantities - unchanged here but more consequential now that bins are shared.\n\n[2026-10-30T00:11:10-04:00] result: done with ONE DOCUMENTED DEVIATION from the test strategy (grep-clean): home-page and export-page have zero localStorage; setup-page/settings-page/app.tsx keep the browser mirror ONLY because Scan and Inventory still read it - their server saves are now conflict-aware/visible and moved to ops. Mirror removal is carried to 10.6. Changes: store retain({refresh:false}) + useCollection option + saveCollection reload:false (new unit test), Home on 8 collections (recomputes on refresh), Export on useCollection, Setup PO/SO import via server-side upsert-many (no client read-merge-write), Setup/Settings inventory replace via saveCollection with errors visible in the status line (Settings previously used Promise.all and could half-save; Setup swallowed errors into a console message). Checks with exit codes: tsc 0, vitest 28, build ok, server 67. New task 17 (guard destructive Setup actions, audit 4l) added because it was in no task. Drift check: no scope change except task 17.",
             "testStrategy": "build+tests pass; grep shows no business-data localStorage in these files; Export shows receiving/count logs from the server",
             "complexity": 4,
             "id": 5
@@ -244,7 +244,7 @@
         "dependencies": [
           10
         ],
-        "details": "BLOCKED ON INPUT: needs one real SAP XLSX export each for POs and Sales Orders. Audit items 4e-4h. csv-utils.ts lines ~502-507, 589, 936.\n\n[2026-10-29T20:02:46-04:00] input received 2026-10-29: RF_Scanner_Sample_SAP_XLSX_Exports.xlsx (synthetic, NOT a raw SAP export; its README calls it a target-format contract). Sheets: Master Inventory (Warehouse|BinCode|ItemCode|ItemName|QtyInBin, keep zero-stock rows, an ItemCode can be in many bins); Purchase Orders (poNumber, vendor, CardCode, expectedDate, LineNumber, ItemCode, Description, OrderedQty, ReceivedQty, OpenQty, BinCode, Warehouse; BinCode may be 'NO-BIN'); Sales Orders (soNumber, customer, CardCode, LineNumber, ItemCode, Description, OrderedQty, OpenQty, BinCode, BinQty, Warehouse). New vs current PO parser: Warehouse, OpenQty, expectedDate as datetime. README says inspect the existing parsers before renaming fields and keep backwards compatibility. Workbook is kept outside the public repo for now; when Phase 3 starts, commit it as tests/fixtures (it is synthetic). A real raw SAP XLSX export is still worth getting, since SAP date cells and thousands separators (audit 4f, 4g) are not exercised by a clean sample.",
+        "details": "BLOCKED ON INPUT: needs one real SAP XLSX export each for POs and Sales Orders. Audit items 4e-4h. csv-utils.ts lines ~502-507, 589, 936.\n\n[2026-10-29T20:02:46-04:00] input received 2026-10-29: RF_Scanner_Sample_SAP_XLSX_Exports.xlsx (synthetic, NOT a raw SAP export; its README calls it a target-format contract). Sheets: Master Inventory (Warehouse|BinCode|ItemCode|ItemName|QtyInBin, keep zero-stock rows, an ItemCode can be in many bins); Purchase Orders (poNumber, vendor, CardCode, expectedDate, LineNumber, ItemCode, Description, OrderedQty, ReceivedQty, OpenQty, BinCode, Warehouse; BinCode may be 'NO-BIN'); Sales Orders (soNumber, customer, CardCode, LineNumber, ItemCode, Description, OrderedQty, OpenQty, BinCode, BinQty, Warehouse). New vs current PO parser: Warehouse, OpenQty, expectedDate as datetime. README says inspect the existing parsers before renaming fields and keep backwards compatibility. Workbook is kept outside the public repo for now; when Phase 3 starts, commit it as tests/fixtures (it is synthetic). A real raw SAP XLSX export is still worth getting, since SAP date cells and thousands separators (audit 4f, 4g) are not exercised by a clean sample.\n\n[2026-10-30T00:11:10-04:00] (owner-facing note from 10.5) none yet",
         "testStrategy": "Fixture tests for each format incl. duplicate ItemCodes, closed lines, date cells; same file imported twice gives identical results",
         "complexity": 8,
         "id": 11,
@@ -321,11 +321,25 @@
         "complexity": 4,
         "id": 16,
         "subtasks": []
+      },
+      {
+        "title": "Guard destructive Setup actions (sample data, clear)",
+        "description": "Initialize Sample Data and Clear all data can wipe the shared inventory with one tap (audit 4l).",
+        "status": "pending",
+        "priority": "high",
+        "dependencies": [
+          10
+        ],
+        "details": "src/pages/setup-page.tsx handleInitializeSampleData and handleClearData. Hide or disable sample data when the server already holds real inventory (more than ~20 items), require typing a word to confirm clear, admin only. Found during 10.5; audit 4l was not in any task.",
+        "testStrategy": "Component-level check by hand or a vitest on the guard helper: with 500 items on the server, sample-data is refused; clear needs the typed confirmation and an admin",
+        "complexity": 2,
+        "id": 17,
+        "subtasks": []
       }
     ],
     "metadata": {
       "created": "2026-10-29T19:42:01-04:00",
-      "updated": "2026-10-30T00:05:30-04:00"
+      "updated": "2026-10-30T00:11:10-04:00"
     }
   }
 }

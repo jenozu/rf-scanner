@@ -215,4 +215,23 @@ describe("DataStore background refresh", () => {
     expect(calls).toHaveLength(2);
     release();
   });
+
+  it("collections retained with refresh:false load once and are skipped by background refresh", async () => {
+    const { api, calls } = fakeApi({ rf_bins: [], rf_master: ["big"] });
+    const store = new DataStore(api);
+    const releaseLive = store.retain("rf_bins");
+    const releaseOnce = store.retain("rf_master", { refresh: false });
+    await flush();
+    expect(calls.sort()).toEqual(["rf_bins", "rf_master"]);
+    expect(store.getSnapshot("rf_master").data).toEqual(["big"]);
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(calls.filter((c) => c === "rf_master")).toHaveLength(1);
+    expect(calls.filter((c) => c === "rf_bins")).toHaveLength(2);
+
+    // An explicit load still works.
+    await store.load("rf_master");
+    expect(calls.filter((c) => c === "rf_master")).toHaveLength(2);
+    releaseLive(); releaseOnce();
+  });
 });

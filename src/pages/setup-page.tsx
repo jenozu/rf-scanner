@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { parseCSV, parsePOFile, parseSalesOrderFile } from "../data/csv-utils";
-import useServerStorage from "../hooks/useServerStorage";
+import { useCollection } from "../data/hooks";
+import { saveCollection, upsertManyRecords } from "../data/ops";
 import { Item, PageType, PurchaseOrder, SalesOrder } from "../types";
 import { initializeSampleData, clearAllData } from "../data/sample-data";
 import { api } from "../services/api";
@@ -14,7 +15,7 @@ interface SetupPageProps {
 
 const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
   const [csvFile, setCsvFile] = useState<File | null>(null);
-  const [data, setData, isLoadingData] = useServerStorage<Item[]>("rf_active", []);
+  const { data } = useCollection<Item[]>("rf_active", [], { refresh: false });
   const [status, setStatus] = useState<string>("");
   const [isLoadingMaster, setIsLoadingMaster] = useState(false);
 
@@ -22,21 +23,21 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
     async (items: Item[], options: { syncToServer?: boolean } = {}) => {
       const { syncToServer = true } = options;
       const safeItems = Array.isArray(items) ? items : [];
-      await setData(safeItems);
+      const bins = buildBinsFromItems(safeItems);
+
+      // Browser copy: Scan and Inventory still read it until task 10.6 moves them to the server.
       localStorage.setItem("rf_active", JSON.stringify(safeItems));
       localStorage.setItem("rf_master", JSON.stringify(safeItems));
-
-      const bins = buildBinsFromItems(safeItems);
       localStorage.setItem("rf_bins", JSON.stringify(bins));
 
       let serverSynced = true;
       if (syncToServer) {
         try {
-          await Promise.all([
-            api.saveData("rf_master", safeItems),
-            api.saveData("rf_active", safeItems),
-            api.saveData("rf_bins", bins),
-          ]);
+          // Explicit "replace everything": overwrite, no conflict check. The big
+          // inventory files are not downloaded again after saving.
+          await saveCollection("rf_master", safeItems, { overwrite: true, reload: false });
+          await saveCollection("rf_active", safeItems, { overwrite: true, reload: false });
+          await saveCollection("rf_bins", bins, { overwrite: true });
         } catch (error) {
           serverSynced = false;
           console.error("Error syncing inventory data to server:", error);
@@ -45,7 +46,7 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
 
       return { bins, serverSynced };
     },
-    [setData]
+    []
   );
 
   // 🔄 Auto-load master inventory from VPS on mount
@@ -220,7 +221,7 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
     try {
       const newPOs = await parsePOFile(file);
       
-      // Get existing POs or create empty array
+      // Compare against the server's current list; the merge itself happens on the server.
       const existingPOs = ((await api.getData("rf_purchase_orders")) as PurchaseOrder[] | null) || [];
       const existingPONumbers = new Set(existingPOs.map(po => po.poNumber));
       
@@ -233,15 +234,14 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
         return;
       }
 
-      const mergedPOs = [...existingPOs, ...uniqueNewPOs];
-      await api.saveData("rf_purchase_orders", mergedPOs);
+      await upsertManyRecords("rf_purchase_orders", uniqueNewPOs, true);
       
       const totalItems = uniqueNewPOs.reduce((sum, po) => sum + po.items.length, 0);
       setStatus(`✅ Loaded ${uniqueNewPOs.length} purchase order(s) with ${totalItems} total line items from ${fileType} file`);
       e.target.value = "";
     } catch (err) {
-      console.error("Error parsing PO file:", err);
-      setStatus(`❌ Error reading PO ${fileType} file. Please check format. Required columns: poNumber, vendor, expectedDate, ItemCode, Description, OrderedQty`);
+      console.error("Error importing PO file:", err);
+      setStatus(`❌ Could not import the PO ${fileType} file (${(err as Error)?.message || "unknown error"}). Check the format. Required columns: poNumber, vendor, expectedDate, ItemCode, Description, OrderedQty`);
       e.target.value = "";
     }
   };
@@ -259,7 +259,7 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
     try {
       const newSOs = await parseSalesOrderFile(file);
       
-      // Get existing SOs or create empty array
+      // Compare against the server's current list; the merge itself happens on the server.
       const existingSOs = ((await api.getData("rf_sales_orders")) as SalesOrder[] | null) || [];
       const existingSONumbers = new Set(existingSOs.map(so => so.soNumber));
       
@@ -272,14 +272,13 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
         return;
       }
 
-      const mergedSOs = [...existingSOs, ...uniqueNewSOs];
-      await api.saveData("rf_sales_orders", mergedSOs);
+      await upsertManyRecords("rf_sales_orders", uniqueNewSOs, true);
       
       setStatus(`✅ Loaded ${uniqueNewSOs.length} sales order(s) with ${newSOs.reduce((sum, so) => sum + so.items.length, 0)} total line items from ${fileType} file`);
       e.target.value = "";
     } catch (err) {
-      console.error("Error parsing Sales Order file:", err);
-      setStatus(`❌ Error reading Sales Order ${fileType} file. Please check format. Required columns: soNumber, customer, CardCode, ItemCode, Description, OrderedQty, DeliveredQty`);
+      console.error("Error importing Sales Order file:", err);
+      setStatus(`❌ Could not import the Sales Order ${fileType} file (${(err as Error)?.message || "unknown error"}). Check the format. Required columns: soNumber, customer, CardCode, ItemCode, Description, OrderedQty, DeliveredQty`);
       e.target.value = "";
     }
   };
@@ -288,8 +287,9 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
   const handleClearData = () => {
     if (confirm("Are you sure you want to clear all data? This cannot be undone.")) {
       clearAllData();
-      setData([]);
-      setStatus("🗑️ All data cleared.");
+      saveCollection("rf_active", [], { overwrite: true, reload: false })
+        .then(() => setStatus("🗑️ All data cleared."))
+        .catch((error: any) => setStatus(`❌ Server data was not cleared: ${error?.message || "server error"}`));
     }
   };
 

@@ -25,6 +25,7 @@ import {
 import { clearAllData } from "../data/sample-data";
 import { parseCSV } from "../data/csv-utils";
 import { api } from "../services/api";
+import { saveCollection } from "../data/ops";
 import { buildBinsFromItems } from "../utils/bin-utils";
 
 interface SettingsPageProps {
@@ -183,13 +184,14 @@ export default function SettingsPage({ onLogin }: SettingsPageProps) {
       itemCount: validItems.length,
     };
 
-    await Promise.all([
-      api.saveData("rf_master", validItems),
-      api.saveData("rf_active", validItems),
-      api.saveData("rf_bins", bins),
-      api.saveData("rf_master_meta", meta),
-    ]);
+    // Explicit "replace everything": overwrite without a conflict check. Any failure
+    // throws and is shown in the status line below the upload button.
+    await saveCollection("rf_master", validItems, { overwrite: true, reload: false });
+    await saveCollection("rf_active", validItems, { overwrite: true, reload: false });
+    await saveCollection("rf_bins", bins, { overwrite: true });
+    await saveCollection("rf_master_meta", meta, { overwrite: true });
 
+    // Browser copy: Scan and Inventory still read it until task 10.6 moves them to the server.
     localStorage.setItem("rf_master", JSON.stringify(validItems));
     localStorage.setItem("rf_active", JSON.stringify(validItems));
     localStorage.setItem("rf_bins", JSON.stringify(bins));
@@ -263,10 +265,8 @@ export default function SettingsPage({ onLogin }: SettingsPageProps) {
       localStorage.setItem("rf_active", JSON.stringify(masterData));
       localStorage.setItem("rf_bins", JSON.stringify(bins));
 
-      await Promise.all([
-        api.saveData("rf_active", masterData),
-        api.saveData("rf_bins", bins),
-      ]);
+      await saveCollection("rf_active", masterData, { overwrite: true, reload: false });
+      await saveCollection("rf_bins", bins, { overwrite: true });
 
       setMasterItemCount(masterData.length);
       setInventoryStatus(

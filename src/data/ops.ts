@@ -65,11 +65,19 @@ export function upsertManyRecords(key: RecordKey, records: Array<{ id: string }>
  * Replace a whole collection (imports, settings). If the collection changed on the
  * server since this device last loaded it, the save is refused (HTTP 409), the
  * fresh copy is loaded, and the error is thrown so the page can tell the user.
+ * overwrite: true skips that check (an explicit "replace everything"). reload: false
+ * skips re-downloading the saved collection (large files nobody is viewing).
  */
-export async function saveCollection(key: string, data: unknown, options: { overwrite?: boolean } = {}) {
+export async function saveCollection(
+  key: string,
+  data: unknown,
+  options: { overwrite?: boolean; reload?: boolean } = {}
+) {
   const baseRevision = options.overwrite ? null : dataStore.getSnapshot(key).revision;
   try {
-    return await dataStore.mutate(() => api.saveData(key, data, baseRevision), { reload: [key] });
+    return await dataStore.mutate(() => api.saveData(key, data, baseRevision), {
+      reload: options.reload === false ? [] : [key],
+    });
   } catch (error) {
     if (error instanceof ApiError && error.status === 409) await dataStore.load(key);
     throw error;

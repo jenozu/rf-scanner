@@ -1,6 +1,6 @@
 import React from "react";
 import { exportCSV, exportReceivingTxnsCSV, exportCycleCountTxnsCSV } from "../data/csv-utils";
-import useServerStorage from "../hooks/useServerStorage";
+import { useCollection } from "../data/hooks";
 import { Item, ReceivingTransaction, CycleCountTransaction } from "../types";
 
 interface ExportPageProps {
@@ -8,9 +8,10 @@ interface ExportPageProps {
 }
 
 export default function ExportPage({ setPage }: ExportPageProps) {
-  const [data] = useServerStorage<Item[]>("rf_active", []);
-  const [receivingTxns] = useServerStorage<ReceivingTransaction[]>("rf_receiving_txns", []);
-  const [cycleCountTxns] = useServerStorage<CycleCountTransaction[]>("rf_cycle_count_txns", []);
+  // The inventory file is large and rarely changes: load once. The logs refresh.
+  const { data } = useCollection<Item[]>("rf_active", [], { refresh: false });
+  const { data: receivingTxns } = useCollection<ReceivingTransaction[]>("rf_receiving_txns", []);
+  const { data: cycleCountTxns } = useCollection<CycleCountTransaction[]>("rf_cycle_count_txns", []);
 
   const handleExport = () => {
     if (!data || data.length === 0) {

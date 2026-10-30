@@ -54,6 +54,8 @@ export interface DataStoreOptions {
 
 interface Entry {
   snapshot: CollectionSnapshot;
+  /** Users of this collection that want it refreshed in the background. */
+  liveRefs: number;
   refs: number;
   running: Promise<void> | null;
   queued: Promise<void> | null;
@@ -94,7 +96,7 @@ export class DataStore {
   private entry(key: string): Entry {
     let entry = this.entries.get(key);
     if (!entry) {
-      entry = { snapshot: INITIAL, refs: 0, running: null, queued: null };
+      entry = { snapshot: INITIAL, liveRefs: 0, refs: 0, running: null, queued: null };
       this.entries.set(key, entry);
     }
     return entry;
@@ -115,10 +117,16 @@ export class DataStore {
 
   // --- loading ---
 
-  /** Mark a collection as on screen: loads it now and keeps it fresh. Returns a release function. */
-  retain(key: string): () => void {
+  /**
+   * Mark a collection as on screen: loads it now and keeps it fresh. Returns a release
+   * function. Pass { refresh: false } for big, rarely changing collections (such as
+   * the master inventory): they load once and are not re-downloaded every 30 s.
+   */
+  retain(key: string, options: { refresh?: boolean } = {}): () => void {
+    const live = options.refresh !== false;
     const entry = this.entry(key);
     entry.refs += 1;
+    if (live) entry.liveRefs += 1;
     this.totalRefs += 1;
     if (!entry.snapshot.loaded && !entry.running) void this.load(key);
     this.startTimers();
@@ -127,6 +135,7 @@ export class DataStore {
       if (released) return;
       released = true;
       entry.refs -= 1;
+      if (live) entry.liveRefs -= 1;
       this.totalRefs -= 1;
       if (this.totalRefs === 0) this.stopTimers();
     };
@@ -167,7 +176,7 @@ export class DataStore {
 
   /** Reload every collection that is currently on screen. */
   refreshVisible(): Promise<void[]> {
-    const keys = [...this.entries.entries()].filter(([, e]) => e.refs > 0).map(([k]) => k);
+    const keys = [...this.entries.entries()].filter(([, e]) => e.liveRefs > 0).map(([k]) => k);
     return Promise.all(keys.map((key) => this.load(key)));
   }
 
