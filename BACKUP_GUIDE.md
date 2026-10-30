@@ -1,5 +1,7 @@
 # Backup & Version Control Guide
 
+> This guide is about backing up the **code** with git. For backing up the **warehouse data** on the server, see [docs/BACKUP_AND_RESTORE.md](docs/BACKUP_AND_RESTORE.md).
+
 ## Current Status
 
 ✅ **Git repository initialized**  

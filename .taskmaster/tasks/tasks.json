@@ -225,11 +225,11 @@
           {
             "title": "Backup script and restore docs",
             "description": "Timestamped backups of the server data folder.",
-            "status": "pending",
+            "status": "done",
             "dependencies": [
               "10.7"
             ],
-            "details": "scripts/backup-data.sh (tar the DATA_DIR volume contents, keep 14), docs section with the cron line and a restore procedure. Not installed on the VPS by me.",
+            "details": "scripts/backup-data.sh (tar the DATA_DIR volume contents, keep 14), docs section with the cron line and a restore procedure. Not installed on the VPS by me.\n\n[2026-10-30T00:48:16-04:00] plan: scripts/backup-data.sh (--dir PATH | --docker [--service api]; BACKUP_DIR default ./backups, KEEP default 14; writes rf-data-YYYYmmdd-HHMMSS-NN.tar.gz via a .partial file, verifies the archive is readable and non-empty, then renames; prunes to newest KEEP; the 2-digit counter keeps same-second runs in order), scripts/restore-data.sh (verifies archive; target must be empty unless --force; --force first saves a safety backup of what is there and then only overlays files, never deletes), scripts/test-backup.sh (temp dirs; docker mode against a stand-in docker command because there is no Docker daemon in this session), a CI step, docs/BACKUP_AND_RESTORE.md (cron line + restore procedure + what is/is not covered), one-line pointer in BACKUP_GUIDE.md (that file is about git/code backups). Docker mode uses 'docker compose run --rm -T --no-deps --entrypoint tar api -czf - -C /app/server/data .' so it works with the api container running or stopped. NOT installed on the VPS by me.\n\n[2026-10-30T00:51:48-04:00] result: scripts/backup-data.sh, scripts/restore-data.sh, scripts/test-backup.sh (30 checks pass: archive created, 16 runs with --keep 14 leave 14 and drop the OLDEST, restore reproduces every file, refuses non-empty target without --force, --force saves a pre-restore backup and only overlays, failed/empty backups leave nothing behind, bad options rejected; docker mode against a stand-in docker: exact 'compose run --rm -T --no-deps --entrypoint tar api -czf - -C /app/server/data .' command, --service honoured, restore via stdin, docker failure keeps nothing), CI step added, docs/BACKUP_AND_RESTORE.md (what is NOT covered: server/.env, host ./data with master_inventory.xlsx, traefik/nginx; cron line; restore steps; off-VPS copies are manual), /backups and /backups-host git-ignored, pointer added in BACKUP_GUIDE.md. NOT verified: real Docker (no daemon in this session) - first real run on the VPS is the real test; owner installs the cron job, I did not touch the VPS. PRD decision log updated with Phase 2 additions and behavior changes.",
             "testStrategy": "run the script against a temp data folder: archive created, 15th run prunes oldest, restore into an empty folder reproduces files",
             "complexity": 2,
             "id": 8
@@ -339,7 +339,7 @@
     ],
     "metadata": {
       "created": "2026-10-29T19:42:01-04:00",
-      "updated": "2026-10-30T00:46:01-04:00"
+      "updated": "2026-10-30T00:51:48-04:00"
     }
   }
 }

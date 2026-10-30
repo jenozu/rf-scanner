@@ -39,3 +39,5 @@ jobs:
       - name: Server tests
         run: npm test
         working-directory: server
+      - name: Backup and restore script tests
+        run: bash scripts/test-backup.sh
