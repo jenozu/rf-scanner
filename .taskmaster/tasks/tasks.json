@@ -100,10 +100,10 @@
       {
         "title": "P1: Stop tracking company data in git",
         "description": "Master inventory, real POs, users.json (admin hash), customer address DB and a deploy tarball are committed to a public repo.",
-        "status": "pending",
+        "status": "done",
         "priority": "high",
         "dependencies": [],
-        "details": "Tracked files (from git ls-files): data/master_inventory.xlsx, master_inventory.xlsx, PO/*.csv (8), data/users.json, puro/customer_addresses.db, rf-scanner-deploy.tar.gz. Use git rm --cached and add to .gitignore; keep sample fixtures as anonymised files under tests/fixtures if needed later (Phase 3). DEPLOY RISK: check how ./data is mounted on the VPS so a pull cannot delete live data. History scrub is a separate decision (PRD open question). Do not rewrite history in this task.",
+        "details": "Tracked files (from git ls-files): data/master_inventory.xlsx, master_inventory.xlsx, PO/*.csv (8), data/users.json, puro/customer_addresses.db, rf-scanner-deploy.tar.gz. Use git rm --cached and add to .gitignore; keep sample fixtures as anonymised files under tests/fixtures if needed later (Phase 3). DEPLOY RISK: check how ./data is mounted on the VPS so a pull cannot delete live data. History scrub is a separate decision (PRD open question). Do not rewrite history in this task.\n\n[2026-10-29T20:13:05-04:00] plan: git rm --cached the 13 tracked data paths (data/master_inventory.xlsx, master_inventory.xlsx, PO/*.csv x8, data/users.json, puro/customer_addresses.db, rf-scanner-deploy.tar.gz); extend .gitignore (/data/ already ignored but files were tracked earlier). No history rewrite, no disk deletes. Files: .gitignore only + index. FINDING: docker-compose bind-mounts ./data into nginx, so on the VPS a git pull of this commit would DELETE the live ./data/master_inventory.xlsx if unmodified there. Gate: back up ./data on the VPS before pulling; needs user OK before touching VPS.\n\n[2026-10-29T20:14:04-04:00] result: 13 paths untracked, all still on disk, all 5 patterns confirmed ignored via git check-ignore; tsc passes. History NOT rewritten (still needs user decision). DEPLOY GATE for user: on the VPS, back up ./data before pulling this commit, because git will remove the untracked-now files from the working tree. Drift check: matched task and PRD goal; no code touched. Parking: public history still contains these files; Dockerfile.nginx COPY . . will bake local ./data into the image if present on build host (Phase 8).",
         "testStrategy": "git ls-files shows none of those paths; git status clean after a fresh clone and app start; files still present on disk",
         "complexity": 2,
         "id": 8,
@@ -230,7 +230,7 @@
     ],
     "metadata": {
       "created": "2026-10-29T19:42:01-04:00",
-      "updated": "2026-10-29T20:02:46-04:00"
+      "updated": "2026-10-29T20:14:05-04:00"
     }
   }
 }
