@@ -53,7 +53,7 @@ Keep React + TypeScript + Vite + Tailwind, Express, JSON files in a Docker volum
 - **Deploy risk:** untracking `data/` must not delete data on the VPS. Check how `./data` is mounted first.
 - **Open:** does the VPS `server/.env` set `JWT_SECRET`, and has the redesign been deployed?
 - **Open:** scrub the public repo's history (master inventory, POs, old admin hash) or only stop tracking them going forward? History rewrite needs everyone to re-clone.
-- **Open:** one real SAP XLSX export each for POs and Sales Orders (values blanked if needed), needed for Phase 3.
+- **Partly answered:** a synthetic sample workbook (target formats for inventory, POs, SOs) was supplied on 2026-10-29 and is logged on task 11. A real raw SAP XLSX export is still wanted for Phase 3, to exercise date cells and number formats.
 - **Open:** target SAP import templates (GRPO, Delivery, Inventory Counting), needed for Phase 5.
 
 ## Decision log
