@@ -58,12 +58,12 @@
       {
         "title": "P1: Require JWT_SECRET at startup",
         "description": "The server falls back to a public default secret, which allows forged admin tokens.",
-        "status": "pending",
+        "status": "done",
         "priority": "high",
         "dependencies": [
           1
         ],
-        "details": "server/index.js line 17. Exit with a clear error if JWT_SECRET is missing or shorter than 32 chars. Update .env.example and the Docker/compose docs. DEPLOY RISK: the API will refuse to start on the VPS if JWT_SECRET is not set there. Ask the owner to confirm (open question in PRD) before this reaches production, and note that changing the secret logs everyone out.",
+        "details": "server/index.js line 17. Exit with a clear error if JWT_SECRET is missing or shorter than 32 chars. Update .env.example and the Docker/compose docs. DEPLOY RISK: the API will refuse to start on the VPS if JWT_SECRET is not set there. Ask the owner to confirm (open question in PRD) before this reaches production, and note that changing the secret logs everyone out.\n\n[2026-10-29T20:00:33-04:00] plan: new server/config.js exporting resolveJwtSecret(env) (throws on missing/blank, known placeholder incl. the old default and the value in server/.env.example, or <32 chars). server/index.js L17 calls it at startup and exits 1 with the message. Update server/.env.example (blank value + openssl rand -hex 48 hint), comment in docker-compose.yml, one note in SERVER_SETUP_GUIDE.md. Tests: unit cases for resolveJwtSecret plus child-process tests: no secret -> exit 1, old default -> exit 1, valid secret -> actually listens (also proves the NODE_ENV listen guard from task 1 does not affect production start). DEPLOY RISK stays open: VPS server/.env may be missing or hold the old placeholder. Do not merge/deploy until owner has set a real value.\n\n[2026-10-29T20:02:28-04:00] done: server/config.js resolveJwtSecret (rejects missing/blank, public placeholders incl. old default, <32 chars); index.js exits 1 with a fix message; .env.example now blank + instructions (also local-dev hint, since the server has no dotenv); docker-compose.yml comment. Tests: 8 new in server/test/jwt-secret.test.js incl. real child-process start (no secret -> exit 1, old default -> exit 1, valid secret -> listens). 10/10 server tests, root tests and tsc pass. Not verified: a Docker image build/run (no Docker here). Skipped SERVER_SETUP_GUIDE.md on purpose: it documents the obsolete /var/www setup (Phase 8). Drift check: matched task and PRD. DEPLOY GATE: do not deploy until VPS server/.env has a real JWT_SECRET; if it was copied from the old .env.example it holds the rejected placeholder.",
         "testStrategy": "Starting the server without JWT_SECRET exits non-zero with a message; with a valid secret the existing API tests pass",
         "complexity": 2,
         "id": 5,
@@ -230,7 +230,7 @@
     ],
     "metadata": {
       "created": "2026-10-29T19:42:01-04:00",
-      "updated": "2026-10-29T19:59:28-04:00"
+      "updated": "2026-10-29T20:02:28-04:00"
     }
   }
 }

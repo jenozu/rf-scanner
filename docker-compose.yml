@@ -7,7 +7,7 @@ services:
     volumes:
       - rf_data:/app/server/data
     env_file:
-      - server/.env
+      - server/.env   # must define JWT_SECRET (see server/.env.example); the API will not start without it
     environment:
       NODE_ENV: production
       PORT: 3001

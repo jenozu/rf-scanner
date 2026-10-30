@@ -7,6 +7,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { resolveJwtSecret } from './config.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -14,7 +15,13 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3001;
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
-const JWT_SECRET = process.env.JWT_SECRET || 'rf-scanner-secret-key-change-in-production';
+let JWT_SECRET;
+try {
+  JWT_SECRET = resolveJwtSecret();
+} catch (err) {
+  console.error(`❌ ${err.message}`);
+  process.exit(1);
+}
 const JWT_EXPIRES_IN = '24h'; // Token expires in 24 hours
 const execAsync = promisify(exec);
 
