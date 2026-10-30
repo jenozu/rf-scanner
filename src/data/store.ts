@@ -125,10 +125,14 @@ export class DataStore {
   retain(key: string, options: { refresh?: boolean } = {}): () => void {
     const live = options.refresh !== false;
     const entry = this.entry(key);
+    const firstUser = entry.refs === 0;
     entry.refs += 1;
     if (live) entry.liveRefs += 1;
     this.totalRefs += 1;
-    if (!entry.snapshot.loaded && !entry.running) void this.load(key);
+    // Show what is cached straight away, but re-check the server whenever a page that
+    // wants fresh data opens (the cached copy may be old: another device or another
+    // page may have changed it since). Load-once collections only load when missing.
+    if ((!entry.snapshot.loaded && !entry.running) || (live && firstUser && entry.snapshot.loaded)) void this.load(key);
     this.startTimers();
     let released = false;
     return () => {

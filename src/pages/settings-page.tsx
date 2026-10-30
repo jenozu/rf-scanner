@@ -26,6 +26,8 @@ import { clearAllData } from "../data/sample-data";
 import { parseCSV } from "../data/csv-utils";
 import { api } from "../services/api";
 import { saveCollection } from "../data/ops";
+import MigrationCard from "../components/migration-card";
+import { isDemoMode } from "../demo/demo-mode";
 import { buildBinsFromItems } from "../utils/bin-utils";
 
 interface SettingsPageProps {
@@ -728,6 +730,8 @@ export default function SettingsPage({ onLogin }: SettingsPageProps) {
                       are not overwritten by an older spreadsheet.
                     </div>
                   </div>
+
+                  {!isDemoMode() && <MigrationCard />}
                 </div>
               )}
 

@@ -213,11 +213,11 @@
           {
             "title": "Migration: upload this device's browser data (admin button)",
             "description": "Manual, admin-only, one-time copy of browser data to the server.",
-            "status": "pending",
+            "status": "done",
             "dependencies": [
               "10.6"
             ],
-            "details": "Settings page: admin-only button shows a summary per collection (browser count vs server count), uploads only into collections that are empty on the server, records a migration log entry, never clears browser data. Server route requires admin.",
+            "details": "Settings page: admin-only button shows a summary per collection (browser count vs server count), uploads only into collections that are empty on the server, records a migration log entry, never clears browser data. Server route requires admin.\n\n[2026-10-30T00:24:17-04:00] plan: server/migrate.js (admin only): GET /api/migrate/status -> item counts per migratable key; POST /api/migrate/browser-data {collections:{key:data}, replace:[keys]}: per key under its lock - incoming empty -> skipped-empty-browser; server non-empty and key not in replace -> skipped-not-empty (the agreed default: only fill empty collections); else write (if replacing a non-empty server file, FIRST copy it to <key>.pre-migration-<timestamp>.json). Writes an activity-log entry. DEVIATION to flag: the agreed 'empty collections only' rule would drop real receiving progress when the same POs were already uploaded on Setup (server copy has no progress, browser copy has it), so an explicit per-collection opt-in 'replace server copy' (default OFF, admin, confirm, backup) is added. Client: src/data/migration.ts (readBrowserCollections, planMigration; unit tests with a fake Storage), Settings admin card (not shown in demo mode): 'Check this device' -> table (this device / server / action) -> 'Upload' with confirm. Browser data is never deleted.\n\n[2026-10-30T00:46:01-04:00] result: server/migrate.js (admin-only GET status + POST browser-data; default fills only EMPTY server collections; opt-in per-collection replace saves <key>.pre-migration-<ts>.json first; validates every key/shape before writing anything; activity-log entry) + 8 server tests; src/data/migration.ts + 5 unit tests; src/components/migration-card.tsx in Settings > App Settings (admin only, hidden in demo): Check this device -> table (this device / server / ticked-or-not) -> confirm dialog -> results; browser copy never deleted. REAL-BROWSER VERIFICATION against the real API (real server on a temp data dir, admin created with reset-admin.js, UI via vite proxy, Playwright; scripts kept in /tmp, not in the repo): migration flow 19/19 (default skips bins, PO with progress + 3 receiving log entries uploaded, second run no-op, opt-in replace saves a backup that holds the old bins, Receive page shows the migrated PO, no console errors); two-devices UI 18/18 (A's receipt appears on B after focus refresh, same-ItemCode second line only, wiping A's browser storage loses nothing, a failed save shows 'Not saved' + keeps the form + server has nothing, retry counted once, dashboard shows both devices' work); picking UI 8/8 (lines updated individually, bin stock 50->44->40, order picking->picked). BUGS FOUND BY THAT TESTING AND FIXED: (1) data layer served a stale cached copy when a page was reopened (dashboard cached empty POs, then Receive showed an empty list for up to 30 s) -> retain() now re-checks the server when the first page using a live collection opens (3 regression tests); (2) mobile top bar overflow from the sync pill (10.6). Also: network failure text is now 'Can't reach the server...' instead of 'Failed to fetch'. Tests: tsc 0, vitest 44, build ok, server 80. Not verified: real handheld/real production data; counting screens were verified via the demo smoke test + unit/API tests, not through the real API in a browser.",
             "testStrategy": "tests: only empty collections filled; non-admin gets 403; nothing deleted from browser; second run is a no-op",
             "complexity": 4,
             "id": 7
@@ -339,7 +339,7 @@
     ],
     "metadata": {
       "created": "2026-10-29T19:42:01-04:00",
-      "updated": "2026-10-30T00:23:28-04:00"
+      "updated": "2026-10-30T00:46:01-04:00"
     }
   }
 }

@@ -11,6 +11,7 @@ import { resolveJwtSecret } from './config.js';
 import { createLoginLimiter } from './login-limiter.js';
 import { store, ConflictError } from './store.js';
 import { registerOps } from './ops.js';
+import { registerMigration } from './migrate.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -514,6 +515,7 @@ app.post('/api/data/:key', authenticateToken, async (req, res) => {
 });
 
 registerOps(app, { authenticateToken, requireWriter, dataDir: DATA_DIR });
+registerMigration(app, { authenticateToken, requireAdmin, dataDir: DATA_DIR });
 
 // ============================================
 // BIN LOCKING ENDPOINTS

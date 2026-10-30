@@ -84,6 +84,10 @@ class ApiClient {
       return { body: (await response.json()) as T, headers: response.headers };
     } catch (error) {
       console.error(`API request failed: ${endpoint}`, error);
+      // fetch() throws a TypeError when the server cannot be reached at all.
+      if (error instanceof TypeError) {
+        throw new ApiError("Can't reach the server. Check the connection and try again.", 0);
+      }
       throw error;
     }
   }
@@ -250,6 +254,21 @@ class ApiClient {
   upsertManyRecords(key: string, records: Array<{ id: string }>, skipExisting = false) {
     return this.post<{ added: number; updated: number; skipped: number; total: number }>(
       `/records/${key}/upsert-many`, { records, skipExisting });
+  }
+
+  // --- One-time migration of a device's old browser data (admin only) ---
+
+  getMigrationStatus() {
+    return this.request<{ counts: Record<string, number> }>("/migrate/status");
+  }
+
+  migrateBrowserData(collections: Record<string, unknown>, replace: string[] = []) {
+    return this.request<{
+      results: Array<{ key: string; status: string; count: number; backup?: string }>;
+    }>("/migrate/browser-data", {
+      method: "POST",
+      body: JSON.stringify({ collections, replace }),
+    });
   }
 
   async healthCheck() {

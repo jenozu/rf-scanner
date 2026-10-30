@@ -234,4 +234,41 @@ describe("DataStore background refresh", () => {
     expect(calls.filter((c) => c === "rf_master")).toHaveLength(2);
     releaseLive(); releaseOnce();
   });
+
+  it("opening a page again shows the cached copy at once and re-checks the server", async () => {
+    const { api, server, calls } = fakeApi({ rf_purchase_orders: [] });
+    const store = new DataStore(api);
+    const releaseDashboard = store.retain("rf_purchase_orders");
+    await flush();
+    releaseDashboard(); // user leaves the dashboard
+
+    server.rf_purchase_orders = { data: [{ id: "po1" }], revision: 2 }; // changed meanwhile
+    const releaseReceive = store.retain("rf_purchase_orders"); // user opens Receive
+    expect(store.getSnapshot("rf_purchase_orders").data).toEqual([]); // cached copy is shown immediately
+    await flush();
+    expect(store.getSnapshot("rf_purchase_orders").data).toEqual([{ id: "po1" }]); // then corrected
+    expect(calls).toHaveLength(2);
+    releaseReceive();
+  });
+
+  it("a second page using the same collection at the same time does not fetch again", async () => {
+    const { api, calls } = fakeApi({ rf_bins: [] });
+    const store = new DataStore(api);
+    const r1 = store.retain("rf_bins");
+    await flush();
+    const r2 = store.retain("rf_bins");
+    await flush();
+    expect(calls).toHaveLength(1);
+    r1(); r2();
+  });
+
+  it("load-once collections are not downloaded again when a page reopens", async () => {
+    const { api, calls } = fakeApi({ rf_master: ["big"] });
+    const store = new DataStore(api);
+    store.retain("rf_master", { refresh: false })();
+    await flush();
+    store.retain("rf_master", { refresh: false })();
+    await flush();
+    expect(calls).toHaveLength(1);
+  });
 });
