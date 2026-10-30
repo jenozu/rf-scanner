@@ -41,15 +41,20 @@ if [ "$MODE" = "dir" ]; then [ -d "$DATA_PATH" ] || die "data folder not found: 
 
 mkdir -p "$OUT_DIR"
 
-# rf-data-YYYYmmdd-HHMMSS-NN.tar.gz: the 2-digit counter keeps runs in the same second in order.
-stamp="$(date +%Y%m%d-%H%M%S)"
-n=0; final=""
-while [ "$n" -le 99 ]; do
-  candidate="$OUT_DIR/rf-data-$stamp-$(printf '%02d' "$n").tar.gz"
-  if [ ! -e "$candidate" ]; then final="$candidate"; break; fi
-  n=$((n + 1))
-done
-[ -n "$final" ] || die "too many backups in the same second"
+# rf-data-YYYYmmdd-HHMMSS-NN.tar.gz (UTC, so a clock change cannot reorder backups).
+# Names sort oldest to newest. Several runs in the same second get NN one higher than the
+# highest existing one, never a freed lower number, so a new backup can never sort as the
+# oldest and be pruned straight away. (RF_BACKUP_STAMP is only for the tests.)
+stamp="${RF_BACKUP_STAMP:-$(date -u +%Y%m%d-%H%M%S)}"
+last="$(ls -1 "$OUT_DIR" | grep "^rf-data-$stamp-[0-9][0-9]\.tar\.gz\$" | sort | tail -n 1 || true)"
+if [ -z "$last" ]; then
+  n=0
+else
+  nn="${last#rf-data-$stamp-}"; nn="${nn%.tar.gz}"
+  n=$((10#$nn + 1))
+fi
+[ "$n" -le 99 ] || die "too many backups in the same second"
+final="$OUT_DIR/rf-data-$stamp-$(printf '%02d' "$n").tar.gz"
 partial="$final.partial"
 trap 'rm -f "$partial"' EXIT
 

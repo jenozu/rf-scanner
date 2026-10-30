@@ -39,6 +39,19 @@ newest="$(ls -1 "$OUT" | sort | tail -n 1)"
 check "oldest kept backup is run 3 (runs 1-2 pruned)" bash -c "tar -xzOf '$OUT/$oldest' ./marker.txt | grep -q 'run 3'"
 check "newest backup is run 16" bash -c "tar -xzOf '$OUT/$newest' ./marker.txt | grep -q 'run 16'"
 
+# 2b. Same-second runs (fixed stamp) with pruning: the newest backups must survive.
+#     (Regression: a freed low number used to be reused, sorted as "oldest" and the
+#     brand-new backup was pruned immediately.)
+SAME="$WORK/same"
+for i in $(seq 1 6); do
+  echo "same $i" > "$DATA/marker.txt"
+  RF_BACKUP_STAMP=20260101-000000 "$BACKUP" --dir "$DATA" --out "$SAME" --keep 3 >/dev/null
+done
+check "same-second runs keep exactly 3" test "$(ls -1 "$SAME" | grep -c '^rf-data-')" -eq 3
+kept="$(for f in "$SAME"/rf-data-*; do tar -xzOf "$f" ./marker.txt; done | tr '\n' ',')"
+check "same-second runs keep the NEWEST three (runs 4,5,6)" test "$kept" = "same 4,same 5,same 6,"
+rm -f "$DATA/marker.txt"
+
 # 3. restore into an empty folder reproduces the files exactly
 rm -f "$DATA/marker.txt"
 ONE="$WORK/one"; "$BACKUP" --dir "$DATA" --out "$ONE" >/dev/null

@@ -31,8 +31,8 @@ Run these from the folder that contains `docker-compose.yml` (for example `/dock
    ./scripts/backup-data.sh --docker
    ls -lh backups/
    ```
-   You should see a file like `rf-data-20261030-021500-00.tar.gz` and a line saying how many
-   files it holds. If the script prints an error, nothing is kept.
+   You should see a file like `rf-data-20261030-061500-00.tar.gz` (the time in the name is UTC)
+   and a line saying how many files it holds. If the script prints an error, nothing is kept.
 
 2. Schedule it every night. Open the schedule with `crontab -e` and add this line
    (runs at 2:15 am server time and keeps the newest 14 backups):
