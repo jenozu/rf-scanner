@@ -112,12 +112,12 @@
       {
         "title": "P1: Safe dependency updates",
         "description": "npm audit reports 6 server issues (1 critical, 4 high) and more on the frontend.",
-        "status": "pending",
+        "status": "done",
         "priority": "medium",
         "dependencies": [
           2
         ],
-        "details": "Run npm audit fix without --force in root and server/. Review each remaining item and note why it is left. Re-run build, typecheck and tests after.",
+        "details": "Run npm audit fix without --force in root and server/. Review each remaining item and note why it is left. Re-run build, typecheck and tests after.\n\n[2026-10-29T21:03:43-04:00] plan: npm audit baseline in root and server/, then npm audit fix WITHOUT --force in each (lockfile/in-range bumps only, no new deps), review leftovers and record why, re-run tsc, vitest, build, server tests.\n\n[2026-10-29T21:10:28-04:00] result: server npm audit fix -> 0 vulnerabilities (was 1 critical, 4 high, 1 moderate); root 28 -> 7 remaining, all need --force/major or have no fix (xlsx runtime, vite/vitest tooling) -> recorded in parking lot with reasons. package.json unchanged; only lockfiles. tsc, vitest 2, build, server 30 tests pass. CI-green part of the test strategy is verified when the PR opens.",
         "testStrategy": "npm audit shows no critical issues that have a non-breaking fix; CI green",
         "complexity": 3,
         "id": 9,
@@ -230,7 +230,7 @@
     ],
     "metadata": {
       "created": "2026-10-29T19:42:01-04:00",
-      "updated": "2026-10-29T21:02:11-04:00"
+      "updated": "2026-10-29T21:10:28-04:00"
     }
   }
 }
