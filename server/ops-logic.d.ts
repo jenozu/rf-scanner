@@ -21,3 +21,7 @@ export function validateReceive(body: any): OpFailure | null;
 export function applyReceive(state: { pos: any[] | null; bins: any[] | null; txns: any[] | null }, body: any): OpOutcome;
 export function validatePickSo(body: any): OpFailure | null;
 export function applyPickSo(state: { sos: any[] | null; bins: any[] | null }, body: any): OpOutcome;
+export function validateRecordChanges(body: any): OpFailure | null;
+export function applyRecordChanges(current: any[] | null, body: any): OpOutcome;
+export function validateBinsSet(body: any): OpFailure | null;
+export function applyBinsSet(current: any[] | null, body: any): OpOutcome;

@@ -9,8 +9,12 @@ export const APPEND_KEYS = {
   rf_receiving_txns: { cap: null },
   rf_cycle_count_txns: { cap: null },
   rf_activity_logs: { cap: 100 },
+  rf_session_count_logs: { cap: null },
 };
-export const RECORD_KEYS = ['rf_purchase_orders', 'rf_sales_orders', 'rf_waves', 'rf_orders'];
+export const RECORD_KEYS = [
+  'rf_purchase_orders', 'rf_sales_orders', 'rf_waves', 'rf_orders',
+  'rf_cycle_counts', 'rf_inventory_sessions', 'rf_temporary_locations',
+];
 
 const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
@@ -275,4 +279,64 @@ export function applyPickSo(state, body) {
     quantity = bin.result.quantity;
   }
   return { data: { sos: so.data, bins }, result: { ok: true, so: so.result.so, binQuantity: quantity } };
+}
+
+// --- Counting / inventory operations ---
+
+export function validateRecordChanges(body) {
+  const { upsert = [], remove = [] } = body || {};
+  if (!Array.isArray(upsert) || !upsert.every(r => isObject(r) && typeof r.id === 'string' && r.id)) {
+    return fail('upsert must be records with a string id');
+  }
+  if (!Array.isArray(remove) || !remove.every(id => typeof id === 'string' && id)) {
+    return fail('remove must be a list of ids');
+  }
+  if (upsert.length === 0 && remove.length === 0) return fail('Nothing to change');
+  return null;
+}
+
+// Several record changes at once (one request, one lock): replace/add the upserted
+// records, delete the removed ids.
+export function applyRecordChanges(current, body) {
+  const { upsert = [], remove = [] } = body;
+  const removeSet = new Set(remove);
+  let list = (current || []).filter(r => !removeSet.has(r.id));
+  let added = 0, updated = 0;
+  for (const record of upsert) {
+    const i = list.findIndex(r => r.id === record.id);
+    if (i < 0) { list.push(record); added++; } else { list[i] = record; updated++; }
+  }
+  return { data: list, result: { ok: true, added, updated, removed: remove.length } };
+}
+
+export function validateBinsSet(body) {
+  const { newBins = [], changes = [] } = body || {};
+  if (!Array.isArray(newBins) || !newBins.every(b => isObject(b) && typeof b.BinCode === 'string' && b.BinCode)) {
+    return fail('newBins must be bins with a BinCode');
+  }
+  if (!Array.isArray(changes) || !changes.every(c => isObject(c) && typeof c.binCode === 'string' && c.binCode &&
+      typeof c.itemCode === 'string' && c.itemCode && num(c.setQuantity) !== null && c.setQuantity >= 0)) {
+    return fail('changes must be [{ binCode, itemCode, setQuantity >= 0 }]');
+  }
+  if (newBins.length === 0 && changes.length === 0) return fail('Nothing to change');
+  return null;
+}
+
+// Create bins and set item quantities (absolute, as counting does) all together.
+// If any single change is refused, nothing is applied.
+export function applyBinsSet(current, body) {
+  const { newBins = [], changes = [] } = body;
+  const bins = current || [];
+  for (const nb of newBins) {
+    if (bins.some(b => b.BinCode === nb.BinCode)) return { result: fail(`Bin ${nb.BinCode} already exists`, 409) };
+    bins.push({ BinCode: nb.BinCode, Zone: nb.Zone || 'Main', Capacity: num(nb.Capacity) ?? 1000,
+                Status: nb.Status || 'active', Items: Array.isArray(nb.Items) ? nb.Items : [] });
+  }
+  for (const c of changes) {
+    const step = applyBinAdjust(bins, {
+      binCode: c.binCode, itemCode: c.itemCode, description: c.description, setQuantity: c.setQuantity,
+    });
+    if (step.result.error) return { result: step.result };
+  }
+  return { data: bins, result: { ok: true, bins: bins.length, changed: changes.length, created: newBins.length } };
 }

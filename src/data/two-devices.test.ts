@@ -135,4 +135,39 @@ describe("two devices, one server", () => {
     const txns = await api.getData("rf_receiving_txns");
     expect(txns.length).toBe(11);
   });
+
+  it("two devices counting different bins at the same time both keep their counts", async () => {
+    await api.saveData("rf_bins", Array.from({ length: 6 }, (_, i) => ({
+      BinCode: `CNT-${i}`, Zone: "Z", Capacity: 10, Status: "active",
+      Items: [{ ItemCode: "A", Description: "Widget", Quantity: 10 }],
+    })));
+    await Promise.all([deviceA.load("rf_bins"), deviceB.load("rf_bins")]);
+
+    // Each device counts three bins, using the same helpers the Inventory page uses.
+    const countOn = (store: { getSnapshot: (k: string) => any }, codes: string[], qty: number) => {
+      const before = bins(store);
+      const after = before.map((b: any) => codes.includes(b.BinCode)
+        ? { ...b, Items: b.Items.map((i: any) => ({ ...i, Quantity: qty })) } : b);
+      return [before, after] as const;
+    };
+    const [beforeA, afterA] = countOn(deviceA, ["CNT-0", "CNT-1", "CNT-2"], 3);
+    const [beforeB, afterB] = countOn(deviceB, ["CNT-3", "CNT-4", "CNT-5"], 7);
+    await Promise.all([ops.saveBinChanges(beforeA, afterA), ops.saveBinChanges(beforeB, afterB)]);
+
+    const saved = await api.getData("rf_bins");
+    expect(saved.map((b: any) => b.Items[0].Quantity)).toEqual([3, 3, 3, 7, 7, 7]);
+  });
+
+  it("two devices saving different counting sessions at the same time both land", async () => {
+    await api.saveData("rf_inventory_sessions", []);
+    await Promise.all([deviceA.load("rf_inventory_sessions"), deviceB.load("rf_inventory_sessions")]);
+    const beforeA = deviceA.getSnapshot("rf_inventory_sessions").data as any[];
+    const beforeB = deviceB.getSnapshot("rf_inventory_sessions").data as any[];
+    await Promise.all([
+      ops.saveRecordChanges("rf_inventory_sessions", beforeA, [...beforeA, { id: "sess-A", name: "Aisle 1" }]),
+      ops.saveRecordChanges("rf_inventory_sessions", beforeB, [...beforeB, { id: "sess-B", name: "Aisle 2" }]),
+    ]);
+    const saved = await api.getData("rf_inventory_sessions");
+    expect(saved.map((x: any) => x.id).sort()).toEqual(["sess-A", "sess-B"]);
+  });
 });

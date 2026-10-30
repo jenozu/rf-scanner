@@ -79,21 +79,9 @@ export default function SettingsPage({ onLogin }: SettingsPageProps) {
 
   const [inventoryLoading, setInventoryLoading] = useState(false);
   const [inventoryStatus, setInventoryStatus] = useState("");
-  const [masterItemCount, setMasterItemCount] = useState(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem("rf_master") || "[]");
-      return Array.isArray(saved) ? saved.length : 0;
-    } catch {
-      return 0;
-    }
-  });
-  const [masterMeta, setMasterMeta] = useState<MasterMeta>(() => {
-    try {
-      return JSON.parse(localStorage.getItem("rf_master_meta") || "{}");
-    } catch {
-      return {};
-    }
-  });
+  // Filled from the server once logged in (see the effect below).
+  const [masterItemCount, setMasterItemCount] = useState(0);
+  const [masterMeta, setMasterMeta] = useState<MasterMeta>({});
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
 
   useEffect(() => {
@@ -120,7 +108,6 @@ export default function SettingsPage({ onLogin }: SettingsPageProps) {
 
         if (meta && typeof meta === "object" && !Array.isArray(meta) && Object.keys(meta).length > 0) {
           setMasterMeta(meta as MasterMeta);
-          localStorage.setItem("rf_master_meta", JSON.stringify(meta));
         }
       } catch (error) {
         console.log("Could not load master inventory summary:", error);
@@ -191,12 +178,6 @@ export default function SettingsPage({ onLogin }: SettingsPageProps) {
     await saveCollection("rf_bins", bins, { overwrite: true });
     await saveCollection("rf_master_meta", meta, { overwrite: true });
 
-    // Browser copy: Scan and Inventory still read it until task 10.6 moves them to the server.
-    localStorage.setItem("rf_master", JSON.stringify(validItems));
-    localStorage.setItem("rf_active", JSON.stringify(validItems));
-    localStorage.setItem("rf_bins", JSON.stringify(bins));
-    localStorage.setItem("rf_master_meta", JSON.stringify(meta));
-
     setMasterItemCount(validItems.length);
     setMasterMeta(meta);
 
@@ -260,10 +241,6 @@ export default function SettingsPage({ onLogin }: SettingsPageProps) {
       }
 
       const bins = buildBinsFromItems(masterData as Item[]);
-
-      localStorage.setItem("rf_master", JSON.stringify(masterData));
-      localStorage.setItem("rf_active", JSON.stringify(masterData));
-      localStorage.setItem("rf_bins", JSON.stringify(bins));
 
       await saveCollection("rf_active", masterData, { overwrite: true, reload: false });
       await saveCollection("rf_bins", bins, { overwrite: true });

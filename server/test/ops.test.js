@@ -5,7 +5,7 @@ import path from 'node:path';
 import bcrypt from 'bcryptjs';
 import { startTestServer } from '../testing/helpers.js';
 
-let srv, op, viewer;
+let srv, op, viewer, viewerAsOp;
 const PW = 'operator-pass-1';
 
 const post = (token, url, body, method = 'POST') => fetch(`${srv.base}${url}`, {
@@ -29,6 +29,7 @@ before(async () => {
   const mk = (id, username, role) => ({ id, username, passwordHash, fullName: username, role, isActive: true });
   await write('users', [mk('u1', 'op', 'operator'), mk('u2', 'view', 'viewer')]);
   op = await login('op');
+  viewerAsOp = await login('op');
   viewer = await login('view');
 });
 after(async () => { await srv.close(); });
@@ -320,4 +321,73 @@ test('receive: a bin that does not exist yet is created (as the page always did)
   const created = (await read('rf_bins')).find(b => b.BinCode === 'NEWBIN');
   assert.equal(created.Zone, 'Main');
   assert.equal(created.Items[0].Quantity, 1);
+});
+
+// ---------- counting / inventory operations ----------
+
+test('records/apply: upserts and removes several records at once for counting data', async () => {
+  await write('rf_cycle_counts', [{ id: 'c1', Status: 'pending' }, { id: 'c2', Status: 'pending' }]);
+  const res = await post(op, '/api/records/rf_cycle_counts/apply', {
+    upsert: [{ id: 'c1', Status: 'counted' }, { id: 'c3', Status: 'pending' }], remove: ['c2'],
+  });
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), { ok: true, added: 1, updated: 1, removed: 1 });
+  assert.deepEqual((await read('rf_cycle_counts')).map(c => [c.id, c.Status]), [['c1', 'counted'], ['c3', 'pending']]);
+  for (const key of ['rf_inventory_sessions', 'rf_temporary_locations']) {
+    assert.equal((await post(op, `/api/records/${key}/apply`, { upsert: [{ id: 'x' }] })).status, 200);
+  }
+  assert.equal((await post(op, '/api/records/rf_bins/apply', { upsert: [{ id: 'x' }] })).status, 400);
+  assert.equal((await post(op, '/api/records/rf_cycle_counts/apply', {})).status, 400);
+  assert.equal((await post(op, '/api/records/rf_cycle_counts/apply', { upsert: [{ nope: 1 }] })).status, 400);
+  assert.equal((await post(viewer, '/api/records/rf_cycle_counts/apply', { upsert: [{ id: 'z' }] })).status, 403);
+});
+
+test('records/apply: two counters saving different sessions at the same time both land', async () => {
+  await write('rf_inventory_sessions', []);
+  await Promise.all(Array.from({ length: 12 }, (_, i) =>
+    post(op, '/api/records/rf_inventory_sessions/apply', { upsert: [{ id: `s${i}`, name: `S${i}` }] })));
+  assert.equal((await read('rf_inventory_sessions')).length, 12);
+});
+
+test('session count logs can be appended (each entry has an id)', async () => {
+  await write('rf_session_count_logs', []);
+  const res = await post(op, '/api/ops/append', { key: 'rf_session_count_logs', record: { id: 'log1', binCode: 'A' } });
+  assert.equal(res.status, 200);
+  assert.equal((await read('rf_session_count_logs')).length, 1);
+});
+
+test('bins-set: sets absolute quantities, adds new items and bins, all or nothing', async () => {
+  await write('rf_bins', [bin('N-1', [{ ItemCode: 'X', Description: 'x', Quantity: 5 }])]);
+  const res = await post(op, '/api/ops/bins-set', {
+    newBins: [{ BinCode: 'N-2', Zone: 'Dock' }],
+    changes: [
+      { binCode: 'N-1', itemCode: 'X', setQuantity: 2 },
+      { binCode: 'N-1', itemCode: 'NEW', description: 'New thing', setQuantity: 9 },
+      { binCode: 'N-2', itemCode: 'X', description: 'x', setQuantity: 1 },
+    ],
+  });
+  assert.equal(res.status, 200);
+  const bins = await read('rf_bins');
+  assert.deepEqual(bins[0].Items.map(i => [i.ItemCode, i.Quantity]), [['X', 2], ['NEW', 9]]);
+  assert.equal(bins[1].Zone, 'Dock');
+  assert.equal(bins[1].Items[0].Quantity, 1);
+
+  const before = await read('rf_bins');
+  const refused = await post(op, '/api/ops/bins-set', {
+    changes: [{ binCode: 'N-1', itemCode: 'X', setQuantity: 7 }, { binCode: 'MISSING', itemCode: 'X', setQuantity: 1 }],
+  });
+  assert.equal(refused.status, 404);
+  assert.deepEqual(await read('rf_bins'), before); // first change was NOT applied
+  assert.equal((await post(op, '/api/ops/bins-set', { newBins: [{ BinCode: 'N-1' }] })).status, 409);
+  assert.equal((await post(op, '/api/ops/bins-set', { changes: [{ binCode: 'N-1', itemCode: 'X', setQuantity: -1 }] })).status, 400);
+  assert.equal((await post(op, '/api/ops/bins-set', {})).status, 400);
+  assert.equal((await post(viewer, '/api/ops/bins-set', { changes: [{ binCode: 'N-1', itemCode: 'X', setQuantity: 1 }] })).status, 403);
+});
+
+test('bins-set: counting different bins from two devices at once keeps every count', async () => {
+  await write('rf_bins', Array.from({ length: 10 }, (_, i) => bin(`C-${i}`, [{ ItemCode: 'X', Description: 'x', Quantity: 0 }])));
+  await Promise.all(Array.from({ length: 10 }, (_, i) =>
+    post(i % 2 ? op : viewerAsOp, '/api/ops/bins-set', { changes: [{ binCode: `C-${i}`, itemCode: 'X', setQuantity: i + 1 }] })));
+  const bins = await read('rf_bins');
+  assert.deepEqual(bins.map(b => b.Items[0].Quantity), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 });

@@ -233,6 +233,20 @@ class ApiClient {
     return this.post<{ message: string }>(`/records/${key}/${encodeURIComponent(id)}`, undefined, "DELETE");
   }
 
+  /** Several record changes in one request: add/replace the upserted records, delete the removed ids. */
+  applyRecordChanges(key: string, changes: { upsert: Array<{ id: string }>; remove: string[] }) {
+    return this.post<{ ok: true; added: number; updated: number; removed: number }>(
+      `/records/${key}/apply`, changes);
+  }
+
+  /** Create bins and set item quantities (absolute, as counting does), all or nothing. */
+  setBinQuantities(params: {
+    newBins?: Array<{ BinCode: string; Zone?: string; Capacity?: number; Status?: string }>;
+    changes?: Array<{ binCode: string; itemCode: string; description?: string; setQuantity: number }>;
+  }) {
+    return this.post<{ ok: true; bins: number; changed: number; created: number }>("/ops/bins-set", params);
+  }
+
   upsertManyRecords(key: string, records: Array<{ id: string }>, skipExisting = false) {
     return this.post<{ added: number; updated: number; skipped: number; total: number }>(
       `/records/${key}/upsert-many`, { records, skipExisting });

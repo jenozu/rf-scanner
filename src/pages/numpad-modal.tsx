@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Item } from "../types";
+import { useCollection } from "../data/hooks";
+import { saveCollection } from "../data/ops";
 
 interface NumpadModalProps {
   itemCode: string | null;
@@ -9,15 +11,19 @@ interface NumpadModalProps {
 export default function NumpadModal({ itemCode, onClose }: NumpadModalProps) {
   const [item, setItem] = useState<Item | null>(null);
   const [value, setValue] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  // The inventory list comes from the server; it is large, so it loads once.
+  const { data, isLoading } = useCollection<Item[]>("rf_active", [], { refresh: false });
 
-  // Fetch item from localStorage when itemCode changes
+  // Find the item once the list has loaded
   useEffect(() => {
     if (!itemCode) {
       onClose();
       return;
     }
+    if (isLoading) return;
 
-    const data = JSON.parse(localStorage.getItem("rf_active") || "[]") as Item[];
     const foundItem = data.find((i) => i.ItemCode === itemCode);
     
     if (foundItem) {
@@ -26,16 +32,15 @@ export default function NumpadModal({ itemCode, onClose }: NumpadModalProps) {
     } else {
       onClose();
     }
-  }, [itemCode, onClose]);
+  }, [itemCode, onClose, isLoading]);
 
   const handleKey = (num: string) => setValue((v) => v + num);
   const handleClear = () => setValue("");
   
-  const handleSave = () => {
-    if (!item) return;
+  const handleSave = async () => {
+    if (!item || saving) return;
 
     const qty = parseFloat(value) || 0;
-    const data = JSON.parse(localStorage.getItem("rf_active") || "[]") as Item[];
     const updated = data.map((row) =>
       row.ItemCode === item.ItemCode
         ? {
@@ -45,8 +50,16 @@ export default function NumpadModal({ itemCode, onClose }: NumpadModalProps) {
           }
         : row
     );
-    localStorage.setItem("rf_active", JSON.stringify(updated));
-    onClose();
+    setSaving(true);
+    setSaveError("");
+    try {
+      // Refused if someone else changed the inventory since it was loaded here.
+      await saveCollection("rf_active", updated);
+      onClose();
+    } catch (error: any) {
+      setSaveError(error?.message || "Could not save");
+      setSaving(false);
+    }
   };
 
   if (!item) return null;
@@ -85,11 +98,17 @@ export default function NumpadModal({ itemCode, onClose }: NumpadModalProps) {
           </button>
           <button
             onClick={handleSave}
-            className="flex-1 bg-primary text-white py-2 rounded-lg font-medium hover:bg-blue-700 transition"
+            disabled={saving}
+            className="flex-1 bg-primary text-white py-2 rounded-lg font-medium hover:bg-blue-700 transition disabled:opacity-50"
           >
-            Save
+            {saving ? "Saving..." : "Save"}
           </button>
         </div>
+        {saveError && (
+          <p role="alert" className="text-sm text-red-600 text-center">
+            Not saved: {saveError}
+          </p>
+        )}
       </div>
     </div>
   );

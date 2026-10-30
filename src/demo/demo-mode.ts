@@ -353,6 +353,9 @@ function demoOperation(endpoint: string, method: string, body: any): unknown {
     return demoApply("rf_sales_orders", ops.validateSoPick(body), (cur) => ops.applySoPick(cur, body));
   }
 
+  if (method === "POST" && endpoint === "/ops/bins-set") {
+    return demoApply("rf_bins", ops.validateBinsSet(body), (cur) => ops.applyBinsSet(cur, body));
+  }
   if (method === "POST" && endpoint === "/ops/receive") {
     return demoApplyMany(
       { pos: "rf_purchase_orders", bins: "rf_bins", txns: "rf_receiving_txns" },
@@ -372,6 +375,9 @@ function demoOperation(endpoint: string, method: string, body: any): unknown {
   if (records) {
     const key = records[1];
     const id = decodeURIComponent(records[2]);
+    if (method === "POST" && id === "apply") {
+      return demoApply(key, ops.validateRecordKey(key) || ops.validateRecordChanges(body), (cur) => ops.applyRecordChanges(cur, body));
+    }
     if (method === "POST" && id === "upsert-many") {
       return demoApply(key, ops.validateRecordKey(key) || ops.validateUpsertMany(body), (cur) => ops.applyUpsertMany(cur, body));
     }

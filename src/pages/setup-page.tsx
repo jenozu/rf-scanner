@@ -25,11 +25,6 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
       const safeItems = Array.isArray(items) ? items : [];
       const bins = buildBinsFromItems(safeItems);
 
-      // Browser copy: Scan and Inventory still read it until task 10.6 moves them to the server.
-      localStorage.setItem("rf_active", JSON.stringify(safeItems));
-      localStorage.setItem("rf_master", JSON.stringify(safeItems));
-      localStorage.setItem("rf_bins", JSON.stringify(bins));
-
       let serverSynced = true;
       if (syncToServer) {
         try {
@@ -84,7 +79,7 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
           const parsedData = await parseCSV(file);
           
           const { serverSynced } = await persistInventoryData(parsedData);
-          const syncNote = serverSynced ? "" : " ⚠️ Saved locally; server sync failed.";
+          const syncNote = serverSynced ? "" : " ⚠️ Could not save to the server.";
           setStatus(`✅ Loaded ${parsedData.length} items from master inventory${syncNote}`);
           
           // Auto-complete setup after successful load
@@ -127,7 +122,7 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
         const parsedData = await parseCSV(file);
         
         const { serverSynced } = await persistInventoryData(parsedData);
-        const syncNote = serverSynced ? "" : " ⚠️ Saved locally; server sync failed.";
+        const syncNote = serverSynced ? "" : " ⚠️ Could not save to the server.";
         setStatus(`✅ Loaded ${parsedData.length} items from master inventory${syncNote}`);
         
         setTimeout(() => {
@@ -165,7 +160,7 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
       const parsedData = await parseCSV(file);
 
       const { serverSynced } = await persistInventoryData(parsedData);
-      const syncNote = serverSynced ? "" : " ⚠️ Saved locally; server sync failed.";
+      const syncNote = serverSynced ? "" : " ⚠️ Could not save to the server.";
       setStatus(`✅ Loaded ${parsedData.length} items from ${fileType} file${syncNote}`);
       
       // Automatically navigate to home if data is loaded successfully
@@ -194,10 +189,9 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
   const handleInitializeSampleData = async () => {
     setStatus("⏳ Initializing sample data...");
     try {
-      initializeSampleData();
-      const sampleItems = JSON.parse(localStorage.getItem("rf_active") || "[]");
+      const sampleItems = await initializeSampleData();
       const { serverSynced } = await persistInventoryData(sampleItems);
-      const syncNote = serverSynced ? "" : " ⚠️ Saved locally; server sync failed.";
+      const syncNote = serverSynced ? "" : " ⚠️ Could not save to the server.";
       setStatus(`✅ Sample data initialized! Ready to use.${syncNote}`);
       setTimeout(() => {
         if (onSetupComplete) onSetupComplete();
@@ -307,9 +301,9 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
         <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-gray-700">
           <p className="font-medium text-blue-900 mb-1">ℹ️ Data Storage Information</p>
           <p className="text-gray-600">
-            Data is stored locally in your browser. Each user/browser has their own copy. 
-            <strong className="text-blue-700"> To share the same inventory data, use "Load from Server"</strong> - 
-            all users will load from the same master inventory file on the server.
+            Warehouse data is stored on the server and shared by every device and user.
+            <strong className="text-blue-700"> Use "Load from Server"</strong> to load the master
+            inventory file, or upload your own file below.
           </p>
         </div>
 

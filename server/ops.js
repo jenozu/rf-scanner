@@ -65,6 +65,18 @@ export function registerOps(app, { authenticateToken, requireWriter, dataDir }) 
     apply: (cur, req) => logic.applyRecordDelete(cur, req.params.id),
   }));
 
+  app.post('/api/records/:key/apply', ...guard, operation('record changes', {
+    validate: (req) => logic.validateRecordKey(req.params.key) || logic.validateRecordChanges(req.body),
+    file: (req) => req.params.key,
+    apply: (cur, req) => logic.applyRecordChanges(cur, req.body),
+  }));
+
+  app.post('/api/ops/bins-set', ...guard, operation('bins-set', {
+    validate: (req) => logic.validateBinsSet(req.body),
+    file: 'rf_bins',
+    apply: (cur, req) => logic.applyBinsSet(cur, req.body),
+  }));
+
   app.post('/api/records/:key/upsert-many', ...guard, operation('upsert-many', {
     validate: (req) => logic.validateRecordKey(req.params.key) || logic.validateUpsertMany(req.body),
     file: (req) => req.params.key,

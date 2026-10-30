@@ -1,8 +1,10 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { CycleCount, BinLocation, CycleCountTransaction, BinItem, InventorySession, TemporaryLocation, TemporaryLocationItem, SessionItem } from "../types";
 import { ClipboardCheck, Camera, AlertCircle, CheckCircle2, Plus, FolderOpen, MapPin, X, Save, Play, ChevronRight, ChevronLeft, ArrowLeft, SkipForward, Download, List, Upload } from "lucide-react";
 import Quagga from "@ericblade/quagga2";
 import { parseCSV } from "../data/csv-utils";
+import { useCollection } from "../data/hooks";
+import { appendRecords, saveBinChanges, saveRecordChanges } from "../data/ops";
 
 interface InventoryPageProps {
   setPage: (page: any) => void;
@@ -19,6 +21,7 @@ interface SequentialCountItem {
 
 // Enhanced session count log entry
 interface SessionCountLog {
+  id?: string;
   sessionId: string;
   sessionName: string;
   username: string;
@@ -32,8 +35,25 @@ interface SessionCountLog {
 }
 
 export default function InventoryPage({ setPage }: InventoryPageProps) {
-  const [cycleCounts, setCycleCounts] = useState<CycleCount[]>([]);
-  const [bins, setBins] = useState<BinLocation[]>([]);
+  // Counting data lives on the server and is shared by every device. The lists
+  // below are the latest server copy (refreshed on focus and every 30 s).
+  const cycleCountsC = useCollection<CycleCount[]>("rf_cycle_counts", []);
+  const binsC = useCollection<BinLocation[]>("rf_bins", []);
+  const sessionsC = useCollection<InventorySession[]>("rf_inventory_sessions", []);
+  const tempLocationsC = useCollection<TemporaryLocation[]>("rf_temporary_locations", []);
+  const countLogsC = useCollection<SessionCountLog[]>("rf_session_count_logs", []);
+  const cycleCounts = cycleCountsC.data;
+  const bins = binsC.data;
+  const temporaryLocations = tempLocationsC.data;
+  // Older sessions may lack the items list.
+  const sessions = useMemo(
+    () => sessionsC.data.map((s) => ({ ...s, items: s.items || [] })),
+    [sessionsC.data]
+  );
+  // The server keeps the newest log entry first; the page works oldest-first.
+  const sessionCountLogs = useMemo(() => [...countLogsC.data].reverse(), [countLogsC.data]);
+  const dataReady = ![cycleCountsC, binsC, sessionsC, tempLocationsC, countLogsC].some((c) => c.isLoading);
+  const didInitRef = useRef(false);
   const [selectedCount, setSelectedCount] = useState<CycleCount | null>(null);
   const [countedQty, setCountedQty] = useState<number>(0);
   const [scanMode, setScanMode] = useState<boolean>(false);
@@ -46,14 +66,12 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
   const videoRef = useRef<HTMLDivElement>(null);
 
   // Session management
-  const [sessions, setSessions] = useState<InventorySession[]>([]);
   const [currentSession, setCurrentSession] = useState<InventorySession | null>(null);
   const [showSessionModal, setShowSessionModal] = useState(false);
   const [showCreateSessionModal, setShowCreateSessionModal] = useState(false);
   const [newSessionName, setNewSessionName] = useState<string>("");
 
   // Temporary locations
-  const [temporaryLocations, setTemporaryLocations] = useState<TemporaryLocation[]>([]);
   const [showTempLocationModal, setShowTempLocationModal] = useState(false);
   const [showCreateTempLocationModal, setShowCreateTempLocationModal] = useState(false);
   const [newTempLocationTitle, setNewTempLocationTitle] = useState<string>("");
@@ -93,7 +111,6 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
   const [endBinFilter, setEndBinFilter] = useState<string>("");
   const [sequentialItems, setSequentialItems] = useState<SequentialCountItem[]>([]);
   const [currentItemIndex, setCurrentItemIndex] = useState<number>(0);
-  const [sessionCountLogs, setSessionCountLogs] = useState<SessionCountLog[]>([]);
   const [showNumpad, setShowNumpad] = useState(false);
   const [numpadValue, setNumpadValue] = useState<string>("");
   const [showBinInfoModal, setShowBinInfoModal] = useState(false);
@@ -104,26 +121,17 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
   const [fullCountItems, setFullCountItems] = useState<CycleCount[]>([]);
   const [fullCountStatus, setFullCountStatus] = useState<string>("");
 
-  // Load data
+  // Once the server data has loaded (one time): restore the session this device was
+  // working in, and handle "Start Count" coming from a bin scan.
   useEffect(() => {
-    const countsData = JSON.parse(localStorage.getItem("rf_cycle_counts") || "[]");
-    const binsData = JSON.parse(localStorage.getItem("rf_bins") || "[]");
-    const sessionsDataRaw = JSON.parse(localStorage.getItem("rf_inventory_sessions") || "[]");
-    const tempLocationsData = JSON.parse(localStorage.getItem("rf_temporary_locations") || "[]");
+    if (!dataReady || didInitRef.current) return;
+    didInitRef.current = true;
+
+    const countsData = cycleCounts;
+    const binsData = bins;
+    const sessionsData = sessions;
+    // Which session THIS handheld is working in is a per-device choice, so it stays here.
     const currentSessionId = localStorage.getItem("rf_current_inventory_session");
-    const logsData = JSON.parse(localStorage.getItem("rf_session_count_logs") || "[]");
-    
-    // Ensure backward compatibility: initialize items array for existing sessions
-    const sessionsData = sessionsDataRaw.map((s: InventorySession) => ({
-      ...s,
-      items: s.items || [],
-    }));
-    
-    setCycleCounts(countsData);
-    setBins(binsData);
-    setSessions(sessionsData);
-    setTemporaryLocations(tempLocationsData);
-    setSessionCountLogs(logsData);
 
     // Restore current session if exists
     if (currentSessionId) {
@@ -171,7 +179,6 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
             Status: "pending",
           };
           const updatedCounts = [...countsData, newCount];
-          localStorage.setItem("rf_cycle_counts", JSON.stringify(updatedCounts));
           setCycleCounts(updatedCounts);
           
           // Add to current session if exists
@@ -188,7 +195,6 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
               const updatedSessions = sessionsData.map((s: InventorySession) => 
                 s.id === session.id ? updatedSession : s
               );
-              localStorage.setItem("rf_inventory_sessions", JSON.stringify(updatedSessions));
               setCurrentSession(updatedSession);
               setSessions(updatedSessions);
             }
@@ -204,7 +210,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [dataReady]);
 
   // Toast auto-dismiss
   useEffect(() => {
@@ -216,6 +222,32 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
 
   const showToast = (message: string, type: "success" | "error" | "info" = "info") => {
     setToast({ message, type });
+  };
+
+  // Saving: each handler computes the new list and calls the setter, as before. The
+  // setter now sends only the records that changed to the server (so two devices
+  // working on different records never overwrite each other) and says so if it fails.
+  const saveFailed = (what: string) => (error: any) =>
+    showToast(`❌ ${what} not saved: ${error?.message || "server error"}`, "error");
+  const setCycleCounts = (next: CycleCount[]) => {
+    saveRecordChanges("rf_cycle_counts", cycleCounts, next).catch(saveFailed("Count"));
+  };
+  const setSessions = (next: InventorySession[]) => {
+    saveRecordChanges("rf_inventory_sessions", sessions, next).catch(saveFailed("Session"));
+  };
+  const setTemporaryLocations = (next: TemporaryLocation[]) => {
+    saveRecordChanges("rf_temporary_locations", temporaryLocations, next).catch(saveFailed("Temporary location"));
+  };
+  const setBins = (next: BinLocation[]) => {
+    saveBinChanges(bins, next).catch(saveFailed("Bin quantity"));
+  };
+  const setSessionCountLogs = (next: SessionCountLog[]) => {
+    const added = next.slice(sessionCountLogs.length);
+    const withIds = added.map((log, i) => ({ ...log, id: log.id ?? `log-${log.sessionId}-${Date.now()}-${i}` }));
+    if (withIds.length > 0) appendRecords("rf_session_count_logs", withIds).catch(saveFailed("Count log"));
+  };
+  const saveCountTxns = (txns: CycleCountTransaction[]) => {
+    appendRecords("rf_cycle_count_txns", txns).catch(saveFailed("Count transaction"));
   };
 
   // Session management functions
@@ -238,7 +270,6 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     const updatedSessions = [...sessions, newSession];
     setSessions(updatedSessions);
     setCurrentSession(newSession);
-    localStorage.setItem("rf_inventory_sessions", JSON.stringify(updatedSessions));
     localStorage.setItem("rf_current_inventory_session", newSession.id);
     
     showToast(`✅ Created session: ${newSession.name}`, "success");
@@ -263,7 +294,6 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     const updatedSessions = sessions.map((s) => (s.id === session.id ? updatedSession : s));
     setSessions(updatedSessions);
     setCurrentSession(updatedSession);
-    localStorage.setItem("rf_inventory_sessions", JSON.stringify(updatedSessions));
     localStorage.setItem("rf_current_inventory_session", session.id);
 
     // Restore sequential counting state if it was in sequential mode
@@ -373,7 +403,6 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     const updatedSessions = sessions.map((s) => (s.id === currentSession.id ? updatedSession : s));
     setSessions(updatedSessions);
     setCurrentSession(updatedSession);
-    localStorage.setItem("rf_inventory_sessions", JSON.stringify(updatedSessions));
 
     showToast(`⏸️ Session paused: ${currentSession.name}`, "info");
   };
@@ -398,7 +427,6 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     const updatedSessions = sessions.map((s) => (s.id === currentSession.id ? updatedSession : s));
     setSessions(updatedSessions);
     setCurrentSession(null);
-    localStorage.setItem("rf_inventory_sessions", JSON.stringify(updatedSessions));
     localStorage.removeItem("rf_current_inventory_session");
 
     showToast(`✅ Session completed: ${currentSession.name}`, "success");
@@ -421,7 +449,6 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
 
     const updatedLocations = [...temporaryLocations, newLocation];
     setTemporaryLocations(updatedLocations);
-    localStorage.setItem("rf_temporary_locations", JSON.stringify(updatedLocations));
     
     showToast(`✅ Created temporary location: ${newLocation.title}`, "success");
     setShowCreateTempLocationModal(false);
@@ -475,7 +502,6 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     });
 
     setTemporaryLocations(updatedLocations);
-    localStorage.setItem("rf_temporary_locations", JSON.stringify(updatedLocations));
 
     // Update counted quantity (subtract moved quantity)
     setCountedQty(countedQty - moveItemQty);
@@ -520,7 +546,6 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     if (currentSession?.id === updatedSession.id) {
       setCurrentSession(updatedSession);
     }
-    localStorage.setItem("rf_inventory_sessions", JSON.stringify(updatedSessions));
 
     showToast(`✅ Added ${sessionTrackingItemCode} (${sessionTrackingQty}) to session`, "success");
     setSessionTrackingItemCode("");
@@ -560,7 +585,6 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     const updatedLocations = temporaryLocations.map((tl) => (tl.id === selectedTempLocationForTracking.id ? updatedLocation : tl));
     setTemporaryLocations(updatedLocations);
     setSelectedTempLocationForTracking(updatedLocation);
-    localStorage.setItem("rf_temporary_locations", JSON.stringify(updatedLocations));
 
     showToast(`✅ Added ${tempTrackingItemCode} (${tempTrackingQty}) to location`, "success");
     setTempTrackingItemCode("");
@@ -600,7 +624,6 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     const updatedLocations = temporaryLocations.map((tl) => (tl.id === selectedTempLocationDetail.id ? updatedLocation : tl));
     setTemporaryLocations(updatedLocations);
     setSelectedTempLocationDetail(updatedLocation);
-    localStorage.setItem("rf_temporary_locations", JSON.stringify(updatedLocations));
 
     showToast(`✅ Added ${detailViewItemCode} (${detailViewQty}) to location`, "success");
     setDetailViewItemCode("");
@@ -624,7 +647,6 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     if (selectedTempLocationDetail?.id === locationId) {
       setSelectedTempLocationDetail(updatedLocation);
     }
-    localStorage.setItem("rf_temporary_locations", JSON.stringify(updatedLocations));
 
     showToast("✅ Item removed", "success");
   };
@@ -759,7 +781,6 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
       const updatedSessions = sessions.map((s) => s.id === currentSession.id ? updatedSession : s);
       setSessions(updatedSessions);
       setCurrentSession(updatedSession);
-      localStorage.setItem("rf_inventory_sessions", JSON.stringify(updatedSessions));
       
       // Set sequential state
       setSequentialItems(items);
@@ -802,6 +823,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
 
     // Create log entry
     const logEntry: SessionCountLog = {
+      id: `log-${currentSession.id}-${Date.now()}`,
       sessionId: currentSession.id,
       sessionName: currentSession.name,
       username: username,
@@ -817,7 +839,6 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     // Add to session logs
     const updatedLogs = [...sessionCountLogs, logEntry];
     setSessionCountLogs(updatedLogs);
-    localStorage.setItem("rf_session_count_logs", JSON.stringify(updatedLogs));
 
     // Update bin inventory
     const updatedBins = bins.map((bin) => {
@@ -833,7 +854,6 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
       return bin;
     });
     setBins(updatedBins);
-    localStorage.setItem("rf_bins", JSON.stringify(updatedBins));
 
     // Write to cycle count transaction log (for compatibility)
     const txn: CycleCountTransaction = {
@@ -846,8 +866,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
       variance: variance,
       timestamp: new Date().toISOString(),
     };
-    const existingTxns: CycleCountTransaction[] = JSON.parse(localStorage.getItem("rf_cycle_count_txns") || "[]");
-    localStorage.setItem("rf_cycle_count_txns", JSON.stringify([txn, ...existingTxns]));
+    saveCountTxns([txn]);
 
     if (variance === 0) {
       showToast("✅ Count accurate!", "success");
@@ -871,7 +890,6 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
       const updatedSessions = sessions.map((s) => s.id === currentSession.id ? updatedSession : s);
       setSessions(updatedSessions);
       setCurrentSession(updatedSession);
-      localStorage.setItem("rf_inventory_sessions", JSON.stringify(updatedSessions));
     } else {
       showToast("🎉 All items in range have been counted!", "success");
       // Stay on last item, allow export
@@ -1027,7 +1045,6 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     // 1. Update the main cycleCounts list
     const newCounts = fullCountItems.filter(c => c.Status === "counted");
     const updatedCounts = [...cycleCounts, ...newCounts];
-    localStorage.setItem("rf_cycle_counts", JSON.stringify(updatedCounts));
     setCycleCounts(updatedCounts);
 
     // 2. Update the current session with the new cycle count IDs
@@ -1038,7 +1055,6 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
       lastAccessedDate: new Date().toISOString(),
     };
     const updatedSessions = sessions.map((s) => (s.id === currentSession.id ? updatedSession : s));
-    localStorage.setItem("rf_inventory_sessions", JSON.stringify(updatedSessions));
     setCurrentSession(updatedSession);
     setSessions(updatedSessions);
 
@@ -1092,12 +1108,10 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
       });
     });
 
-    localStorage.setItem("rf_bins", JSON.stringify(updatedBins));
     setBins(updatedBins);
 
     // 4. Save transactions
-    const existingTxns: CycleCountTransaction[] = JSON.parse(localStorage.getItem("rf_cycle_count_txns") || "[]");
-    localStorage.setItem("rf_cycle_count_txns", JSON.stringify([...txns, ...existingTxns]));
+    saveCountTxns(txns);
 
     // 5. Reset and notify
     setFullCountFile(null);
@@ -1310,7 +1324,6 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
       const updatedSessions = sessions.map((s) => (s.id === currentSession.id ? updatedSession : s));
       setSessions(updatedSessions);
       setCurrentSession(updatedSession);
-      localStorage.setItem("rf_inventory_sessions", JSON.stringify(updatedSessions));
     }
   };
 
@@ -1345,7 +1358,6 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
       const updatedSessions = sessions.map((s) => (s.id === currentSession.id ? updatedSession : s));
       setSessions(updatedSessions);
       setCurrentSession(updatedSession);
-      localStorage.setItem("rf_inventory_sessions", JSON.stringify(updatedSessions));
     }
 
     // Update bin inventory (always update, even if variance is 0 for accuracy)
@@ -1379,12 +1391,9 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
       variance: variance,
       timestamp: new Date().toISOString(),
     };
-    const existingTxns: CycleCountTransaction[] = JSON.parse(localStorage.getItem("rf_cycle_count_txns") || "[]");
-    localStorage.setItem("rf_cycle_count_txns", JSON.stringify([txn, ...existingTxns]));
+    saveCountTxns([txn]);
 
-    // Save to localStorage
-    localStorage.setItem("rf_cycle_counts", JSON.stringify(updatedCounts));
-    localStorage.setItem("rf_bins", JSON.stringify(updatedBins));
+    // Save
 
     // Update state
     setCycleCounts(updatedCounts);
@@ -2738,7 +2747,6 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
                     return b;
                   });
 
-                  localStorage.setItem("rf_bins", JSON.stringify(updatedBins));
                   setBins(updatedBins);
                   
                   showToast(`✅ Added ${newItemCode} to bin`, "success");

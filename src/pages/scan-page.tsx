@@ -4,6 +4,8 @@ import { Item, BinLocation } from "../types";
 import { Package, MapPin, Plus, Search, ClipboardCheck, Tag } from "lucide-react";
 import { displayBinCode, normalizeBinInput } from "../utils/bin-utils";
 import { smartSearch } from "../utils/search-utils";
+import { useCollection } from "../data/hooks";
+import { saveBinChanges } from "../data/ops";
 
 interface ScanPageProps {
   setPage: (page: any) => void;
@@ -27,40 +29,15 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem, onStartCount
   const [scannedCode, setScannedCode] = useState<string>("");
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
   const [manualCode, setManualCode] = useState<string>("");
-  const [bins, setBins] = useState<BinLocation[]>([]);
+  // Bins and items come from the server (shared by every device).
+  const { data: bins } = useCollection<BinLocation[]>("rf_bins", []);
+  const { data: activeItems } = useCollection<Item[]>("rf_active", [], { refresh: false });
   const [showNewBinModal, setShowNewBinModal] = useState(false);
   const [newBinCode, setNewBinCode] = useState<string>("");
   const [newBinZone, setNewBinZone] = useState<string>("");
   const [toast, setToast] = useState<Toast | null>(null);
   const [keyboardMode, setKeyboardMode] = useState<"numeric" | "text">("numeric"); // Default to numpad
   const videoRef = useRef<HTMLDivElement>(null);
-
-  // Load bins
-  useEffect(() => {
-    const binsData = JSON.parse(localStorage.getItem("rf_bins") || "[]");
-    setBins(binsData);
-  }, []);
-
-  // Ensure rf_active data is in localStorage (safety net)
-  useEffect(() => {
-    const ensureDataInLocalStorage = async () => {
-      const localData = localStorage.getItem("rf_active");
-      if (!localData || localData === "[]") {
-        // Data missing in localStorage, try to sync from server
-        try {
-          const { api } = await import("../services/api");
-          const serverData = await api.getData("rf_active");
-          if (serverData && Array.isArray(serverData) && serverData.length > 0) {
-            localStorage.setItem("rf_active", JSON.stringify(serverData));
-            console.log("Synced rf_active from server to localStorage");
-          }
-        } catch (error) {
-          console.error("Could not sync data from server:", error);
-        }
-      }
-    };
-    ensureDataInLocalStorage();
-  }, []);
 
   // Toast auto-dismiss
   useEffect(() => {
@@ -152,8 +129,7 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem, onStartCount
     console.log("Scanned:", code);
     setScannedCode(code);
 
-    const items = JSON.parse(localStorage.getItem("rf_active") || "[]") as Item[];
-    const result = smartSearch(code, bins, items);
+    const result = smartSearch(code, bins, activeItems);
     
     if (result) {
       if (result.type === "bin" && result.bin) {
@@ -190,7 +166,7 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem, onStartCount
   };
 
   // Create new bin
-  const handleCreateBin = () => {
+  const handleCreateBin = async () => {
     if (!newBinCode.trim()) {
       showToast("⚠️ Please enter a bin code", "error");
       return;
@@ -215,9 +191,12 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem, onStartCount
       Items: [],
     };
 
-    const updatedBins = [...bins, newBin];
-    localStorage.setItem("rf_bins", JSON.stringify(updatedBins));
-    setBins(updatedBins);
+    try {
+      await saveBinChanges(bins, [...bins, newBin]);
+    } catch (error: any) {
+      showToast(`❌ Bin not created: ${error?.message || "server error"}`, "error");
+      return;
+    }
     setNewBinCode("");
     setNewBinZone("");
     setShowNewBinModal(false);

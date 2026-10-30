@@ -3,6 +3,7 @@ import WarehouseShell from "./components/warehouse-shell";
 import { PageType, Item } from "./types";
 import { api } from "./services/api";
 import { buildBinsFromItems } from "./utils/bin-utils";
+import { saveCollection } from "./data/ops";
 import { demoUser, isDemoMode, resetDemoData, seedDemoData } from "./demo/demo-mode";
 
 const HomePage = lazy(() => import("./pages/home-page"));
@@ -25,49 +26,26 @@ export default function App() {
   const [showNumpad, setShowNumpad] = useState(false);
   const [activeItem, setActiveItem] = useState<string | null>(null);
 
+  // Make sure the server has bins: if it has none yet, build them from the inventory list.
   const ensureBinsData = useCallback(async (activeItems: Item[]) => {
     try {
       const binsData = await api.getData("rf_bins");
-      if (Array.isArray(binsData) && binsData.length > 0) {
-        localStorage.setItem("rf_bins", JSON.stringify(binsData));
-        return;
-      }
+      if (Array.isArray(binsData) && binsData.length > 0) return;
     } catch (error) {
       console.log("Unable to load rf_bins from server:", error);
+      return;
     }
 
     if (Array.isArray(activeItems) && activeItems.length > 0) {
-      const generatedBins = buildBinsFromItems(activeItems);
-      localStorage.setItem("rf_bins", JSON.stringify(generatedBins));
       try {
-        await api.saveData("rf_bins", generatedBins);
+        await saveCollection("rf_bins", buildBinsFromItems(activeItems), { overwrite: true });
       } catch (saveError) {
-        console.log("Unable to sync generated bins to server:", saveError);
+        console.log("Unable to save generated bins to the server:", saveError);
       }
-    } else {
-      localStorage.removeItem("rf_bins");
     }
   }, []);
 
-  const syncLocalInventoryData = useCallback(async (activeItems: Item[]) => {
-    const safeItems = Array.isArray(activeItems) ? activeItems : [];
-    localStorage.setItem("rf_active", JSON.stringify(safeItems));
-    try {
-      const masterData = await api.getData("rf_master");
-      if (Array.isArray(masterData) && masterData.length > 0) {
-        localStorage.setItem("rf_master", JSON.stringify(masterData));
-      } else if (safeItems.length > 0) {
-        localStorage.setItem("rf_master", JSON.stringify(safeItems));
-      }
-    } catch (error) {
-      if (safeItems.length > 0) {
-        localStorage.setItem("rf_master", JSON.stringify(safeItems));
-      }
-      console.log("Could not sync rf_master:", error);
-    }
-
-    await ensureBinsData(safeItems);
-  }, [ensureBinsData]);
+  const syncLocalInventoryData = ensureBinsData;
 
   useEffect(() => {
     const checkInitialState = async () => {
