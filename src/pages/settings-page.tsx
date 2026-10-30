@@ -117,7 +117,7 @@ export default function SettingsPage({ onLogin }: SettingsPageProps) {
           setMasterItemCount(master.length);
         }
 
-        if (meta && typeof meta === "object") {
+        if (meta && typeof meta === "object" && !Array.isArray(meta) && Object.keys(meta).length > 0) {
           setMasterMeta(meta as MasterMeta);
           localStorage.setItem("rf_master_meta", JSON.stringify(meta));
         }

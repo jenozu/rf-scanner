@@ -76,3 +76,6 @@ server/data/
 /rf-scanner-deploy.tar.gz
 /puro/customer_addresses.db
 *.db
+
+# Local Claude Code permissions (per-machine)
+.claude/settings.local.json

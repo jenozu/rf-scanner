@@ -431,6 +431,16 @@ app.delete('/api/users/:id', authenticateToken, requireAdmin, async (req, res) =
   }
 });
 
+// Keys the UI is allowed to read and write through /api/data/:key.
+const VALID_DATA_KEYS = [
+  'rf_active', 'rf_master', 'rf_master_meta', 'rf_purchase_orders', 'rf_sales_orders',
+  'rf_orders', 'rf_waves', 'rf_bins', 'rf_cycle_counts', 'rf_activity_logs',
+  'rf_bin_locks', 'rf_inventory_sessions', 'rf_session_count_logs',
+  'rf_receiving_txns', 'rf_cycle_count_txns', 'rf_temporary_locations',
+];
+// Keys whose value is an object rather than a list (empty default is {}).
+const OBJECT_DATA_KEYS = ['rf_master_meta'];
+
 // ============================================
 // DATA STORAGE ENDPOINTS
 // ============================================
@@ -439,16 +449,12 @@ app.delete('/api/users/:id', authenticateToken, requireAdmin, async (req, res) =
 app.get('/api/data/:key', authenticateToken, async (req, res) => {
   try {
     const { key } = req.params;
-    const validKeys = ['rf_active', 'rf_master', 'rf_purchase_orders', 'rf_sales_orders', 
-                       'rf_orders', 'rf_waves', 'rf_bins', 'rf_cycle_counts', 'rf_activity_logs',
-                       'rf_bin_locks', 'rf_inventory_sessions', 'rf_session_count_logs'];
-    
-    if (!validKeys.includes(key)) {
+    if (!VALID_DATA_KEYS.includes(key)) {
       return res.status(400).json({ error: 'Invalid data key' });
     }
 
     const data = await readJSONFile(path.join(DATA_DIR, `${key}.json`));
-    res.json(data || []);
+    res.json(data || (OBJECT_DATA_KEYS.includes(key) ? {} : []));
   } catch (error) {
     console.error(`Error reading ${req.params.key}:`, error);
     res.status(500).json({ error: 'Failed to read data' });
@@ -461,11 +467,7 @@ app.post('/api/data/:key', authenticateToken, async (req, res) => {
     const { key } = req.params;
     const { data } = req.body;
     
-    const validKeys = ['rf_active', 'rf_master', 'rf_purchase_orders', 'rf_sales_orders', 
-                       'rf_orders', 'rf_waves', 'rf_bins', 'rf_cycle_counts', 'rf_activity_logs',
-                       'rf_bin_locks', 'rf_inventory_sessions', 'rf_session_count_logs'];
-    
-    if (!validKeys.includes(key)) {
+    if (!VALID_DATA_KEYS.includes(key)) {
       return res.status(400).json({ error: 'Invalid data key' });
     }
 

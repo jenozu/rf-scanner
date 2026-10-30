@@ -86,12 +86,12 @@
       {
         "title": "P1: Fix data key allow-list",
         "description": "rf_master_meta, rf_receiving_txns, rf_cycle_count_txns, rf_temporary_locations are rejected with 400, so Export logs are always empty.",
-        "status": "pending",
+        "status": "done",
         "priority": "high",
         "dependencies": [
           1
         ],
-        "details": "server/index.js validKeys is duplicated at ~lines 361 and 383. Move to one shared constant and add the four keys. Check export-page.tsx and settings-page.tsx:187 for the keys they use.",
+        "details": "server/index.js validKeys is duplicated at ~lines 361 and 383. Move to one shared constant and add the four keys. Check export-page.tsx and settings-page.tsx:187 for the keys they use.\n\n[2026-10-29T20:49:33-04:00] plan: server/index.js: single VALID_DATA_KEYS constant used by GET+POST, add rf_master_meta, rf_receiving_txns, rf_cycle_count_txns, rf_temporary_locations. Regression guard: rf_master_meta is an object; with the key allowed and no file the GET would return [] and settings-page would overwrite good localStorage meta with it -> server returns {} for object-keys and settings-page.tsx:119 only accepts a non-empty non-array object. New test server/test/data-keys.test.js.\n\n[2026-10-29T21:02:11-04:00] result: one VALID_DATA_KEYS constant for GET+POST with the 4 keys added; rf_master_meta defaults to {} and settings-page ignores empty/array meta so it can't clobber good local meta. 6 new tests (30 server total) pass, tsc ok. Unknown/traversal keys still 400, token still required. Note: receive/inventory/home pages still write these keys to localStorage only (Phase 2). Drift check: ok.",
         "testStrategy": "API tests: GET and POST of each of the four keys succeeds for an authenticated user and still returns 400 for an unknown key",
         "complexity": 2,
         "id": 7,
@@ -230,7 +230,7 @@
     ],
     "metadata": {
       "created": "2026-10-29T19:42:01-04:00",
-      "updated": "2026-10-29T20:49:11-04:00"
+      "updated": "2026-10-29T21:02:11-04:00"
     }
   }
 }
