@@ -7,6 +7,8 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { resolveJwtSecret } from './config.js';
+import { createLoginLimiter } from './login-limiter.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -14,7 +16,13 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3001;
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
-const JWT_SECRET = process.env.JWT_SECRET || 'rf-scanner-secret-key-change-in-production';
+let JWT_SECRET;
+try {
+  JWT_SECRET = resolveJwtSecret();
+} catch (err) {
+  console.error(`❌ ${err.message}`);
+  process.exit(1);
+}
 const JWT_EXPIRES_IN = '24h'; // Token expires in 24 hours
 const execAsync = promisify(exec);
 
@@ -23,7 +31,23 @@ const PURO_DIR = path.join(__dirname, '..', 'puro');
 const PYTHON_API_SCRIPT = path.join(PURO_DIR, 'shipping_api_server.py');
 
 // Middleware
-app.use(cors());
+// Behind Traefik/nginx the real client IP arrives in X-Forwarded-For; only trust
+// it from private-network proxies so it cannot be spoofed from the internet.
+app.set('trust proxy', 'loopback, linklocal, uniquelocal');
+
+// CORS: the app is served from the same origin as /api (nginx or the Vite proxy),
+// so by default no cross-origin access is granted. To allow another origin, set
+// CORS_ORIGINS=https://a.example,https://b.example
+const CORS_ORIGINS = (process.env.CORS_ORIGINS || '')
+  .split(',').map(o => o.trim()).filter(Boolean);
+app.use(cors({
+  origin(origin, callback) {
+    callback(null, !origin || CORS_ORIGINS.includes(origin));
+  },
+}));
+
+const loginLimiter = createLoginLimiter();
+const MIN_PASSWORD_LENGTH = 10;
 app.use(express.json({ limit: '50mb' }));
 
 // JWT verification middleware
@@ -45,6 +69,29 @@ function authenticateToken(req, res, next) {
     req.user = user;
     next();
   });
+}
+
+// Admin-only guard. Runs after authenticateToken. The role is checked against
+// the stored user (not just the token) so a demoted or deactivated admin loses
+// access immediately instead of when the token expires.
+async function requireAdmin(req, res, next) {
+  try {
+    const users = await readJSONFile(USERS_FILE) || [];
+    const me = users.find(u => u.id === req.user?.userId);
+    if (!me || me.isActive === false || me.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    req.currentUser = me;
+    next();
+  } catch (error) {
+    console.error('Error checking admin role:', error);
+    res.status(500).json({ error: 'Failed to verify permissions' });
+  }
+}
+
+const VALID_ROLES = ['admin', 'operator', 'viewer'];
+function isActiveAdmin(u) {
+  return u.role === 'admin' && u.isActive !== false;
 }
 
 // Ensure data directory exists
@@ -109,7 +156,7 @@ async function callPythonAPI(command) {
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
 
 // Get all users (admin only)
-app.get('/api/users', authenticateToken, async (req, res) => {
+app.get('/api/users', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const users = await readJSONFile(USERS_FILE) || [];
     // Don't send passwords
@@ -128,6 +175,13 @@ app.get('/api/users', authenticateToken, async (req, res) => {
 app.get('/api/users/:id', authenticateToken, async (req, res) => {
   try {
     const users = await readJSONFile(USERS_FILE) || [];
+    const me = users.find(u => u.id === req.user?.userId);
+    if (!me || me.isActive === false) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+    if (me.role !== 'admin' && me.id !== req.params.id) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
     const user = users.find(u => u.id === req.params.id);
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
@@ -153,6 +207,12 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(400).json({ error: 'Username and password required' });
     }
 
+    const retryAfter = loginLimiter.blockedFor(username, req.ip);
+    if (retryAfter > 0) {
+      res.set('Retry-After', String(retryAfter));
+      return res.status(429).json({ error: 'Too many failed logins. Try again later.', retryAfter });
+    }
+
     const users = await readJSONFile(USERS_FILE) || [];
     // Case-insensitive username matching
     const user = users.find(u => 
@@ -162,6 +222,7 @@ app.post('/api/auth/login', async (req, res) => {
 
     if (!user) {
       console.log(`Login failed: User not found or inactive - username: "${username}"`);
+      loginLimiter.recordFailure(username, req.ip);
       return res.status(401).json({ error: 'Invalid username or password' });
     }
 
@@ -182,8 +243,11 @@ app.post('/api/auth/login', async (req, res) => {
 
     if (!passwordMatch) {
       console.log(`Login failed: Invalid password for user "${username}"`);
+      loginLimiter.recordFailure(username, req.ip);
       return res.status(401).json({ error: 'Invalid username or password' });
     }
+
+    loginLimiter.recordSuccess(username);
 
     // Update last login
     user.lastLogin = new Date().toISOString();
@@ -214,7 +278,7 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 // Create user (admin only - check is done in frontend)
-app.post('/api/users', authenticateToken, async (req, res) => {
+app.post('/api/users', authenticateToken, requireAdmin, async (req, res) => {
   try {
     let { username, password, fullName, role, isActive } = req.body;
     
@@ -231,8 +295,13 @@ app.post('/api/users', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'Username must be at least 2 characters' });
     }
 
-    if (password.length < 3) {
-      return res.status(400).json({ error: 'Password must be at least 3 characters' });
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      return res.status(400).json({ error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters` });
+    }
+
+    role = role || 'operator';
+    if (!VALID_ROLES.includes(role)) {
+      return res.status(400).json({ error: 'Invalid role' });
     }
 
     const users = await readJSONFile(USERS_FILE) || [];
@@ -250,7 +319,7 @@ app.post('/api/users', authenticateToken, async (req, res) => {
       username,
       passwordHash,
       fullName,
-      role: role || 'operator',
+      role,
       isActive: isActive !== undefined ? isActive : true,
       createdDate: new Date().toISOString(),
     };
@@ -267,29 +336,66 @@ app.post('/api/users', authenticateToken, async (req, res) => {
   }
 });
 
-// Update user (admin only)
+// Update user. Admins may change fullName, role, isActive and password of any
+// user. Everyone else may change only their own password. Nobody may change
+// their own role or active flag, and the last active admin is always kept.
 app.put('/api/users/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const updates = req.body;
+    const body = req.body || {};
 
     const users = await readJSONFile(USERS_FILE) || [];
-    const userIndex = users.findIndex(u => u.id === id);
+    const me = users.find(u => u.id === req.user?.userId);
+    if (!me || me.isActive === false) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+    const isAdmin = me.role === 'admin';
+    const isSelf = me.id === id;
+    if (!isAdmin && !isSelf) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
 
+    const userIndex = users.findIndex(u => u.id === id);
     if (userIndex === -1) {
       return res.status(404).json({ error: 'User not found' });
     }
+    const target = users[userIndex];
 
-    // If password is being updated, hash it
-    if (updates.password) {
-      updates.passwordHash = await bcrypt.hash(updates.password, 10);
+    const allowed = isAdmin ? ['fullName', 'role', 'isActive', 'password'] : ['password'];
+    const forbidden = Object.keys(body).filter(k => !allowed.includes(k) && k !== 'id');
+    if (forbidden.length > 0 && !isAdmin) {
+      return res.status(403).json({ error: 'You can only change your own password' });
+    }
+
+    const updates = {};
+    for (const key of allowed) {
+      if (body[key] !== undefined) updates[key] = body[key];
+    }
+
+    if (isSelf && ((updates.role !== undefined && updates.role !== target.role) ||
+                   (updates.isActive !== undefined && updates.isActive !== (target.isActive !== false)))) {
+      return res.status(403).json({ error: 'You cannot change your own role or active status' });
+    }
+    if (updates.role !== undefined && !VALID_ROLES.includes(updates.role)) {
+      return res.status(400).json({ error: 'Invalid role' });
+    }
+
+    if (updates.password !== undefined) {
+      const pw = typeof updates.password === 'string' ? updates.password.trim() : '';
+      if (pw.length < MIN_PASSWORD_LENGTH) {
+        return res.status(400).json({ error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters` });
+      }
+      updates.passwordHash = await bcrypt.hash(pw, 10);
       delete updates.password;
     }
 
-    // Don't allow changing ID
-    delete updates.id;
+    const updated = { ...target, ...updates };
+    if (isActiveAdmin(target) && !isActiveAdmin(updated) &&
+        users.filter(isActiveAdmin).length <= 1) {
+      return res.status(400).json({ error: 'Cannot demote or deactivate the last admin' });
+    }
 
-    users[userIndex] = { ...users[userIndex], ...updates };
+    users[userIndex] = updated;
     await writeJSONFile(USERS_FILE, users);
 
     const { password, passwordHash, ...safeUser } = users[userIndex];
@@ -301,18 +407,23 @@ app.put('/api/users/:id', authenticateToken, async (req, res) => {
 });
 
 // Delete user (admin only)
-app.delete('/api/users/:id', authenticateToken, async (req, res) => {
+app.delete('/api/users/:id', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
-    
-    const users = await readJSONFile(USERS_FILE) || [];
-    const filteredUsers = users.filter(u => u.id !== id);
 
-    if (filteredUsers.length === users.length) {
+    const users = await readJSONFile(USERS_FILE) || [];
+    const target = users.find(u => u.id === id);
+    if (!target) {
       return res.status(404).json({ error: 'User not found' });
     }
+    if (target.id === req.currentUser.id) {
+      return res.status(400).json({ error: 'Cannot delete yourself' });
+    }
+    if (isActiveAdmin(target) && users.filter(isActiveAdmin).length <= 1) {
+      return res.status(400).json({ error: 'Cannot delete the last admin' });
+    }
 
-    await writeJSONFile(USERS_FILE, filteredUsers);
+    await writeJSONFile(USERS_FILE, users.filter(u => u.id !== id));
     res.json({ message: 'User deleted' });
   } catch (error) {
     console.error('Error deleting user:', error);
@@ -320,35 +431,15 @@ app.delete('/api/users/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// Initialize default admin user if none exists
-app.post('/api/users/init-admin', async (req, res) => {
-  try {
-    const users = await readJSONFile(USERS_FILE) || [];
-    
-    if (users.length > 0) {
-      return res.json({ message: 'Users already exist' });
-    }
-
-    const passwordHash = await bcrypt.hash('admin123', 10);
-    const adminUser = {
-      id: 'user-1',
-      username: 'admin',
-      passwordHash,
-      fullName: 'Administrator',
-      role: 'admin',
-      isActive: true,
-      createdDate: new Date().toISOString(),
-    };
-
-    await writeJSONFile(USERS_FILE, [adminUser]);
-    
-    const { passwordHash: _, ...safeUser } = adminUser;
-    res.json({ message: 'Admin user created', user: safeUser });
-  } catch (error) {
-    console.error('Error initializing admin:', error);
-    res.status(500).json({ error: 'Failed to initialize admin' });
-  }
-});
+// Keys the UI is allowed to read and write through /api/data/:key.
+const VALID_DATA_KEYS = [
+  'rf_active', 'rf_master', 'rf_master_meta', 'rf_purchase_orders', 'rf_sales_orders',
+  'rf_orders', 'rf_waves', 'rf_bins', 'rf_cycle_counts', 'rf_activity_logs',
+  'rf_bin_locks', 'rf_inventory_sessions', 'rf_session_count_logs',
+  'rf_receiving_txns', 'rf_cycle_count_txns', 'rf_temporary_locations',
+];
+// Keys whose value is an object rather than a list (empty default is {}).
+const OBJECT_DATA_KEYS = ['rf_master_meta'];
 
 // ============================================
 // DATA STORAGE ENDPOINTS
@@ -358,16 +449,12 @@ app.post('/api/users/init-admin', async (req, res) => {
 app.get('/api/data/:key', authenticateToken, async (req, res) => {
   try {
     const { key } = req.params;
-    const validKeys = ['rf_active', 'rf_master', 'rf_purchase_orders', 'rf_sales_orders', 
-                       'rf_orders', 'rf_waves', 'rf_bins', 'rf_cycle_counts', 'rf_activity_logs',
-                       'rf_bin_locks', 'rf_inventory_sessions', 'rf_session_count_logs'];
-    
-    if (!validKeys.includes(key)) {
+    if (!VALID_DATA_KEYS.includes(key)) {
       return res.status(400).json({ error: 'Invalid data key' });
     }
 
     const data = await readJSONFile(path.join(DATA_DIR, `${key}.json`));
-    res.json(data || []);
+    res.json(data || (OBJECT_DATA_KEYS.includes(key) ? {} : []));
   } catch (error) {
     console.error(`Error reading ${req.params.key}:`, error);
     res.status(500).json({ error: 'Failed to read data' });
@@ -380,11 +467,7 @@ app.post('/api/data/:key', authenticateToken, async (req, res) => {
     const { key } = req.params;
     const { data } = req.body;
     
-    const validKeys = ['rf_active', 'rf_master', 'rf_purchase_orders', 'rf_sales_orders', 
-                       'rf_orders', 'rf_waves', 'rf_bins', 'rf_cycle_counts', 'rf_activity_logs',
-                       'rf_bin_locks', 'rf_inventory_sessions', 'rf_session_count_logs'];
-    
-    if (!validKeys.includes(key)) {
+    if (!VALID_DATA_KEYS.includes(key)) {
       return res.status(400).json({ error: 'Invalid data key' });
     }
 
@@ -876,13 +959,16 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Start server
-ensureDataDir().then(() => {
-  app.listen(PORT, () => {
-    console.log(`🚀 RF Scanner API server running on port ${PORT}`);
-    console.log(`📁 Data directory: ${DATA_DIR}`);
+// Start server. Tests import the app and start it themselves on a random port,
+// so listening on import is skipped when NODE_ENV=test.
+if (process.env.NODE_ENV !== 'test') {
+  ensureDataDir().then(() => {
+    app.listen(PORT, () => {
+      console.log(`🚀 RF Scanner API server running on port ${PORT}`);
+      console.log(`📁 Data directory: ${DATA_DIR}`);
+    });
   });
-});
+}
 
 export default app;
 

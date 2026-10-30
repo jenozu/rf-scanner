@@ -117,7 +117,7 @@ export default function SettingsPage({ onLogin }: SettingsPageProps) {
           setMasterItemCount(master.length);
         }
 
-        if (meta && typeof meta === "object") {
+        if (meta && typeof meta === "object" && !Array.isArray(meta) && Object.keys(meta).length > 0) {
           setMasterMeta(meta as MasterMeta);
           localStorage.setItem("rf_master_meta", JSON.stringify(meta));
         }
@@ -317,8 +317,8 @@ export default function SettingsPage({ onLogin }: SettingsPageProps) {
       return;
     }
 
-    if (trimmedUser.password.length < 3) {
-      alert("Password must be at least 3 characters");
+    if (trimmedUser.password.length < 10) {
+      alert("Password must be at least 10 characters");
       return;
     }
 
@@ -401,13 +401,6 @@ export default function SettingsPage({ onLogin }: SettingsPageProps) {
             </button>
           </form>
 
-          <div className="mt-4 p-3 bg-gray-50 rounded-md text-xs text-gray-600">
-            <strong>Default credentials:</strong>
-            <br />
-            Username: admin
-            <br />
-            Password: admin123
-          </div>
         </div>
       </div>
     );

@@ -61,16 +61,6 @@ export function useAuth() {
     }
   };
 
-  // Initialize default admin user if no users exist yet. This must run
-  // unauthenticated on first load — otherwise a fresh deployment with zero
-  // users can never create the first admin account to log in with.
-  // The backend endpoint itself is a no-op once any user already exists.
-  useEffect(() => {
-    api.initAdmin().catch(error => {
-      console.error("Error initializing admin:", error);
-    });
-  }, []);
-
   // Load users when admin logs in
   useEffect(() => {
     if (authState.isLoggedIn && authState.currentUser?.role === "admin") {

@@ -145,6 +145,23 @@ npm run dev
 
 Your app will open at [http://localhost:5173](http://localhost:5173)
 
+### 4️⃣ First run: create the admin account
+
+There is no default login. On a new install (no users yet), create the first
+admin once from the `server/` folder, choosing your own password (10+ characters):
+
+```bash
+cd server
+JWT_SECRET=<32+ char secret> ADMIN_PASSWORD='choose-a-long-password' node reset-admin.js
+# optional: ADMIN_USERNAME=jane   (defaults to "admin")
+```
+
+In Docker: `docker compose exec -e ADMIN_PASSWORD='choose-a-long-password' api node reset-admin.js`
+
+The script refuses to run if users already exist. To change an existing admin's
+password use `node reset-admin.js --reset-password` (same `ADMIN_USERNAME` /
+`ADMIN_PASSWORD`); it never deletes other users.
+
 ---
 
 ## 🏗️ Build for Production

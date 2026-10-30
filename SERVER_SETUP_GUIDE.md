@@ -168,7 +168,7 @@ npm run build
 ## ✅ Step 9: Verify Everything Works
 
 1. Visit `https://rf.andel-vps.space`
-2. Login with `admin/admin123`
+2. Login with your admin account
 3. Check that users can be created and are visible across devices
 4. Check that inventory data loads from server
 

@@ -225,7 +225,7 @@ curl http://localhost:3001/api/health
 # Test login endpoint
 curl -X POST http://localhost:3001/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"admin123"}'
+  -d '{"username":"admin","password":"<your-admin-password>"}'
 ```
 
 ### Test API Through Nginx (from local machine)
@@ -242,7 +242,7 @@ curl http://rf.andel-vps.space/api/health
 
 1. Visit `http://rf.andel-vps.space/api/health`
 2. You should see: `{"status":"ok","timestamp":"..."}`
-3. Visit `http://rf.andel-vps.space` and try logging in with `admin/admin123`
+3. Visit `http://rf.andel-vps.space` and try logging in with your admin account
 
 ## Useful PM2 Commands
 
@@ -387,7 +387,7 @@ Once the backend is deployed and working:
 
 2. **Test the full application:**
    - Visit `http://rf.andel-vps.space`
-   - Login with `admin/admin123`
+   - Login with your admin account
    - Create a test user
    - Verify data persists across page refreshes
 

@@ -63,7 +63,7 @@ Then run:
 ```
 1. User visits: https://rf.andel-vps.space
 2. Sees: Login screen
-3. Enters: admin / admin123
+3. Enters: your admin account
 4. App checks: Do we have data in localStorage?
    └─ NO → Go to Setup page
 5. Setup page runs:
@@ -249,7 +249,7 @@ scp master_inventory.xlsx root@72.60.170.192:/var/www/rf-scanner/data/
 ### **2. First User**
 ```
 1. Visit: https://rf.andel-vps.space
-2. Login: admin / admin123
+2. Login: your admin account
 3. App auto-loads master (7,054 items)
 4. Start scanning/counting
 5. All changes go to clone
@@ -316,7 +316,7 @@ exit
 ### **Test 3: Test Auto-Load**
 ```
 1. Open: https://rf.andel-vps.space
-2. Login: admin / admin123
+2. Login: your admin account
 3. Watch for: "📥 Loading master inventory from server..."
 4. Should see: "✅ Loaded 7,054 items from master inventory"
 5. Redirected to Home ✅
