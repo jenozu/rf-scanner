@@ -16,12 +16,12 @@
       {
         "title": "P1: CI on main and pull requests",
         "description": "Run typecheck, build and tests on every PR and push to main (today CI only runs on the redesign branch).",
-        "status": "pending",
+        "status": "done",
         "priority": "high",
         "dependencies": [
           1
         ],
-        "details": "Existing workflow: .github/workflows/rf-preview-e2e.yml (branch-limited). Add a new workflow rather than editing it. Node 20. Steps: npm ci, tsc --noEmit, vite build, root tests, server tests.",
+        "details": "Existing workflow: .github/workflows/rf-preview-e2e.yml (branch-limited). Add a new workflow rather than editing it. Node 20. Steps: npm ci, tsc --noEmit, vite build, root tests, server tests.\n\n[2026-10-29T20:37:02-04:00] plan: add .github/workflows/ci.yml (push main + pull_request): Node 20, npm ci, npm run check, npm test, npm run build, server npm ci + npm test. Existing preview workflow untouched. Local verification: run each step; can't open a real failing PR without user OK so will prove failure locally (failing test -> nonzero exit) and validate YAML.\n\n[2026-10-29T20:40:46-04:00] result: ci.yml added; every step run locally and passes (tsc, vitest 2, build, server 10 tests); failing server test made npm test exit 1, removed -> 0. Real PR red/green check will happen when the Phase 1 PR opens. Drift check: ok, preview workflow untouched.",
         "testStrategy": "Open a PR with a deliberately failing test and see the check fail; revert and see it pass",
         "complexity": 2,
         "id": 2,
@@ -230,7 +230,7 @@
     ],
     "metadata": {
       "created": "2026-10-29T19:42:01-04:00",
-      "updated": "2026-10-29T20:14:05-04:00"
+      "updated": "2026-10-29T20:40:46-04:00"
     }
   }
 }
