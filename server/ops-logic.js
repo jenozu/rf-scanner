@@ -210,12 +210,26 @@ const PLACEHOLDER_BIN = /^(NO[\s_-]*BIN|N\/?A|NONE|NULL|UNASSIGNED|TBD|\?+|-+)$/
 const SYSTEM_BIN = /SYSTEM[\s_-]*BIN/i;
 const WAREHOUSE_ONLY = /^\d{1,2}$/;
 
+// --- Warehouses ---
+// 01 is the main warehouse. 05 holds one customer's parts (special discount) and uses the SAME
+// bin codes as 01, so a bin never tells you the warehouse: the line's own warehouse does.
+export const WAREHOUSE_NAMES = { '01': 'Main', '05': 'Customer stock' };
+export const CUSTOMER_WAREHOUSE = '05';
+
+// SAP exports and Excel cells write the same warehouse as 5, "5", "05" or " 05 ". Make them one value.
+export function normalizeWarehouse(value) {
+  const text = String(value ?? '').trim().toUpperCase();
+  return /^\d{1,2}$/.test(text) ? text.padStart(2, '0') : text;
+}
+
+export const isCustomerWarehouse = (warehouse) => normalizeWarehouse(warehouse) === CUSTOMER_WAREHOUSE;
+
 export function classifyBin(code, warehouse) {
   const value = String(code ?? '').trim();
   if (!value) return { kind: 'blank', real: false, reason: 'No bin on this line' };
   if (SYSTEM_BIN.test(value)) return { kind: 'system', real: false, reason: `${value} is SAP's system bin, not a shelf` };
   if (PLACEHOLDER_BIN.test(value)) return { kind: 'placeholder', real: false, reason: `"${value}" is a placeholder, not a bin` };
-  const wh = String(warehouse ?? '').trim().toUpperCase();
+  const wh = normalizeWarehouse(warehouse);
   if (WAREHOUSE_ONLY.test(value) || (wh && value.toUpperCase() === wh)) {
     return { kind: 'warehouse-only', real: false, reason: `"${value}" is a warehouse code, not a bin` };
   }
