@@ -132,6 +132,9 @@ export function applyPoReceive(current, body) {
   if (!po) return { result: fail('PO not found', 404) };
   const line = po.items?.[lineIndex];
   if (!line) return { result: fail('PO line not found', 404) };
+  if (binCode !== undefined && binCode !== '' && !classifyBin(binCode, line.Warehouse).real) {
+    return { result: fail(`${classifyBin(binCode, line.Warehouse).reason}. Receive into a real bin.`, 409, { code: 'NO_REAL_BIN' }) };
+  }
   line.ReceivedQty = (Number(line.ReceivedQty) || 0) + qty;
   line.RemainingQty = Math.max(0, (Number(line.OrderedQty) || 0) - line.ReceivedQty);
   if (binCode) line.BinCode = binCode;
@@ -275,14 +278,32 @@ export function validateReceive(body) {
 // One receipt = PO line + bin quantity + receiving log, applied together.
 // state is { pos, bins, txns } (current stored arrays). Retrying the same txnId
 // is a no-op, so a lost response can be retried safely.
-export function applyReceive(state, body) {
+export function applyReceive(state, body, user) {
   const { poId, lineIndex, qty, binCode, txnId, lots, serials, createBin } = body;
   if ((state.txns || []).some(t => t?.id === txnId)) {
     return { result: { ok: true, duplicate: true } };
   }
+  // Stock may only be received into a real bin: not blank, not SAP's system bin, not a warehouse
+  // code. Checked before anything changes (a missing PO/line is reported by the step below).
+  const target = (state.pos || []).find(p => p.id === poId)?.items?.[lineIndex];
+  const chosen = classifyBin(binCode, target?.Warehouse);
+  if (target && !chosen.real) {
+    return { result: fail(`${chosen.reason}. Choose a real bin to receive into.`, 409, { code: 'NO_REAL_BIN' }) };
+  }
+  const priorBin = target?.BinCode;
+  const hadRealBin = classifyBin(priorBin, target?.Warehouse).real;
   const po = applyPoReceive(state.pos, { poId, lineIndex, qty, binCode, lots, serials });
   if (po.result.error) return { result: po.result };
   const line = po.result.po.items[lineIndex];
+  if (!hadRealBin) {
+    // The line had no real bin (e.g. SAP's system bin); someone chose one now. Keep what SAP had.
+    const original = String(priorBin ?? '').trim();
+    if (original && line.OriginalBinCode === undefined && original.toUpperCase() !== String(binCode).trim().toUpperCase()) {
+      line.OriginalBinCode = priorBin;
+    }
+    line.BinAssignedBy = user?.username || 'unknown';
+    line.BinAssignedAt = new Date().toISOString();
+  }
 
   const bin = applyBinAdjust(state.bins, {
     binCode, itemCode: line.ItemCode, description: line.Description, delta: qty,

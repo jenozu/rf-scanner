@@ -377,11 +377,25 @@
         "complexity": 5,
         "id": 20,
         "subtasks": []
+      },
+      {
+        "title": "Real-bin rule on RECEIVING (system bin / no default bin)",
+        "description": "Owner (2026-11-02): receiving a part with no default bin (SAP would put it in the system bin) must be flagged and a real bin chosen before the receipt can be saved. Custom SAP fields U_BinLocation / U_NWR_Bin are NOT used (owner: not needed).",
+        "status": "done",
+        "priority": "high",
+        "dependencies": [
+          20
+        ],
+        "details": "Builds on task 20 (classifyBin). Server: receive refuses a destination bin that is not real (system/blank/placeholder/warehouse code) with 409 NO_REAL_BIN and changes nothing; when the PO line's own bin was not real and a real one is chosen, keep OriginalBinCode + who/when. Receive screen: when the PO line's bin is not real, show the choose-a-bin panel (real bins holding the item, the staging bin as one explicit option, or typed) and disable Confirm until a real bin is chosen; no silent fall-back to staging; PO list badge. Reminder in the panel: set the item's Default Bin Location in SAP BEFORE receiving in SAP so the goods receipt bins correctly.\n\n[2026-11-02T13:39:11-05:00] Outcome: receiving now refuses system/placeholder/warehouse-only bins (server 409 NO_REAL_BIN, nothing changed). Receive form prefills only a real PO bin; otherwise red chooser (bins holding item, explicit staging button, typed real bin); Confirm disabled until chosen; original SAP bin + who recorded. Checks: tsc, vitest 72, server 103, build, real-browser receive-ui (13 pass), bin-rule/pick/stock suites, demo smoke all pass. Drift check: in scope (user answered yes to receiving rule; custom SAP fields excluded).",
+        "testStrategy": "Server tests (system bin refused, nothing changed, original kept); real-browser check against the real API; demo smoke test still passes",
+        "complexity": 4,
+        "id": 21,
+        "subtasks": []
       }
     ],
     "metadata": {
       "created": "2026-10-29T19:42:01-04:00",
-      "updated": "2026-11-02T12:34:59-05:00"
+      "updated": "2026-11-02T13:39:11-05:00"
     }
   }
 }

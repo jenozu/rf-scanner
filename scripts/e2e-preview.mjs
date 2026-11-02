@@ -112,7 +112,7 @@ try {
   await desktop.getByRole("button", { name: "Receive", exact: true }).first().click();
   await desktop.getByText("Quantity Received", { exact: true }).waitFor({ state: "visible" });
   await desktop.screenshot({ path: `${outputDir}/receiving-desktop.png`, fullPage: true });
-  await desktop.getByRole("button", { name: "Confirm Receive to Staging", exact: true }).click();
+  await desktop.getByRole("button", { name: "Confirm Receive to 01-0102", exact: true }).click();
   await desktop.waitForFunction(() => {
     const pos = JSON.parse(localStorage.getItem("rf_purchase_orders") || "[]");
     const po = pos.find((candidate) => candidate.poNumber === "PO-48217");
