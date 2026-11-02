@@ -50,6 +50,30 @@ const demoBins: BinLocation[] = demoItems.map((item, index) => ({
   }],
 }));
 
+// Extra stocked bins so the dashboard's floor map looks like a real warehouse in the demo.
+// Deterministic (no randomness), demo data only.
+const demoFloorBins: BinLocation[] = (() => {
+  const taken = new Set(demoBins.map((bin) => bin.BinCode));
+  const out: BinLocation[] = [];
+  for (let aisle = 1; aisle <= 6; aisle++) {
+    for (let bay = 1; bay <= 14; bay++) {
+      const code = `01-${String(aisle).padStart(2, "0")}${String(bay).padStart(2, "0")}`;
+      if (taken.has(code)) continue;
+      const seed = (aisle * 17 + bay * 29) % 11;
+      const capacity = aisle <= 2 ? 40 : 120;
+      const qty = seed < 2 ? 0 : Math.round((capacity * (0.12 + (seed % 7) * 0.12)));
+      out.push({
+        BinCode: code,
+        Zone: aisle <= 2 ? "Heavy Components" : aisle <= 4 ? "Fast Pick" : "Controlled",
+        Capacity: capacity,
+        Status: "active",
+        Items: qty === 0 ? [] : [{ ItemCode: `STK-${aisle}${String(bay).padStart(2, "0")}`, Description: "Stocked item", Quantity: qty }],
+      });
+    }
+  }
+  return out;
+})();
+
 const demoPurchaseOrders: PurchaseOrder[] = [
   {
     id: "demo-po-1",
@@ -212,7 +236,7 @@ const demoSettings: AppSettings = {
 const demoData: Record<string, unknown> = {
   rf_master: demoItems,
   rf_active: demoItems,
-  rf_bins: demoBins,
+  rf_bins: [...demoBins, ...demoFloorBins],
   rf_purchase_orders: demoPurchaseOrders,
   rf_orders: [],
   rf_sales_orders: demoSalesOrders,
