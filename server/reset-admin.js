@@ -7,7 +7,7 @@
 // There is no default password. With no users yet it creates the first admin.
 // If users already exist it refuses, unless --reset-password is given; that
 // changes only the named admin's password and never deletes any other user.
-// In Docker:  docker compose exec -e ADMIN_PASSWORD='...' api node reset-admin.js
+// In Docker (the app lives in /app/server, so the path starts with server/):  docker compose exec -e ADMIN_PASSWORD='...' api node server/reset-admin.js
 import bcrypt from 'bcryptjs';
 import fs from 'fs/promises';
 import path from 'path';
