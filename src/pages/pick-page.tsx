@@ -2,6 +2,8 @@ import React, { useState, useEffect } from "react";
 import { Wave, Order, OrderItem, BinLocation, SalesOrder, SOItem } from "../types";
 import { useCollection } from "../data/hooks";
 import { adjustBin, pickSalesOrderLine, upsertRecord } from "../data/ops";
+import { checkStock, summarizeStock } from "../data/stock-check";
+import StockNotice from "../components/stock-notice";
 import { Truck, Package, MapPin, Check, AlertTriangle, ShoppingCart } from "lucide-react";
 
 interface PickPageProps {
@@ -264,6 +266,16 @@ export default function PickPage({ setPage }: PickPageProps) {
     const currentPick = soPickList[currentPickIndex];
     const { so, item } = currentPick;
     const progress = ((currentPickIndex / soPickList.length) * 100).toFixed(0);
+    // Stock check for every line in pick order, so two lines of one item in one bin share its stock.
+    const stockResults = checkStock(
+      soPickList.map((entry) => ({
+        binCode: entry.item.BinCode,
+        itemCode: entry.item.ItemCode,
+        needed: liveRemaining(entry),
+      })),
+      bins
+    );
+    const stock = stockResults[currentPickIndex];
 
     return (
       <div className="p-4 max-w-4xl mx-auto">
@@ -329,6 +341,8 @@ export default function PickPage({ setPage }: PickPageProps) {
                 <p className="text-sm text-gray-600">Customer: {so.customer}</p>
               </div>
             </div>
+
+            <StockNotice result={stock} enteredQty={pickedQty} />
 
             <div className="bg-blue-50 rounded-lg p-4 mb-4">
               <p className="text-center text-3xl font-bold text-blue-600">
@@ -435,6 +449,17 @@ export default function PickPage({ setPage }: PickPageProps) {
             {pendingSalesOrders.map((so) => {
               const itemsToPick = so.items.filter(item => (item.RemainingQty || 0) > 0);
               const totalRemaining = so.items.reduce((sum, item) => sum + (item.RemainingQty || 0), 0);
+              // Warn before the picker starts: lines whose bin holds too little (or nothing).
+              const stockSummary = summarizeStock(
+                checkStock(
+                  itemsToPick.map((line) => ({
+                    binCode: line.BinCode,
+                    itemCode: line.ItemCode,
+                    needed: line.RemainingQty || 0,
+                  })),
+                  bins
+                )
+              );
               
               return (
                 <div
@@ -461,6 +486,20 @@ export default function PickPage({ setPage }: PickPageProps) {
                       <p className="text-xs text-gray-500 mt-1">
                         Created: {new Date(so.createdDate).toLocaleDateString()}
                       </p>
+                      {(stockSummary.none > 0 || stockSummary.partial > 0) && (
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          {stockSummary.none > 0 && (
+                            <span className="px-2 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800">
+                              ✕ {stockSummary.none} {stockSummary.none === 1 ? "line" : "lines"} with no stock
+                            </span>
+                          )}
+                          {stockSummary.partial > 0 && (
+                            <span className="px-2 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">
+                              ⚠ {stockSummary.partial} {stockSummary.partial === 1 ? "line" : "lines"} short on stock
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
                     <div className="text-right">
                       <p className="text-sm text-gray-600">
