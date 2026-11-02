@@ -48,7 +48,7 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
     []
   );
 
-  // 🔄 Auto-load master inventory from VPS on mount
+  // Auto-load master inventory from VPS on mount
   useEffect(() => {
     const loadMasterInventory = async () => {
       // Check if we already have data from server (but still try server first for fresh data)
@@ -60,7 +60,7 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
         // (not sample data - sample data has only ~7 items)
         if (hasExistingData && existingData.length > 20) {
           await persistInventoryData(existingData, { syncToServer: false });
-          setStatus(`✅ Using existing data (${existingData.length} items). Click "Load from Server" below to refresh.`);
+          setStatus(`Using existing data (${existingData.length} items). Click "Load from Server" below to refresh.`);
           return;
         }
       } catch (error) {
@@ -69,7 +69,7 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
       }
 
       setIsLoadingMaster(true);
-      setStatus("📥 Attempting to load master inventory from server...");
+      setStatus("Attempting to load master inventory from server...");
 
       try {
         // Try to fetch master inventory file from VPS
@@ -83,8 +83,8 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
           const parsedData = await parseCSV(file);
           
           const { serverSynced } = await persistInventoryData(parsedData);
-          const syncNote = serverSynced ? "" : " ⚠️ Could not save to the server.";
-          setStatus(`✅ Loaded ${parsedData.length} items from master inventory${syncNote}`);
+          const syncNote = serverSynced ? "" : " Could not save to the server.";
+          setStatus(`Loaded ${parsedData.length} items from master inventory${syncNote}`);
           
           // Auto-complete setup after successful load
           setTimeout(() => {
@@ -95,14 +95,14 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
         } else {
           // Master file not found on server
           if (response.status === 404) {
-            setStatus("⚠️ Master inventory file not found on server. Please upload your inventory file below or use demo data.");
+            setStatus("Master inventory file not found on server. Please upload your inventory file below or use demo data.");
           } else {
-            setStatus(`⚠️ Server error (${response.status}). Please upload your inventory file below or use demo data.`);
+            setStatus(`Server error (${response.status}). Please upload your inventory file below or use demo data.`);
           }
         }
       } catch (error) {
         console.error("Error loading master inventory:", error);
-        setStatus("⚠️ Could not connect to server. Please upload your inventory file below or use demo data.");
+        setStatus("Could not connect to server. Please upload your inventory file below or use demo data.");
       } finally {
         setIsLoadingMaster(false);
       }
@@ -111,12 +111,12 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
     loadMasterInventory();
   }, [persistInventoryData]);
 
-  // 🔄 Manual load from server button
+  // Manual load from server button
   const handleLoadFromServer = async () => {
     const warning = replaceInventoryWarning(data.length, "master_inventory.xlsx");
     if (warning && !window.confirm(warning)) return;
     setIsLoadingMaster(true);
-    setStatus("📥 Loading master inventory from server...");
+    setStatus("Loading master inventory from server...");
 
     try {
       const response = await fetch("/data/master_inventory.xlsx");
@@ -128,8 +128,8 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
         const parsedData = await parseCSV(file);
         
         const { serverSynced } = await persistInventoryData(parsedData);
-        const syncNote = serverSynced ? "" : " ⚠️ Could not save to the server.";
-        setStatus(`✅ Loaded ${parsedData.length} items from master inventory${syncNote}`);
+        const syncNote = serverSynced ? "" : " Could not save to the server.";
+        setStatus(`Loaded ${parsedData.length} items from master inventory${syncNote}`);
         
         setTimeout(() => {
           if (onSetupComplete) {
@@ -138,20 +138,20 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
         }, 1500);
       } else {
         if (response.status === 404) {
-          setStatus("❌ Master inventory file not found on server. Please upload manually.");
+          setStatus("Master inventory file not found on server. Please upload manually.");
         } else {
-          setStatus(`❌ Server error (${response.status}). Please try again or upload manually.`);
+          setStatus(`Server error (${response.status}). Please try again or upload manually.`);
         }
       }
     } catch (error) {
       console.error("Error loading master inventory:", error);
-      setStatus("❌ Could not connect to server. Please upload your inventory file manually.");
+      setStatus("Could not connect to server. Please upload your inventory file manually.");
     } finally {
       setIsLoadingMaster(false);
     }
   };
 
-  // 📥 Handle file upload (CSV or XLSX)
+  // Handle file upload (CSV or XLSX)
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -172,8 +172,8 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
       const parsedData = await parseCSV(file);
 
       const { serverSynced } = await persistInventoryData(parsedData);
-      const syncNote = serverSynced ? "" : " ⚠️ Could not save to the server.";
-      setStatus(`✅ Loaded ${parsedData.length} items from ${fileType} file${syncNote}`);
+      const syncNote = serverSynced ? "" : " Could not save to the server.";
+      setStatus(`Loaded ${parsedData.length} items from ${fileType} file${syncNote}`);
       
       // Automatically navigate to home if data is loaded successfully
       if (onSetupComplete) {
@@ -183,24 +183,24 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
       }
     } catch (err) {
       console.error("Error parsing file:", err);
-      setStatus(`❌ Error reading ${fileType} file. Please check the format and column names.`);
+      setStatus(`Error reading ${fileType} file. Please check the format and column names.`);
     }
   };
 
-  // 🔄 Resume saved session
+  // Resume saved session
   const handleResume = () => {
     if (data.length > 0) {
       setStatus(`Resumed from saved session (${data.length} items)`);
       if (onSetupComplete) onSetupComplete();
     } else {
-      setStatus("⚠️ No saved session found.");
+      setStatus("No saved session found.");
     }
   };
 
-  // 🎲 Initialize sample data
+  // Initialize sample data
   const handleInitializeSampleData = async () => {
     if (sampleBlockedReason) {
-      setStatus(`⚠️ ${sampleBlockedReason}`);
+      setStatus(`${sampleBlockedReason}`);
       return;
     }
     if (!window.confirm("Replace the inventory list with a small set of sample items? This is for trying the app out only.")) {
@@ -210,18 +210,18 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
     try {
       const sampleItems = await initializeSampleData();
       const { serverSynced } = await persistInventoryData(sampleItems);
-      const syncNote = serverSynced ? "" : " ⚠️ Could not save to the server.";
-      setStatus(`✅ Sample data initialized! Ready to use.${syncNote}`);
+      const syncNote = serverSynced ? "" : " Could not save to the server.";
+      setStatus(`Sample data initialized! Ready to use.${syncNote}`);
       setTimeout(() => {
         if (onSetupComplete) onSetupComplete();
       }, 1500);
     } catch (err) {
       console.error("Error initializing data:", err);
-      setStatus("❌ Error initializing sample data.");
+      setStatus("Error initializing sample data.");
     }
   };
 
-  // 📥 Handle PO file upload
+  // Handle PO file upload
   const handlePOFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -242,7 +242,7 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
       const uniqueNewPOs = newPOs.filter(po => !existingPONumbers.has(po.poNumber));
       
       if (uniqueNewPOs.length === 0) {
-        setStatus("⚠️ All POs in file already exist. No new POs added.");
+        setStatus("All POs in file already exist. No new POs added.");
         e.target.value = "";
         return;
       }
@@ -250,16 +250,16 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
       await upsertManyRecords("rf_purchase_orders", uniqueNewPOs, true);
       
       const totalItems = uniqueNewPOs.reduce((sum, po) => sum + po.items.length, 0);
-      setStatus(`✅ Loaded ${uniqueNewPOs.length} purchase order(s) with ${totalItems} total line items from ${fileType} file`);
+      setStatus(`Loaded ${uniqueNewPOs.length} purchase order(s) with ${totalItems} total line items from ${fileType} file`);
       e.target.value = "";
     } catch (err) {
       console.error("Error importing PO file:", err);
-      setStatus(`❌ Could not import the PO ${fileType} file (${(err as Error)?.message || "unknown error"}). Check the format. Required columns: poNumber, vendor, expectedDate, ItemCode, Description, OrderedQty`);
+      setStatus(`Could not import the PO ${fileType} file (${(err as Error)?.message || "unknown error"}). Check the format. Required columns: poNumber, vendor, expectedDate, ItemCode, Description, OrderedQty`);
       e.target.value = "";
     }
   };
 
-  // 📥 Handle Sales Order file upload
+  // Handle Sales Order file upload
   const handleSOFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -280,26 +280,26 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
       const uniqueNewSOs = newSOs.filter(so => !existingSONumbers.has(so.soNumber));
       
       if (uniqueNewSOs.length === 0) {
-        setStatus("⚠️ All Sales Orders in file already exist. No new SOs added.");
+        setStatus("All Sales Orders in file already exist. No new SOs added.");
         e.target.value = "";
         return;
       }
 
       await upsertManyRecords("rf_sales_orders", uniqueNewSOs, true);
       
-      setStatus(`✅ Loaded ${uniqueNewSOs.length} sales order(s) with ${newSOs.reduce((sum, so) => sum + so.items.length, 0)} total line items from ${fileType} file`);
+      setStatus(`Loaded ${uniqueNewSOs.length} sales order(s) with ${newSOs.reduce((sum, so) => sum + so.items.length, 0)} total line items from ${fileType} file`);
       e.target.value = "";
     } catch (err) {
       console.error("Error importing Sales Order file:", err);
-      setStatus(`❌ Could not import the Sales Order ${fileType} file (${(err as Error)?.message || "unknown error"}). Check the format. Required columns: soNumber, customer, CardCode, ItemCode, Description, OrderedQty, DeliveredQty`);
+      setStatus(`Could not import the Sales Order ${fileType} file (${(err as Error)?.message || "unknown error"}). Check the format. Required columns: soNumber, customer, CardCode, ItemCode, Description, OrderedQty, DeliveredQty`);
       e.target.value = "";
     }
   };
 
-  // 🗑️ Clear all data
+  // Clear all data
   const handleClearData = () => {
     if (auth.currentUser?.role !== "admin") {
-      setStatus(`⚠️ ${clearDataCheck(auth.currentUser?.role, CLEAR_CONFIRM_WORD).allowed ? "" : "Only an administrator can clear the shared data."}`);
+      setStatus(`${clearDataCheck(auth.currentUser?.role, CLEAR_CONFIRM_WORD).allowed ? "" : "Only an administrator can clear the shared data."}`);
       return;
     }
     const typed = window.prompt(
@@ -307,28 +307,26 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
     );
     const check = clearDataCheck(auth.currentUser?.role, typed);
     if (!check.allowed) {
-      setStatus(`⚠️ ${check.reason}`);
+      setStatus(`${check.reason}`);
       return;
     }
     clearAllData();
     saveCollection("rf_active", [], { overwrite: true, reload: false })
-      .then(() => setStatus("🗑️ All data cleared."))
-      .catch((error: any) => setStatus(`❌ Server data was not cleared: ${error?.message || "server error"}`));
+      .then(() => setStatus("All data cleared."))
+      .catch((error: any) => setStatus(`Server data was not cleared: ${error?.message || "server error"}`));
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 text-gray-900 p-6">
-      <div className="w-full max-w-lg bg-white shadow-lg rounded-xl p-8">
-        <h1 className="text-3xl font-semibold text-center text-blue-600 mb-2">
-          RF Warehouse Manager
-        </h1>
-        <p className="text-center text-gray-600 mb-4">
-          Complete warehouse operations at your fingertips
+    <div className="p-4 max-w-4xl mx-auto">
+      <div className="w-full">
+        <h1 className="page-title">Load warehouse data</h1>
+        <p className="page-lede">
+          Load the master inventory and the open purchase and sales orders before staff start working.
         </p>
         
         {/* Info Box */}
         <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-gray-700">
-          <p className="font-medium text-blue-900 mb-1">ℹ️ Data Storage Information</p>
+          <p className="font-medium text-blue-900 mb-1">Data Storage Information</p>
           <p className="text-gray-600">
             Warehouse data is stored on the server and shared by every device and user.
             <strong className="text-blue-700"> Use "Load from Server"</strong> to load the master
@@ -336,8 +334,8 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
           </p>
         </div>
 
-        {/* 🔄 Load from Server - PRIMARY ACTION */}
-        <div className="mb-6 bg-gradient-to-br from-green-50 to-green-100 border-2 border-green-300 rounded-lg p-6">
+        {/* Load from Server - PRIMARY ACTION */}
+        <div className="mb-6 bg-green-50 border border-green-200 rounded-lg p-6">
           <div className="flex items-center gap-3 mb-3">
             <Database className="text-green-600" size={28} />
             <h3 className="text-lg font-semibold text-green-900">Load from Server</h3>
@@ -349,7 +347,7 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
           <button
             onClick={handleLoadFromServer}
             disabled={isLoadingMaster}
-            className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-medium py-3 rounded-lg transition flex items-center justify-center gap-2"
+            className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-medium py-3 rounded-lg transition flex items-center justify-center gap-2"
           >
             {isLoadingMaster ? (
               <>
@@ -367,8 +365,8 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
 
         <div className="text-center text-gray-400 mb-4">OR</div>
 
-        {/* 🎲 Initialize Sample Data */}
-        <div className="mb-6 bg-gradient-to-br from-blue-50 to-blue-100 border-2 border-blue-300 rounded-lg p-6">
+        {/* Initialize Sample Data */}
+        <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-6">
           <div className="flex items-center gap-3 mb-3">
             <Play className="text-blue-600" size={28} />
             <h3 className="text-lg font-semibold text-blue-900">Demo Data (Testing Only)</h3>
@@ -376,7 +374,7 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
           <p className="text-sm text-gray-700 mb-4">
             Start with pre-loaded sample data including purchase orders, customer orders, 
             bins, and cycle count tasks. Perfect for testing and learning!
-            <strong className="block mt-2 text-red-600">⚠️ This is dummy data - use "Load from Server" for real inventory!</strong>
+            <strong className="block mt-2 text-red-600">This is dummy data - use "Load from Server" for real inventory!</strong>
           </p>
           <button
             onClick={handleInitializeSampleData}
@@ -391,7 +389,7 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
 
         <div className="text-center text-gray-400 mb-4">OR</div>
 
-        {/* 📁 File Upload Section */}
+        {/* File Upload Section */}
         <div className="text-center border-2 border-dashed border-gray-300 rounded-lg p-6 mb-4 hover:border-blue-400 transition">
           <Upload className="mx-auto mb-2 text-gray-400" size={32} />
           <label
@@ -419,7 +417,7 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
           </p>
         </div>
 
-        {/* 📦 Purchase Order Upload Section */}
+        {/* Purchase Order Upload Section */}
         <div className="text-center border-2 border-dashed border-purple-300 rounded-lg p-6 mb-4 hover:border-purple-400 transition bg-purple-50">
           <Package className="mx-auto mb-2 text-purple-400" size={32} />
           <label
@@ -447,7 +445,7 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
           </p>
         </div>
 
-        {/* 🛒 Sales Order Upload Section */}
+        {/* Sales Order Upload Section */}
         <div className="text-center border-2 border-dashed border-green-300 rounded-lg p-6 mb-4 hover:border-green-400 transition bg-green-50">
           <ShoppingCart className="mx-auto mb-2 text-green-500" size={32} />
           <label
@@ -475,18 +473,18 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
           </p>
         </div>
 
-        {/* 🔄 Resume Button */}
+        {/* Resume Button */}
         {data.length > 0 && (
           <button
             onClick={handleResume}
-            className="w-full bg-green-500 hover:bg-green-600 text-white font-medium py-3 rounded-lg transition mb-4 flex items-center justify-center gap-2"
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 rounded-lg transition mb-4 flex items-center justify-center gap-2"
           >
             <Play size={20} />
             Resume Saved Session
           </button>
         )}
 
-        {/* 🗑️ Clear Data Button */}
+        {/* Clear Data Button */}
         <button
           onClick={handleClearData}
           disabled={auth.currentUser?.role !== "admin"}
@@ -497,18 +495,18 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
           Clear All Data{auth.currentUser?.role !== "admin" ? " (admin only)" : ""}
         </button>
 
-        {/* 🧾 Status Display */}
+        {/* Status Display */}
         {status && (
           <div className="mt-4 text-center text-gray-700 bg-gray-100 p-3 rounded-lg">
             {status}
           </div>
         )}
 
-        {/* 📦 Summary */}
+        {/* Summary */}
         {data.length > 0 && (
           <div className="mt-6 border-t pt-4">
             <h2 className="font-semibold text-lg text-gray-700 mb-2">
-              📦 Loaded Data Summary
+              Loaded Data Summary
             </h2>
             <p className="text-gray-600 text-sm">Total items: {data.length}</p>
             <p className="text-gray-600 text-sm">

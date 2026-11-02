@@ -9,16 +9,14 @@ interface TransactionsPageProps {
 export default function TransactionsPage({ setPage }: TransactionsPageProps) {
   return (
     <div className="p-4 max-w-4xl mx-auto">
-      <h1 className="text-2xl font-bold mb-2">Transactions</h1>
-      <p className="text-gray-600 mb-6">
-        Select a transaction type to process inventory movements
-      </p>
+      <h1 className="page-title">Transactions</h1>
+      <p className="page-lede">Choose the kind of inventory movement to process.</p>
 
       <div className="space-y-4">
         {/* Receive Inventory */}
         <button
           onClick={() => setPage("receive")}
-          className="w-full bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow border-l-4 border-blue-500 text-left flex items-center justify-between group"
+          className="w-full bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow  text-left flex items-center justify-between group"
         >
           <div className="flex items-start gap-4">
             <div className="bg-blue-100 p-3 rounded-lg">
@@ -48,7 +46,7 @@ export default function TransactionsPage({ setPage }: TransactionsPageProps) {
         {/* Pick Orders */}
         <button
           onClick={() => setPage("pick")}
-          className="w-full bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow border-l-4 border-green-500 text-left flex items-center justify-between group"
+          className="w-full bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow  text-left flex items-center justify-between group"
         >
           <div className="flex items-start gap-4">
             <div className="bg-green-100 p-3 rounded-lg">
@@ -79,7 +77,7 @@ export default function TransactionsPage({ setPage }: TransactionsPageProps) {
       {/* Info Box */}
       <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
         <p className="text-sm text-blue-800">
-          <strong>💡 Tip:</strong> Receive adds items to inventory (inbound), Pick removes items for orders (outbound).
+          <strong>Tip:</strong> Receive adds items to inventory (inbound), Pick removes items for orders (outbound).
         </p>
       </div>
     </div>

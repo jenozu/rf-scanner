@@ -8,11 +8,11 @@ interface FooterNavProps {
 
 export default function FooterNav({ currentPage, setPage }: FooterNavProps) {
   const navItems = [
-    { page: "home" as PageType, icon: Home, label: "Home", emoji: "🏠" },
-    { page: "inventory" as PageType, icon: ClipboardCheck, label: "Inventory", emoji: "🔢" },
-    { page: "scan" as PageType, icon: Camera, label: "Scan", emoji: "🔍" },
-    { page: "shipping" as PageType, icon: Truck, label: "Shipping", emoji: "📦" },
-    { page: "settings" as PageType, icon: Settings, label: "Settings", emoji: "⚙️" },
+    { page: "home" as PageType, icon: Home, label: "Home", emoji: "" },
+    { page: "inventory" as PageType, icon: ClipboardCheck, label: "Inventory", emoji: "" },
+    { page: "scan" as PageType, icon: Camera, label: "Scan", emoji: "" },
+    { page: "shipping" as PageType, icon: Truck, label: "Shipping", emoji: "" },
+    { page: "settings" as PageType, icon: Settings, label: "Settings", emoji: "" },
   ];
 
   return (
