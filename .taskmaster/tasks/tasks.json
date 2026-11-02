@@ -349,11 +349,25 @@
         "complexity": 4,
         "id": 18,
         "subtasks": []
+      },
+      {
+        "title": "Short-stock warning on picking (owner request)",
+        "description": "Show bin stock vs quantity needed on sales-order picking; highlight partial and no-stock lines before the picker walks to the shelf.",
+        "status": "done",
+        "priority": "high",
+        "dependencies": [
+          10
+        ],
+        "details": "New pure helper src/data/stock-check.ts: per line, stock in the line's bin, allocated sequentially so two lines of the same item in the same bin share it; status ok/partial/none/no-bin/unknown-bin; 'also in' other bins. Pick page: badge on each order in the list (N short / N no stock), stock banner on the current pick line, warning when the entered quantity exceeds what the bin shows (allowed, since counts can be stale). No change to saving. Phase 4 will add server-side enforcement.\n\n[2026-11-02T11:32:21-05:00] built: src/data/stock-check.ts (+10 unit tests), src/components/stock-notice.tsx, pick-page wiring (order-list badges + pick-screen banner above the quantity). Verifying in a real browser next.\n\n[2026-11-02T11:33:22-05:00] DONE. Real browser (real API) 12/12: order list badges ('1 line with no stock', '2 lines short on stock', none on a fully stocked order), pick screen: green In stock / amber Short stock (needs 10, short by 7, 'You entered 10, but the bin shows 3', clears when 3 is typed) / red No stock / Also in: <other bins>; same-item lines share a bin's stock in pick order. Phone width 390: no overflow. Earlier picking test 8/8. Unit tests: stock-check 10. Warning only: nothing blocks a pick (counts can be stale); server-side enforcement stays in Phase 4. Not covered: stock reserved by OTHER orders (each order is checked on its own); legacy wave picking.",
+        "testStrategy": "Unit tests for the helper (partial, none, shared stock, unknown bin, other bins); real-browser check against the real API that list badges and the pick banner show the right text/colours",
+        "complexity": 3,
+        "id": 19,
+        "subtasks": []
       }
     ],
     "metadata": {
       "created": "2026-10-29T19:42:01-04:00",
-      "updated": "2026-10-30T10:58:29-04:00"
+      "updated": "2026-11-02T11:33:23-05:00"
     }
   }
 }
