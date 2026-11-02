@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { Wave, Order, OrderItem, BinLocation, SalesOrder, SOItem } from "../types";
 import { useCollection } from "../data/hooks";
-import { adjustBin, assignSoBin, pickSalesOrderLine, upsertRecord } from "../data/ops";
+import { adjustBin, assignSoBin, pickSalesOrderLine, upsertRecord, deleteRecord } from "../data/ops";
+import ManageOrdersPanel from "../components/manage-orders-panel";
 import { checkStock, summarizeStock } from "../data/stock-check";
 import StockNotice from "../components/stock-notice";
 import BinAssignPanel from "../components/bin-assign-panel";
@@ -577,6 +578,21 @@ export default function PickPage({ setPage }: PickPageProps) {
             <p className="text-sm mt-2">All {salesOrders.length} sales orders are complete.</p>
           </div>
         )}
+
+        <ManageOrdersPanel
+          title="Manage imported sales orders (delete)"
+          kind="sales order"
+          orders={salesOrders.map((so) => ({
+            id: so.id,
+            label: `SO ${so.soNumber}`,
+            detail: so.customer,
+            status: so.status,
+            lineCount: so.items.length,
+            progressQty: so.items.reduce((sum, item) => sum + (item.DeliveredQty || 0), 0),
+          }))}
+          onDelete={(id) => deleteRecord("rf_sales_orders", id).then(() => undefined)}
+          onMessage={showToast}
+        />
 
         {/* Legacy Wave Picking Section (if waves exist) */}
         {waves.length > 0 && (
