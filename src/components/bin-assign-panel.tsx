@@ -38,7 +38,7 @@ export function binsHoldingItem(bins: BinLocation[], itemCode: string, warehouse
  */
 export default function BinAssignPanel({
   itemCode, currentBin, warehouse, bins, onAssign,
-  heading = "✕ This part has no real bin",
+  heading = "This part has no real bin",
   explain,
   actionLabel = "Assign bin",
   footer = "This updates the order in this app only. Also set the item's Default Bin Location in SAP so future receipts go to the right place.",

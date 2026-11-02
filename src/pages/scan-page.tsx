@@ -51,7 +51,7 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem, onStartCount
     setToast({ message, type });
   };
 
-  // ✅ Initialize barcode scanner with better permission handling
+  // Initialize barcode scanner with better permission handling
   useEffect(() => {
     let isInitialized = false;
 
@@ -63,7 +63,7 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem, onStartCount
           const permissionStatus = await navigator.permissions.query({ name: 'camera' as PermissionName });
           
           if (permissionStatus.state === 'denied') {
-            showToast("📷 Camera permission denied. Please enable it in your browser settings.", "error");
+            showToast("Camera permission denied. Please enable it in your browser settings.", "error");
             return;
           }
         }
@@ -87,13 +87,13 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem, onStartCount
               const cameraErrorName = (err as any)?.name || "";
               if (cameraErrorName === "NotFoundError" || cameraErrorName === "DevicesNotFoundError") {
                 console.info("No camera detected; manual lookup remains available.");
-                showToast("📷 No camera detected. Use manual lookup below.", "info");
+                showToast("No camera detected. Use manual lookup below.", "info");
               } else {
                 console.error("Quagga init error:", err);
                 if (cameraErrorName === "NotAllowedError") {
-                  showToast("📷 Camera access denied. Use manual lookup below.", "error");
+                  showToast("Camera access denied. Use manual lookup below.", "error");
                 } else {
-                  showToast("📷 Camera unavailable. Use manual lookup below.", "error");
+                  showToast("Camera unavailable. Use manual lookup below.", "error");
                 }
               }
               return;
@@ -124,7 +124,7 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem, onStartCount
     };
   }, []);
 
-  // ✅ Handle barcode scan with smart search
+  // Handle barcode scan with smart search
   const handleScan = (code: string) => {
     console.log("Scanned:", code);
     setScannedCode(code);
@@ -134,24 +134,24 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem, onStartCount
     if (result) {
       if (result.type === "bin" && result.bin) {
         setScanResult({ type: "bin", bin: result.bin });
-        showToast(`✅ Found bin: ${displayBinCode(result.bin.BinCode)}`, "success");
+        showToast(`Found bin: ${displayBinCode(result.bin.BinCode)}`, "success");
       } else if (result.type === "item" && result.item) {
         setScanResult({ type: "item", item: result.item });
-        showToast(`✅ Found item: ${result.item.ItemCode}`, "success");
+        showToast(`Found item: ${result.item.ItemCode}`, "success");
       } else if (result.matches && result.matches.length > 0) {
         setScanResult({ type: "multiple", matches: result.matches });
-        showToast(`📋 Found ${result.matches.length} matching items`, "info");
+        showToast(`Found ${result.matches.length} matching items`, "info");
       }
     } else {
       setScanResult(null);
-      showToast(`❌ No matches found for: ${code}`, "error");
+      showToast(`No matches found for: ${code}`, "error");
     }
   };
 
   // Handle manual lookup with normalization
   const handleManualLookup = () => {
     if (!manualCode.trim()) {
-      showToast("⚠️ Please enter a code", "error");
+      showToast("Please enter a code", "error");
       return;
     }
     // Normalize input (adds "01-" prefix if it looks like a bin code)
@@ -162,24 +162,24 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem, onStartCount
   // Handle selecting an item from multiple matches
   const handleSelectMatch = (item: Item) => {
     setScanResult({ type: "item", item });
-    showToast(`✅ Selected: ${item.ItemCode}`, "success");
+    showToast(`Selected: ${item.ItemCode}`, "success");
   };
 
   // Create new bin
   const handleCreateBin = async () => {
     if (!newBinCode.trim()) {
-      showToast("⚠️ Please enter a bin code", "error");
+      showToast("Please enter a bin code", "error");
       return;
     }
 
     if (!newBinZone.trim()) {
-      showToast("⚠️ Please enter a zone", "error");
+      showToast("Please enter a zone", "error");
       return;
     }
 
     // Check if bin already exists
     if (bins.some((bin) => bin.BinCode === newBinCode.toUpperCase())) {
-      showToast("⚠️ Bin already exists", "error");
+      showToast("Bin already exists", "error");
       return;
     }
 
@@ -194,13 +194,13 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem, onStartCount
     try {
       await saveBinChanges(bins, [...bins, newBin]);
     } catch (error: any) {
-      showToast(`❌ Bin not created: ${error?.message || "server error"}`, "error");
+      showToast(`Bin not created: ${error?.message || "server error"}`, "error");
       return;
     }
     setNewBinCode("");
     setNewBinZone("");
     setShowNewBinModal(false);
-    showToast(`✅ Created new bin: ${newBin.BinCode}`, "success");
+    showToast(`Created new bin: ${newBin.BinCode}`, "success");
 
     // Show the newly created bin
     setScanResult({ type: "bin", bin: newBin });
@@ -215,17 +215,15 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem, onStartCount
 
   return (
     <div className="p-4 max-w-4xl mx-auto">
-      <h1 className="text-2xl font-bold mb-4 flex items-center gap-2">
-        <Search className="text-blue-600" />
-        Scan & Inquiry
-      </h1>
+      <h1 className="page-title">Scan & Inquiry</h1>
+      <p className="page-lede">Look up an item or a bin by barcode or typed code.</p>
 
       {/* Toast Notification */}
       {toast && (
         <div
           className={`fixed top-20 left-1/2 transform -translate-x-1/2 z-50 px-6 py-3 rounded-lg shadow-lg transition-opacity ${
             toast.type === "success"
-              ? "bg-green-500 text-white"
+              ? "bg-blue-600 text-white"
               : toast.type === "error"
               ? "bg-red-500 text-white"
               : "bg-blue-500 text-white"
@@ -235,7 +233,7 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem, onStartCount
         </div>
       )}
 
-      {/* ✅ Live camera stream */}
+      {/* Live camera stream */}
       <div
         ref={videoRef}
         className="w-full max-w-sm aspect-video bg-black rounded-md overflow-hidden mx-auto mb-4"
@@ -249,7 +247,7 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem, onStartCount
             onClick={() => setKeyboardMode(keyboardMode === "numeric" ? "text" : "numeric")}
             className="text-xs px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
           >
-            {keyboardMode === "numeric" ? "🔤 ABC" : "🔢 123"}
+            {keyboardMode === "numeric" ? "ABC" : "123"}
           </button>
         </div>
         <div className="flex gap-2">

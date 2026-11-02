@@ -87,22 +87,22 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
     const finalBin = selectedBin.trim().toUpperCase();
     const binCheck = classifyBin(finalBin, receivingItem.Warehouse);
     if (!binCheck.real) {
-      showToast(`⚠️ ${binCheck.reason}. Choose a real bin first.`, "error");
+      showToast(`${binCheck.reason}. Choose a real bin first.`, "error");
       return;
     }
 
     if (receivedQty <= 0) {
-      showToast("⚠️ Received quantity must be greater than 0", "error");
+      showToast("Received quantity must be greater than 0", "error");
       return;
     }
 
     if (receivingItem.RequiresLotSerial) {
       if (lotMode === "lots" && (lots.length === 0 || lots.reduce((s, l) => s + (l.qty || 0), 0) !== receivedQty)) {
-        showToast("⚠️ Lot quantities must sum to received quantity", "error");
+        showToast("Lot quantities must sum to received quantity", "error");
         return;
       }
       if (lotMode === "serials" && serials.length !== receivedQty) {
-        showToast("⚠️ Number of serials must equal received quantity", "error");
+        showToast("Number of serials must equal received quantity", "error");
         return;
       }
     }
@@ -142,13 +142,13 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
 
       showToast(
         result.duplicate
-          ? "ℹ️ This receipt was already saved"
-          : `✅ Received ${receivedQty} of ${receivingItem.Description} → Bin: ${finalBin}`,
+          ? "This receipt was already saved"
+          : `Received ${receivedQty} of ${receivingItem.Description} → Bin: ${finalBin}`,
         "success"
       );
     } catch (error: any) {
       // Nothing was saved (or the same attempt can be retried safely). Keep the form.
-      showToast(`❌ Not saved: ${error?.message || "server error"}. Try again.`, "error");
+      showToast(`Not saved: ${error?.message || "server error"}. Try again.`, "error");
     } finally {
       setIsSaving(false);
     }
@@ -157,13 +157,13 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
   // Create new bin
   const handleCreateBin = async () => {
     if (!newBinCode.trim()) {
-      showToast("⚠️ Please enter a bin code", "error");
+      showToast("Please enter a bin code", "error");
       return;
     }
 
     // Check if bin already exists
     if (bins.some((bin) => bin.BinCode === newBinCode.toUpperCase())) {
-      showToast("⚠️ Bin already exists", "error");
+      showToast("Bin already exists", "error");
       return;
     }
 
@@ -182,9 +182,9 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
       setSelectedBin(newBin.BinCode);
       setNewBinCode("");
       setShowNewBinModal(false);
-      showToast(`✅ Created new bin: ${newBin.BinCode}`, "success");
+      showToast(`Created new bin: ${newBin.BinCode}`, "success");
     } catch (error: any) {
-      showToast(`❌ Bin not created: ${error?.message || "server error"}`, "error");
+      showToast(`Bin not created: ${error?.message || "server error"}`, "error");
     }
   };
 
@@ -226,9 +226,9 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
       const existingPONumbers = new Set(purchaseOrders.map(po => po.poNumber));
       const uniqueNewPOs = newPOs.filter(po => !existingPONumbers.has(po.poNumber));
       if (uniqueNewPOs.length > 0) await upsertManyRecords("rf_purchase_orders", uniqueNewPOs, true);
-      showToast(`✅ Imported ${uniqueNewPOs.length} PO(s) from server file`, "success");
+      showToast(`Imported ${uniqueNewPOs.length} PO(s) from server file`, "success");
     } catch (e: any) {
-      showToast(`❌ Import failed: ${e.message || e}`, "error");
+      showToast(`Import failed: ${e.message || e}`, "error");
     }
   };
 
@@ -248,18 +248,18 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
       const uniqueNewPOs = newPOs.filter(po => !existingPONumbers.has(po.poNumber));
       
       if (uniqueNewPOs.length === 0) {
-        showToast("⚠️ All POs in file already exist. No new POs added.", "info");
+        showToast("All POs in file already exist. No new POs added.", "info");
         e.target.value = ""; // Reset file input
         return;
       }
 
       await upsertManyRecords("rf_purchase_orders", uniqueNewPOs, true);
       
-      showToast(`✅ Loaded ${uniqueNewPOs.length} purchase order(s) from ${file.name}`, "success");
+      showToast(`Loaded ${uniqueNewPOs.length} purchase order(s) from ${file.name}`, "success");
       e.target.value = ""; // Reset file input
     } catch (err) {
       console.error("Error importing PO file:", err);
-      showToast("❌ Could not import the file. Check the PO file format and try again.", "error");
+      showToast("Could not import the file. Check the PO file format and try again.", "error");
       e.target.value = ""; // Reset file input
     }
   };
@@ -268,17 +268,15 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
   if (!selectedPO) {
     return (
       <div className="p-4 max-w-4xl mx-auto">
-        <h1 className="text-2xl font-bold mb-4 flex items-center gap-2">
-          <Package className="text-blue-600" />
-          Receive Purchase Orders
-        </h1>
+        <h1 className="page-title">Receive Purchase Orders</h1>
+        <p className="page-lede">Receive against open purchase orders, line by line.</p>
 
         {/* Toast */}
         {toast && (
           <div
             className={`fixed top-20 left-1/2 transform -translate-x-1/2 z-50 px-6 py-3 rounded-lg shadow-lg ${
               toast.type === "success"
-                ? "bg-green-500 text-white"
+                ? "bg-blue-600 text-white"
                 : toast.type === "error"
                 ? "bg-red-500 text-white"
                 : "bg-blue-500 text-white"
@@ -289,7 +287,7 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
         )}
 
         {/* Upload PO File Button */}
-        <div className="mb-6 bg-gradient-to-br from-blue-50 to-blue-100 border-2 border-blue-300 rounded-lg p-4">
+        <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
           <div className="flex items-center gap-3 mb-2">
             <Upload className="text-blue-600" size={20} />
             <h3 className="font-semibold text-blue-900">Upload Purchase Orders</h3>
@@ -310,7 +308,7 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
         </div>
 
         {/* Search & Import from Server */}
-        <div className="mb-6 bg-gradient-to-br from-purple-50 to-purple-100 border-2 border-purple-300 rounded-lg p-4">
+        <div className="mb-6 bg-purple-50 border border-purple-200 rounded-lg p-4">
           <div className="flex items-center gap-3 mb-2">
             <Download className="text-purple-600" size={20} />
             <h3 className="font-semibold text-purple-900">Load POs from Server (/data/pos)</h3>
@@ -375,7 +373,7 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
               <div
                 key={po.id}
                 onClick={() => handleSelectPO(po)}
-                className="bg-white rounded-lg shadow p-4 cursor-pointer hover:shadow-md transition-shadow border-l-4 border-blue-500"
+                className="bg-white rounded-lg shadow p-4 cursor-pointer hover:shadow-md transition-shadow "
               >
                 <div className="flex justify-between items-start">
                   <div>
@@ -438,7 +436,7 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
         <div
           className={`fixed top-20 left-1/2 transform -translate-x-1/2 z-50 px-6 py-3 rounded-lg shadow-lg ${
             toast.type === "success"
-              ? "bg-green-500 text-white"
+              ? "bg-blue-600 text-white"
               : toast.type === "error"
               ? "bg-red-500 text-white"
               : "bg-blue-500 text-white"
@@ -534,7 +532,7 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
                         currentBin={item.BinCode}
                         warehouse={item.Warehouse}
                         bins={bins}
-                        heading="✕ Choose a bin to receive into"
+                        heading="Choose a bin to receive into"
                         explain={`${classifyBin(item.BinCode, item.Warehouse).reason}. In SAP this would land in the system bin. Choose where it is going before receiving.`}
                         actionLabel="Use this bin"
                         extraOptions={stagingOption}
@@ -607,7 +605,7 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
                               <button
                                 onClick={() => setLots(lots.filter((_, i) => i !== idx))}
                                 className="px-2 bg-gray-200 rounded-md"
-                              >✕</button>
+                              ></button>
                             </div>
                           ))}
                           <button
@@ -636,7 +634,7 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
                               <button
                                 onClick={() => setSerials(serials.filter((_, i) => i !== idx))}
                                 className="px-2 bg-gray-2 00 rounded-md"
-                              >✕</button>
+                              ></button>
                             </div>
                           ))}
                           <button
@@ -653,7 +651,7 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
                     <button
                       onClick={handleSaveReceive}
                       disabled={isSaving || !classifyBin(selectedBin, item.Warehouse).real}
-                      className="flex-1 bg-green-600 text-white py-2 rounded-md hover:bg-green-700 font-medium disabled:bg-gray-400"
+                      className="flex-1 bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700 font-medium disabled:bg-gray-400"
                     >
                       {isSaving ? "Saving..." : !classifyBin(selectedBin, item.Warehouse).real ? "Choose a bin first" : `Confirm Receive to ${selectedBin}`}
                     </button>

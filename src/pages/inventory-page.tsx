@@ -167,7 +167,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
         setSelectedCount(existingCount);
         setCountedQty(0);
         setScannedCode(existingCount.BinCode);
-        showToast(`✅ Found pending count for bin ${startBinCode}`, "success");
+        showToast(`Found pending count for bin ${startBinCode}`, "success");
       } else {
         // Find bin and create a count task for the first item
         const bin = binsData.find((b: BinLocation) => b.BinCode === startBinCode);
@@ -206,9 +206,9 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
           setSelectedCount(newCount);
           setCountedQty(0);
           setScannedCode(newCount.BinCode);
-          showToast(`✅ Created count task for ${firstItem.ItemCode} in ${startBinCode}`, "success");
+          showToast(`Created count task for ${firstItem.ItemCode} in ${startBinCode}`, "success");
         } else {
-          showToast(`ℹ️ Bin ${startBinCode} is empty. Add items first.`, "info");
+          showToast(`Bin ${startBinCode} is empty. Add items first.`, "info");
         }
       }
     }
@@ -231,7 +231,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
   // setter now sends only the records that changed to the server (so two devices
   // working on different records never overwrite each other) and says so if it fails.
   const saveFailed = (what: string) => (error: any) =>
-    showToast(`❌ ${what} not saved: ${error?.message || "server error"}`, "error");
+    showToast(`${what} not saved: ${error?.message || "server error"}`, "error");
   const setCycleCounts = (next: CycleCount[]) => {
     saveRecordChanges("rf_cycle_counts", cycleCounts, next).catch(saveFailed("Count"));
   };
@@ -256,7 +256,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
   // Session management functions
   const createSession = () => {
     if (!newSessionName.trim()) {
-      showToast("⚠️ Please enter a session name", "error");
+      showToast("Please enter a session name", "error");
       return;
     }
 
@@ -275,7 +275,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     setCurrentSession(newSession);
     localStorage.setItem("rf_current_inventory_session", newSession.id);
     
-    showToast(`✅ Created session: ${newSession.name}`, "success");
+    showToast(`Created session: ${newSession.name}`, "success");
     setShowCreateSessionModal(false);
     setNewSessionName("");
     
@@ -357,9 +357,9 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
         
         setShowSessionModal(false);
         
-        showToast(`✅ Resumed: ${session.name} - Item ${itemIndex + 1} of ${items.length}`, "success");
+        showToast(`Resumed: ${session.name} - Item ${itemIndex + 1} of ${items.length}`, "success");
       } else {
-        showToast(`⚠️ No items found in bin range ${startBin} to ${endBin}`, "error");
+        showToast(`No items found in bin range ${startBin} to ${endBin}`, "error");
         setCountingMode("cycle");
         setShowSessionModal(false);
       }
@@ -374,13 +374,13 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
         if (sessionCounts.length > 0) {
           const pendingCounts = sessionCounts.filter((c) => c.Status === "pending");
           if (pendingCounts.length > 0) {
-            showToast(`✅ Resumed session: ${session.name} (${pendingCounts.length} pending counts)`, "success");
+            showToast(`Resumed session: ${session.name} (${pendingCounts.length} pending counts)`, "success");
           } else {
-            showToast(`✅ Resumed session: ${session.name}`, "success");
+            showToast(`Resumed session: ${session.name}`, "success");
           }
         }
       } else {
-        showToast(`✅ Resumed session: ${session.name}`, "success");
+        showToast(`Resumed session: ${session.name}`, "success");
       }
     }
   };
@@ -404,7 +404,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     setSessions(updatedSessions);
     setCurrentSession(updatedSession);
 
-    showToast(`⏸️ Session paused: ${currentSession.name}`, "info");
+    showToast(`Session paused: ${currentSession.name}`, "info");
   };
 
   const completeSession = async () => {
@@ -429,13 +429,13 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     setCurrentSession(null);
     localStorage.removeItem("rf_current_inventory_session");
 
-    showToast(`✅ Session completed: ${currentSession.name}`, "success");
+    showToast(`Session completed: ${currentSession.name}`, "success");
   };
 
   // Temporary location functions
   const createTemporaryLocation = () => {
     if (!newTempLocationTitle.trim()) {
-      showToast("⚠️ Please enter a title", "error");
+      showToast("Please enter a title", "error");
       return;
     }
 
@@ -450,7 +450,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     const updatedLocations = [...temporaryLocations, newLocation];
     setTemporaryLocations(updatedLocations);
     
-    showToast(`✅ Created temporary location: ${newLocation.title}`, "success");
+    showToast(`Created temporary location: ${newLocation.title}`, "success");
     setShowCreateTempLocationModal(false);
     setNewTempLocationTitle("");
     setNewTempLocationDescription("");
@@ -467,7 +467,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     if (!tempLocation) return;
 
     if (moveItemQty > countedQty) {
-      showToast("⚠️ Cannot move more than counted quantity", "error");
+      showToast("Cannot move more than counted quantity", "error");
       return;
     }
 
@@ -506,7 +506,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     // Update counted quantity (subtract moved quantity)
     setCountedQty(countedQty - moveItemQty);
 
-    showToast(`✅ Moved ${moveItemQty} ${selectedCount.ItemCode} to ${tempLocation.title}`, "success");
+    showToast(`Moved ${moveItemQty} ${selectedCount.ItemCode} to ${tempLocation.title}`, "success");
     setShowMoveToTempLocationModal(false);
     setMoveItemQty(0);
   };
@@ -514,7 +514,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
   // Add item to session
   const addItemToSession = () => {
     if (!selectedSessionForTracking || !sessionTrackingItemCode.trim() || sessionTrackingQty <= 0) {
-      showToast("⚠️ Please enter item code and quantity", "error");
+      showToast("Please enter item code and quantity", "error");
       return;
     }
 
@@ -547,7 +547,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
       setCurrentSession(updatedSession);
     }
 
-    showToast(`✅ Added ${sessionTrackingItemCode} (${sessionTrackingQty}) to session`, "success");
+    showToast(`Added ${sessionTrackingItemCode} (${sessionTrackingQty}) to session`, "success");
     setSessionTrackingItemCode("");
     setSessionTrackingQty(0);
     setSessionTrackingScanMode(false);
@@ -556,7 +556,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
   // Add item to temporary location (from tracking form)
   const addItemToTempLocationTracking = () => {
     if (!selectedTempLocationForTracking || !tempTrackingItemCode.trim() || tempTrackingQty <= 0) {
-      showToast("⚠️ Please enter item code and quantity", "error");
+      showToast("Please enter item code and quantity", "error");
       return;
     }
 
@@ -586,7 +586,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     setTemporaryLocations(updatedLocations);
     setSelectedTempLocationForTracking(updatedLocation);
 
-    showToast(`✅ Added ${tempTrackingItemCode} (${tempTrackingQty}) to location`, "success");
+    showToast(`Added ${tempTrackingItemCode} (${tempTrackingQty}) to location`, "success");
     setTempTrackingItemCode("");
     setTempTrackingQty(0);
     setTempTrackingScanMode(false);
@@ -595,7 +595,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
   // Add item to temporary location (from detail view)
   const addItemToTempLocationDetail = () => {
     if (!selectedTempLocationDetail || !detailViewItemCode.trim() || detailViewQty <= 0) {
-      showToast("⚠️ Please enter item code and quantity", "error");
+      showToast("Please enter item code and quantity", "error");
       return;
     }
 
@@ -625,7 +625,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     setTemporaryLocations(updatedLocations);
     setSelectedTempLocationDetail(updatedLocation);
 
-    showToast(`✅ Added ${detailViewItemCode} (${detailViewQty}) to location`, "success");
+    showToast(`Added ${detailViewItemCode} (${detailViewQty}) to location`, "success");
     setDetailViewItemCode("");
     setDetailViewQty(0);
     setDetailViewScanMode(false);
@@ -648,7 +648,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
       setSelectedTempLocationDetail(updatedLocation);
     }
 
-    showToast("✅ Item removed", "success");
+    showToast("Item removed", "success");
   };
 
   // ========== Sequential Counting Functions ==========
@@ -656,7 +656,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
   // Start sequential count with bin range or aisle filter
   const startSequentialCount = async () => {
     if (!currentSession) {
-      showToast("⚠️ No active session", "error");
+      showToast("No active session", "error");
       return;
     }
 
@@ -676,7 +676,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     if (filterMode === "aisle") {
       // Aisle prefix filter
       if (!aisleFilter.trim()) {
-        showToast("⚠️ Please enter an aisle code", "error");
+        showToast("Please enter an aisle code", "error");
         return;
       }
 
@@ -691,7 +691,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
       }
 
       if (filteredBins.length === 0) {
-        showToast(`⚠️ No bins found starting with "${aislePrefix}". Check your bin codes format.`, "error");
+        showToast(`No bins found starting with "${aislePrefix}". Check your bin codes format.`, "error");
         return;
       }
 
@@ -703,7 +703,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     } else {
       // Range filter
       if (!startBinFilter.trim() || !endBinFilter.trim()) {
-        showToast("⚠️ Please enter both start and end bin codes", "error");
+        showToast("Please enter both start and end bin codes", "error");
         return;
       }
 
@@ -716,7 +716,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
       });
 
       if (filteredBins.length === 0) {
-        showToast("⚠️ No bins found in the specified range", "error");
+        showToast("No bins found in the specified range", "error");
         return;
       }
     }
@@ -730,7 +730,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
       if (!availability.available && availability.conflicts.length > 0) {
         const conflict = availability.conflicts[0];
         showToast(
-          `❌ Bins ${conflict.startBin} to ${conflict.endBin} are being counted by ${conflict.username} (${conflict.sessionName})`,
+          `Bins ${conflict.startBin} to ${conflict.endBin} are being counted by ${conflict.username} (${conflict.sessionName})`,
           "error"
         );
         return;
@@ -753,7 +753,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
       console.log("Total items to count:", items.length);
 
       if (items.length === 0) {
-        showToast("⚠️ No items found in the selected bins", "error");
+        showToast("No items found in the selected bins", "error");
         return;
       }
 
@@ -792,18 +792,18 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
       setShowBinRangeModal(false);
       
       const aisleInfo = filterMode === "aisle" ? ` (Aisle: ${aisleFilter})` : "";
-      showToast(`✅ Loaded ${items.length} items from ${filteredBins.length} bins${aisleInfo}`, "success");
+      showToast(`Loaded ${items.length} items from ${filteredBins.length} bins${aisleInfo}`, "success");
       console.log("Sequential count started successfully");
     } catch (error: any) {
       console.error("Error starting sequential count:", error);
-      showToast(`❌ Error: ${error.message || "Failed to start counting"}`, "error");
+      showToast(`Error: ${error.message || "Failed to start counting"}`, "error");
     }
   };
 
   // Handle sequential count submission
   const submitSequentialCount = (qty: number) => {
     if (!currentSession) {
-      showToast("⚠️ No active session. Please start a session first.", "error");
+      showToast("No active session. Please start a session first.", "error");
       return;
     }
 
@@ -863,9 +863,9 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     saveCountTxns([txn]);
 
     if (variance === 0) {
-      showToast("✅ Count accurate!", "success");
+      showToast("Count accurate!", "success");
     } else {
-      showToast(`⚠️ Variance: ${variance > 0 ? "+" : ""}${variance}`, "info");
+      showToast(`Variance: ${variance > 0 ? "+" : ""}${variance}`, "info");
     }
 
     // Move to next item
@@ -885,7 +885,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
       setSessions(updatedSessions);
       setCurrentSession(updatedSession);
     } else {
-      showToast("🎉 All items in range have been counted!", "success");
+      showToast("All items in range have been counted!", "success");
       // Stay on last item, allow export
     }
   };
@@ -896,7 +896,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
       setCurrentItemIndex(currentItemIndex + 1);
       setCountedQty(0);
       setNumpadValue("");
-      showToast("⏭️ Item skipped", "info");
+      showToast("Item skipped", "info");
     }
   };
 
@@ -912,7 +912,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
   // Export session count logs to CSV
   const exportSessionLogsToCSV = () => {
     if (!currentSession) {
-      showToast("⚠️ No active session", "error");
+      showToast("No active session", "error");
       return;
     }
 
@@ -920,7 +920,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     const sessionLogs = sessionCountLogs.filter((log) => log.sessionId === currentSession.id);
 
     if (sessionLogs.length === 0) {
-      showToast("⚠️ No counts logged in this session yet", "error");
+      showToast("No counts logged in this session yet", "error");
       return;
     }
 
@@ -952,7 +952,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     link.click();
     document.body.removeChild(link);
 
-    showToast(`✅ Exported ${sessionLogs.length} count records`, "success");
+    showToast(`Exported ${sessionLogs.length} count records`, "success");
   };
 
   // Exit sequential mode
@@ -980,7 +980,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
       // The green check on the sequential counting screen: save the entered quantity.
       // (0 is a valid count, but something must have been typed.)
       if (numpadValue === "") {
-        showToast("⚠️ Please enter a quantity", "error");
+        showToast("Please enter a quantity", "error");
         return;
       }
       submitSequentialCount(Number(numpadValue) || 0);
@@ -1027,22 +1027,22 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
       }));
 
       setFullCountItems(newCycleCounts);
-      setFullCountStatus(`✅ Loaded ${newCycleCounts.length} items from ${fileType} file. Ready to process.`);
-      showToast(`✅ Loaded ${newCycleCounts.length} items for full count.`, "success");
+      setFullCountStatus(`Loaded ${newCycleCounts.length} items from ${fileType} file. Ready to process.`);
+      showToast(`Loaded ${newCycleCounts.length} items for full count.`, "success");
     } catch (err) {
       console.error("Error parsing full count file:", err);
-      setFullCountStatus(`❌ Error reading ${fileType} file. Please check the format and column names (BinCode, ItemCode, ExpectedQty, CountedQty).`);
+      setFullCountStatus(`Error reading ${fileType} file. Please check the format and column names (BinCode, ItemCode, ExpectedQty, CountedQty).`);
     }
   };
 
   const processFullCount = () => {
     if (!currentSession) {
-      showToast("⚠️ Please start a session first", "error");
+      showToast("Please start a session first", "error");
       return;
     }
 
     if (fullCountItems.length === 0) {
-      showToast("⚠️ No items loaded for full count", "error");
+      showToast("No items loaded for full count", "error");
       return;
     }
 
@@ -1120,8 +1120,8 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     // 5. Reset and notify
     setFullCountFile(null);
     setFullCountItems([]);
-    setFullCountStatus(`✅ Successfully processed ${newCounts.length} counted items.`);
-    showToast(`✅ Full count processed! ${newCounts.length} items updated.`, "success");
+    setFullCountStatus(`Successfully processed ${newCounts.length} counted items.`);
+    showToast(`Full count processed! ${newCounts.length} items updated.`, "success");
     setCountingMode("cycle"); // Switch back to cycle view
   };
 
@@ -1196,7 +1196,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
         if (code) {
           setSessionTrackingItemCode(code);
           setSessionTrackingScanMode(false);
-          showToast(`✅ Scanned: ${code}`, "success");
+          showToast(`Scanned: ${code}`, "success");
         }
       });
 
@@ -1238,7 +1238,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
         if (code) {
           setTempTrackingItemCode(code);
           setTempTrackingScanMode(false);
-          showToast(`✅ Scanned: ${code}`, "success");
+          showToast(`Scanned: ${code}`, "success");
         }
       });
 
@@ -1280,7 +1280,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
         if (code) {
           setDetailViewItemCode(code);
           setDetailViewScanMode(false);
-          showToast(`✅ Scanned: ${code}`, "success");
+          showToast(`Scanned: ${code}`, "success");
         }
       });
 
@@ -1303,9 +1303,9 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
       // Show bin information modal
       setScannedBinInfo(bin);
       setShowBinInfoModal(true);
-      showToast(`✅ Scanned bin: ${code}`, "success");
+      showToast(`Scanned bin: ${code}`, "success");
     } else {
-      showToast(`❌ Bin not found: ${code}`, "error");
+      showToast(`Bin not found: ${code}`, "error");
     }
   };
 
@@ -1404,9 +1404,9 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     setBins(updatedBins);
 
     if (variance === 0) {
-      showToast("✅ Count accurate!", "success");
+      showToast("Count accurate!", "success");
     } else {
-      showToast(`⚠️ Variance detected: ${variance > 0 ? "+" : ""}${variance}`, "info");
+      showToast(`Variance detected: ${variance > 0 ? "+" : ""}${variance}`, "info");
     }
 
     // Reset
@@ -1430,8 +1430,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
           >
             <ArrowLeft size={24} />
           </button>
-          <h1 className="text-xl font-bold flex items-center gap-2">
-            <ClipboardCheck className="text-green-600" />
+          <h1 className="page-title">
             Counting: {currentSession?.name}
           </h1>
           <button
@@ -1451,7 +1450,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
           <div
             className={`fixed top-20 left-1/2 transform -translate-x-1/2 z-50 px-6 py-3 rounded-lg shadow-lg ${
               toast.type === "success"
-                ? "bg-green-500 text-white"
+                ? "bg-blue-600 text-white"
                 : toast.type === "error"
                 ? "bg-red-500 text-white"
                 : "bg-blue-500 text-white"
@@ -1514,7 +1513,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
                 setCountedQty(val);
                 setNumpadValue(e.target.value);
               }}
-              className="w-full text-3xl font-bold text-center border-2 border-gray-300 rounded-md p-4"
+              className="w-full text-3xl font-bold text-center border border-gray-200 rounded-md p-4"
               autoFocus
             />
           </div>
@@ -1527,7 +1526,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
                 onClick={() => handleNumpadClick(String(btn))}
                 className={`py-4 text-2xl font-bold rounded-md ${
                   btn === "OK"
-                    ? "bg-green-600 text-white hover:bg-green-700"
+                    ? "bg-blue-600 text-white hover:bg-blue-700"
                     : btn === "C"
                     ? "bg-red-600 text-white hover:bg-red-700"
                     : "bg-gray-200 text-gray-800 hover:bg-gray-300"
@@ -1586,15 +1585,14 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     return (
       <div className="p-4 max-w-4xl mx-auto">
         <div className="flex justify-between items-center mb-4">
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <ClipboardCheck className="text-blue-600" />
+          <h1 className="page-title">
             Inventory Counting
           </h1>
         </div>
 
         {/* Current Session Card - Bigger and easier to tap */}
         {currentSession && (
-          <div className="mb-6 bg-blue-50 rounded-lg shadow p-4 border-2 border-blue-300">
+          <div className="mb-6 bg-blue-50 rounded-lg shadow p-4 border border-blue-200">
             <div className="flex justify-between items-center">
               <div>
                 <p className="text-sm text-blue-600 font-medium mb-1">Current Session</p>
@@ -1658,13 +1656,13 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
           <button
             onClick={() => {
               if (!currentSession) {
-                showToast("⚠️ Please start a session first", "error");
+                showToast("Please start a session first", "error");
                 setShowSessionModal(true);
                 return;
               }
               setShowBinRangeModal(true);
             }}
-            className="w-full bg-green-600 text-white px-6 py-4 rounded-lg hover:bg-green-700 text-lg font-medium flex items-center justify-center gap-2"
+            className="w-full bg-blue-600 text-white px-6 py-4 rounded-lg hover:bg-blue-700 text-lg font-medium flex items-center justify-center gap-2"
           >
             <List size={24} />
             Sequential Count (Bin Range)
@@ -1685,7 +1683,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
           <div
             className={`fixed top-20 left-1/2 transform -translate-x-1/2 z-50 px-6 py-3 rounded-lg shadow-lg ${
               toast.type === "success"
-                ? "bg-green-500 text-white"
+                ? "bg-blue-600 text-white"
                 : toast.type === "error"
                 ? "bg-red-500 text-white"
                 : "bg-blue-500 text-white"
@@ -1767,7 +1765,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
                   <div
                     key={count.id}
                     onClick={() => handleSelectCount(count)}
-                    className="bg-white rounded-lg shadow p-4 cursor-pointer hover:shadow-md transition-shadow border-l-4 border-blue-500"
+                    className="bg-white rounded-lg shadow p-4 cursor-pointer hover:shadow-md transition-shadow "
                   >
                     <div className="flex justify-between items-start">
                       <div className="flex-1">
@@ -1975,7 +1973,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
                     onClick={() => setFilterMode("aisle")}
                     className={`py-2 px-4 rounded-md font-medium ${
                       filterMode === "aisle"
-                        ? "bg-green-600 text-white"
+                        ? "bg-blue-600 text-white"
                         : "bg-gray-200 text-gray-700 hover:bg-gray-300"
                     }`}
                   >
@@ -1985,7 +1983,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
                     onClick={() => setFilterMode("range")}
                     className={`py-2 px-4 rounded-md font-medium ${
                       filterMode === "range"
-                        ? "bg-green-600 text-white"
+                        ? "bg-blue-600 text-white"
                         : "bg-gray-200 text-gray-700 hover:bg-gray-300"
                     }`}
                   >
@@ -2054,7 +2052,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
               <div className="mt-6 flex gap-2">
                 <button
                   onClick={startSequentialCount}
-                  className="flex-1 bg-green-600 text-white py-3 rounded-md hover:bg-green-700 font-medium text-lg"
+                  className="flex-1 bg-blue-600 text-white py-3 rounded-md hover:bg-blue-700 font-medium text-lg"
                 >
                   Start Counting
                 </button>
@@ -2255,8 +2253,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     return (
       <div className="p-4 max-w-4xl mx-auto">
         <div className="flex justify-between items-center mb-4">
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Upload className="text-yellow-600" />
+          <h1 className="page-title">
             Full Inventory Count (Upload)
           </h1>
           <button
@@ -2307,7 +2304,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
             disabled={fullCountItems.length === 0}
             className={`w-full py-3 rounded-md font-medium flex items-center justify-center gap-2 transition-colors ${
               fullCountItems.length > 0
-                ? "bg-green-600 text-white hover:bg-green-700"
+                ? "bg-blue-600 text-white hover:bg-blue-700"
                 : "bg-gray-300 text-gray-500 cursor-not-allowed"
             }`}
           >
@@ -2328,7 +2325,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
           <div
             className={`fixed top-20 left-1/2 transform -translate-x-1/2 z-50 px-6 py-3 rounded-lg shadow-lg ${
               toast.type === "success"
-                ? "bg-green-500 text-white"
+                ? "bg-blue-600 text-white"
                 : toast.type === "error"
                 ? "bg-red-500 text-white"
                 : "bg-blue-500 text-white"
@@ -2368,7 +2365,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
           <div
             className={`fixed top-20 left-1/2 transform -translate-x-1/2 z-50 px-6 py-3 rounded-lg shadow-lg ${
               toast.type === "success"
-                ? "bg-green-500 text-white"
+                ? "bg-blue-600 text-white"
                 : toast.type === "error"
                 ? "bg-red-500 text-white"
                 : "bg-blue-500 text-white"
@@ -2430,7 +2427,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
           {/* Numpad Display */}
           <div className="mb-4">
             <label className="block text-sm font-medium mb-2">Counted Quantity</label>
-            <div className="bg-gray-100 border-2 border-gray-300 rounded-lg p-4 text-center">
+            <div className="bg-gray-100 border border-gray-200 rounded-lg p-4 text-center">
               <p className="text-3xl font-bold text-gray-800">
                 {numpadValue || "0"}
               </p>
@@ -2470,7 +2467,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
           <div className="grid grid-cols-2 gap-2 mb-3">
             <button
               onClick={() => submitSequentialCount(currentItem.expectedQty)}
-              className="bg-green-600 text-white py-3 rounded-md hover:bg-green-700 font-medium flex items-center justify-center gap-2"
+              className="bg-blue-600 text-white py-3 rounded-md hover:bg-blue-700 font-medium flex items-center justify-center gap-2"
             >
               <CheckCircle2 size={18} />
               Confirm ({currentItem.expectedQty})
@@ -2480,7 +2477,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
                 if (countedQty >= 0) {
                   submitSequentialCount(countedQty);
                 } else {
-                  showToast("⚠️ Please enter a quantity", "error");
+                  showToast("Please enter a quantity", "error");
                 }
               }}
               disabled={countedQty < 0}
@@ -2573,7 +2570,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
         <div
           className={`fixed top-20 left-1/2 transform -translate-x-1/2 z-50 px-6 py-3 rounded-lg shadow-lg ${
             toast.type === "success"
-              ? "bg-green-500 text-white"
+              ? "bg-blue-600 text-white"
               : toast.type === "error"
               ? "bg-red-500 text-white"
               : "bg-blue-500 text-white"
@@ -2636,7 +2633,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
           <button
             onClick={handleSubmitCount}
             disabled={countedQty < 0}
-            className="flex-1 bg-green-600 text-white py-3 rounded-md hover:bg-green-700 font-medium text-lg disabled:bg-gray-400"
+            className="flex-1 bg-blue-600 text-white py-3 rounded-md hover:bg-blue-700 font-medium text-lg disabled:bg-gray-400"
           >
             Submit Count
           </button>
@@ -2740,14 +2737,14 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
               <button
                 onClick={() => {
                   if (!newItemCode.trim() || !newItemDescription.trim() || newItemQty <= 0) {
-                    showToast("⚠️ Please fill all fields with valid values", "error");
+                    showToast("Please fill all fields with valid values", "error");
                     return;
                   }
                   if (!bin) return;
                   
                   // Check if item already exists in bin
                   if (bin.Items.some((i) => i.ItemCode === newItemCode)) {
-                    showToast("⚠️ Item already exists in this bin", "error");
+                    showToast("Item already exists in this bin", "error");
                     return;
                   }
 
@@ -2770,7 +2767,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
 
                   setBins(updatedBins);
                   
-                  showToast(`✅ Added ${newItemCode} to bin`, "success");
+                  showToast(`Added ${newItemCode} to bin`, "success");
                   setShowAddItemModal(false);
                   setNewItemCode("");
                   setNewItemDescription("");

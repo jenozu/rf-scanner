@@ -376,7 +376,7 @@ export default function ShippingPage({ setPage }: ShippingPageProps) {
     <div className="p-4 max-w-6xl mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-2xl font-bold mb-1">Shipping</h1>
+          <h1 className="page-title">Shipping</h1>
           <p className="text-gray-600">Manage outbound shipments and create Purolator labels</p>
         </div>
         <div className="flex gap-2">
@@ -465,7 +465,7 @@ export default function ShippingPage({ setPage }: ShippingPageProps) {
               <button
                 onClick={createBatchShipments}
                 disabled={Array.from(selectedOrders).some(id => loading.has(id))}
-                className="bg-green-600 text-white px-4 py-2 rounded text-sm hover:bg-green-700 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {Array.from(selectedOrders).some(id => loading.has(id)) ? (
                   <>
@@ -546,7 +546,7 @@ export default function ShippingPage({ setPage }: ShippingPageProps) {
                 <div
                   key={order.id}
                   className={`p-4 hover:bg-gray-50 transition-colors ${
-                    isSelected ? "bg-blue-50 border-l-4 border-blue-500" : ""
+                    isSelected ? "bg-blue-50 " : ""
                   }`}
                 >
                   <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
@@ -613,7 +613,7 @@ export default function ShippingPage({ setPage }: ShippingPageProps) {
                           <button
                             onClick={() => createShipment(order.id)}
                             disabled={loading.has(order.id)}
-                            className="bg-green-600 text-white px-4 py-2 rounded text-sm hover:bg-green-700 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             {loading.has(order.id) ? (
                               <>

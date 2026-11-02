@@ -86,19 +86,19 @@ export default function PickPage({ setPage }: PickPageProps) {
     const { so, item, lineIndex } = currentPick;
 
     if (pickedQty <= 0) {
-      showToast("⚠️ Picked quantity must be greater than 0", "error");
+      showToast("Picked quantity must be greater than 0", "error");
       return;
     }
 
     const remainingQty = liveRemaining(currentPick);
     if (pickedQty > remainingQty) {
-      showToast("⚠️ Picked quantity exceeds remaining quantity", "error");
+      showToast("Picked quantity exceeds remaining quantity", "error");
       return;
     }
 
     const line = liveLine(currentPick);
     if (!classifyBin(line.BinCode, line.Warehouse).real) {
-      showToast("⚠️ Assign a real bin to this line before picking it", "error");
+      showToast("Assign a real bin to this line before picking it", "error");
       return;
     }
 
@@ -107,19 +107,19 @@ export default function PickPage({ setPage }: PickPageProps) {
       // One request: sales-order line + stock taken from the line's bin (the server picks the bin).
       await pickSalesOrderLine({ soId: so.id, lineIndex, qty: pickedQty });
     } catch (error: any) {
-      showToast(`❌ Pick not saved: ${error?.message || "server error"}. Try again.`, "error");
+      showToast(`Pick not saved: ${error?.message || "server error"}. Try again.`, "error");
       setIsSaving(false);
       return;
     }
     setIsSaving(false);
 
-    showToast(`✅ Picked ${pickedQty} of ${item.Description}`, "success");
+    showToast(`Picked ${pickedQty} of ${item.Description}`, "success");
 
     // Move to next pick
     const nextIndex = currentPickIndex + 1;
     if (nextIndex >= soPickList.length) {
       // SO complete
-      showToast("🎉 Sales Order picking completed!", "success");
+      showToast("Sales Order picking completed!", "success");
       
       setTimeout(() => {
         setSelectedSalesOrder(null);
@@ -160,7 +160,7 @@ export default function PickPage({ setPage }: PickPageProps) {
   // Wave status changes are saved to the server; a failure is shown, not hidden.
   const saveWaveStatus = (wave: Wave) => {
     upsertRecord("rf_waves", wave).catch((error: any) =>
-      showToast(`❌ Wave status not saved: ${error?.message || "server error"}`, "error")
+      showToast(`Wave status not saved: ${error?.message || "server error"}`, "error")
     );
   };
 
@@ -172,12 +172,12 @@ export default function PickPage({ setPage }: PickPageProps) {
     const { order, item, itemIndex } = currentPick;
 
     if (pickedQty <= 0) {
-      showToast("⚠️ Picked quantity must be greater than 0", "error");
+      showToast("Picked quantity must be greater than 0", "error");
       return;
     }
 
     if (pickedQty > item.OrderedQty) {
-      showToast("⚠️ Picked quantity exceeds ordered quantity", "error");
+      showToast("Picked quantity exceeds ordered quantity", "error");
       return;
     }
 
@@ -197,7 +197,7 @@ export default function PickPage({ setPage }: PickPageProps) {
     try {
       await upsertRecord("rf_orders", updatedOrder);
     } catch (error: any) {
-      showToast(`❌ Pick not saved: ${error?.message || "server error"}. Try again.`, "error");
+      showToast(`Pick not saved: ${error?.message || "server error"}. Try again.`, "error");
       setIsSaving(false);
       return;
     }
@@ -207,11 +207,11 @@ export default function PickPage({ setPage }: PickPageProps) {
         await adjustBin({ binCode: item.BinCode, itemCode: item.ItemCode, delta: -pickedQty, clampAtZero: true });
       }
     } catch (error: any) {
-      showToast(`⚠️ Pick recorded but the bin stock was not reduced (${error?.message || "server error"}). Tell a supervisor.`, "error");
+      showToast(`Pick recorded but the bin stock was not reduced (${error?.message || "server error"}). Tell a supervisor.`, "error");
     }
     setIsSaving(false);
 
-    showToast(`✅ Picked ${pickedQty} of ${item.Description}`, "success");
+    showToast(`Picked ${pickedQty} of ${item.Description}`, "success");
 
     // Move to next pick
     const nextIndex = currentPickIndex + 1;
@@ -220,7 +220,7 @@ export default function PickPage({ setPage }: PickPageProps) {
       if (selectedWave) {
         saveWaveStatus({ ...selectedWave, status: "completed" as const, completedDate: new Date().toISOString() });
       }
-      showToast("🎉 Wave picking completed!", "success");
+      showToast("Wave picking completed!", "success");
       
       // Return to wave list after brief delay
       setTimeout(() => {
@@ -240,7 +240,7 @@ export default function PickPage({ setPage }: PickPageProps) {
     if (currentPickIndex >= pickList.length) return;
 
     const currentPick = pickList[currentPickIndex];
-    showToast(`⚠️ Skipped pick for ${currentPick.item.Description}`, "info");
+    showToast(`Skipped pick for ${currentPick.item.Description}`, "info");
 
     // Move to next pick
     const nextIndex = currentPickIndex + 1;
@@ -249,7 +249,7 @@ export default function PickPage({ setPage }: PickPageProps) {
       if (selectedWave) {
         saveWaveStatus({ ...selectedWave, status: "completed" as const, completedDate: new Date().toISOString() });
       }
-      showToast("⚠️ Wave completed with short picks", "info");
+      showToast("Wave completed with short picks", "info");
       
       setTimeout(() => {
         setSelectedWave(null);
@@ -314,7 +314,7 @@ export default function PickPage({ setPage }: PickPageProps) {
           <div
             className={`fixed top-20 left-1/2 transform -translate-x-1/2 z-50 px-6 py-3 rounded-lg shadow-lg ${
               toast.type === "success"
-                ? "bg-green-500 text-white"
+                ? "bg-blue-600 text-white"
                 : toast.type === "error"
                 ? "bg-red-500 text-white"
                 : "bg-blue-500 text-white"
@@ -369,7 +369,7 @@ export default function PickPage({ setPage }: PickPageProps) {
                 bins={bins}
                 onAssign={async (binCode) => {
                   await assignSoBin({ soId: so.id, lineIndex: currentPick.lineIndex, binCode });
-                  showToast(`✅ Bin ${binCode} assigned`, "success");
+                  showToast(`Bin ${binCode} assigned`, "success");
                 }}
               />
             ) : (
@@ -404,7 +404,7 @@ export default function PickPage({ setPage }: PickPageProps) {
             <button
               onClick={handleConfirmSOPick}
               disabled={isSaving || needsBin}
-              className="flex-1 bg-green-600 text-white py-3 rounded-md hover:bg-green-700 font-medium text-lg disabled:bg-gray-400"
+              className="flex-1 bg-blue-600 text-white py-3 rounded-md hover:bg-blue-700 font-medium text-lg disabled:bg-gray-400"
             >
               {isSaving ? "Saving..." : needsBin ? "Assign a bin first" : "Confirm Pick"}
             </button>
@@ -455,17 +455,15 @@ export default function PickPage({ setPage }: PickPageProps) {
   if (!selectedWave && !selectedSalesOrder) {
     return (
       <div className="p-4 max-w-4xl mx-auto">
-        <h1 className="text-2xl font-bold mb-4 flex items-center gap-2">
-          <ShoppingCart className="text-blue-600" />
-          Sales Order Picking
-        </h1>
+        <h1 className="page-title">Sales Order Picking</h1>
+        <p className="page-lede">Pick sales orders in bin order. Each line needs a real bin before it can be picked.</p>
 
         {/* Toast */}
         {toast && (
           <div
             className={`fixed top-20 left-1/2 transform -translate-x-1/2 z-50 px-6 py-3 rounded-lg shadow-lg ${
               toast.type === "success"
-                ? "bg-green-500 text-white"
+                ? "bg-blue-600 text-white"
                 : toast.type === "error"
                 ? "bg-red-500 text-white"
                 : "bg-blue-500 text-white"
@@ -497,7 +495,7 @@ export default function PickPage({ setPage }: PickPageProps) {
               return (
                 <div
                   key={so.id}
-                  className="bg-white rounded-lg shadow p-4 border-l-4 border-green-500 hover:shadow-md transition-shadow"
+                  className="bg-white rounded-lg shadow p-4  hover:shadow-md transition-shadow"
                 >
                   <div className="flex justify-between items-start mb-3">
                     <div className="flex-1">
@@ -523,17 +521,17 @@ export default function PickPage({ setPage }: PickPageProps) {
                         <div className="flex flex-wrap gap-2 mt-2">
                           {stockSummary.needsBin > 0 && (
                             <span className="px-2 py-1 rounded-full text-xs font-semibold bg-red-600 text-white">
-                              ✕ {stockSummary.needsBin} {stockSummary.needsBin === 1 ? "line needs" : "lines need"} a bin assigned
+                              {stockSummary.needsBin} {stockSummary.needsBin === 1 ? "line needs" : "lines need"} a bin assigned
                             </span>
                           )}
                           {stockSummary.none > 0 && (
                             <span className="px-2 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800">
-                              ✕ {stockSummary.none} {stockSummary.none === 1 ? "line" : "lines"} with no stock
+                              {stockSummary.none} {stockSummary.none === 1 ? "line" : "lines"} with no stock
                             </span>
                           )}
                           {stockSummary.partial > 0 && (
                             <span className="px-2 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">
-                              ⚠ {stockSummary.partial} {stockSummary.partial === 1 ? "line" : "lines"} short on stock
+                              {stockSummary.partial} {stockSummary.partial === 1 ? "line" : "lines"} short on stock
                             </span>
                           )}
                         </div>
@@ -551,7 +549,7 @@ export default function PickPage({ setPage }: PickPageProps) {
 
                   <button
                     onClick={() => handleSelectSalesOrder(so)}
-                    className="w-full bg-green-600 text-white py-2 rounded-md hover:bg-green-700 font-medium"
+                    className="w-full bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700 font-medium"
                   >
                     Start Picking
                   </button>
@@ -615,7 +613,7 @@ export default function PickPage({ setPage }: PickPageProps) {
                   <div
                     key={wave.id}
                     onClick={() => wave.status === "pending" && handleSelectWave(wave)}
-                    className={`bg-white rounded-lg shadow p-4 border-l-4 border-blue-500 ${
+                    className={`bg-white rounded-lg shadow p-4  ${
                       wave.status === "pending"
                         ? "cursor-pointer hover:shadow-md transition-shadow"
                         : "opacity-60"
@@ -700,7 +698,7 @@ export default function PickPage({ setPage }: PickPageProps) {
         <div
           className={`fixed top-20 left-1/2 transform -translate-x-1/2 z-50 px-6 py-3 rounded-lg shadow-lg ${
             toast.type === "success"
-              ? "bg-green-500 text-white"
+              ? "bg-blue-600 text-white"
               : toast.type === "error"
               ? "bg-red-500 text-white"
               : "bg-blue-500 text-white"
@@ -777,7 +775,7 @@ export default function PickPage({ setPage }: PickPageProps) {
           <button
             onClick={handleConfirmPick}
             disabled={isSaving}
-            className="flex-1 bg-green-600 text-white py-3 rounded-md hover:bg-green-700 font-medium text-lg disabled:bg-gray-400"
+            className="flex-1 bg-blue-600 text-white py-3 rounded-md hover:bg-blue-700 font-medium text-lg disabled:bg-gray-400"
           >
             {isSaving ? "Saving..." : "Confirm Pick"}
           </button>
