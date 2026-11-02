@@ -156,7 +156,7 @@ JWT_SECRET=<32+ char secret> ADMIN_PASSWORD='choose-a-long-password' node reset-
 # optional: ADMIN_USERNAME=jane   (defaults to "admin")
 ```
 
-In Docker: `docker compose exec -e ADMIN_PASSWORD='choose-a-long-password' api node reset-admin.js`
+In Docker: `docker compose exec -e ADMIN_PASSWORD='choose-a-long-password' api node server/reset-admin.js`
 
 The script refuses to run if users already exist. To change an existing admin's
 password use `node reset-admin.js --reset-password` (same `ADMIN_USERNAME` /
