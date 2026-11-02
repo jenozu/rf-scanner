@@ -43,3 +43,5 @@ jobs:
         working-directory: server
       - name: Backup and restore script tests
         run: bash scripts/test-backup.sh
+      - name: VPS deploy and check script tests
+        run: bash scripts/test-vps-ci.sh

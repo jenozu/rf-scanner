@@ -1,0 +1,115 @@
+name: VPS deploy
+
+# Deploys to the VPS after CI is green on main. The SSH key can only run the
+# forced command on the VPS (scripts/vps/ci-entry.sh): "check" or "deploy <sha>".
+# The VPS backs up first, fast-forwards, rebuilds, verifies, and rolls back on failure.
+# Setup (once): docs/GITHUB_ACTIONS_VPS_GUIDE.md. Until the secrets exist this skips quietly.
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Commit to deploy (full 40-character id). Empty = the latest commit of the branch you run this on."
+        required: false
+        default: ""
+
+# One deploy at a time; a newer one waits instead of cancelling a running deploy.
+concurrency:
+  group: vps-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  deploy:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+      VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+      VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+      VPS_PORT: ${{ secrets.VPS_PORT }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Decide what to deploy
+        id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_SHA: ${{ github.event.inputs.sha }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+          REF_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ -z "$VPS_HOST" ] || [ -z "$VPS_USER" ] || [ -z "$VPS_SSH_KEY" ] || [ -z "$VPS_KNOWN_HOSTS" ]; then
+            echo "::notice::VPS secrets are not set up yet, so nothing was deployed. See docs/GITHUB_ACTIONS_VPS_GUIDE.md."
+            echo "go=no" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if [ "$EVENT" = "workflow_dispatch" ]; then sha="${INPUT_SHA:-$REF_SHA}"; else sha="$RUN_SHA"; fi
+          if ! [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then echo "::error::not a full commit id: $sha"; exit 1; fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "go=yes" >> "$GITHUB_OUTPUT"
+
+      - name: Check out (to see what changed)
+        if: steps.plan.outputs.go == 'yes' && github.event_name == 'workflow_run'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.plan.outputs.sha }}
+          fetch-depth: 2
+
+      - name: Skip docs-only changes
+        if: steps.plan.outputs.go == 'yes' && github.event_name == 'workflow_run'
+        run: |
+          set -euo pipefail
+          changed="$(git diff --name-only HEAD^1 HEAD || true)"
+          if [ -n "$changed" ] && ! echo "$changed" | grep -qvE '^(docs/|\.taskmaster/)|\.md$'; then
+            echo "::notice::Only documentation changed; not deploying."
+            echo "go=no" >> "$GITHUB_OUTPUT"
+          fi
+        id: docs
+
+      - name: Prepare SSH
+        if: steps.plan.outputs.go == 'yes' && steps.docs.outputs.go != 'no'
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/deploy_key
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Deploy
+        if: steps.plan.outputs.go == 'yes' && steps.docs.outputs.go != 'no'
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes \
+              -o ConnectTimeout=20 -p "${VPS_PORT:-22}" "$VPS_USER@$VPS_HOST" "deploy ${{ steps.plan.outputs.sha }}"
+
+      - name: Health check after deploy
+        if: steps.plan.outputs.go == 'yes' && steps.docs.outputs.go != 'no'
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes \
+              -o ConnectTimeout=20 -p "${VPS_PORT:-22}" "$VPS_USER@$VPS_HOST" "check"
+
+      - name: Raise an alert issue
+        if: failure()
+        run: |
+          set -euo pipefail
+          # The issue links to this run instead of copying output into it: the repository is public.
+          gh label create vps-alert --color B60205 --description "VPS deploy or check failed" 2>/dev/null || true
+          url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          body="The VPS deploy workflow failed. Details: ${url}
+
+          A failed deploy rolls back automatically; the log says whether it did. Data backups are in ./backups on the VPS."
+          n="$(gh issue list --label vps-alert --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$n" ]; then gh issue comment "$n" --body "$body"; else gh issue create --title "VPS deploy or check failed" --label vps-alert --body "$body"; fi

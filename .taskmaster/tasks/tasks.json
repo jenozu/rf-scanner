@@ -391,11 +391,23 @@
         "complexity": 4,
         "id": 21,
         "subtasks": []
+      },
+      {
+        "title": "Automated VPS checks and deploy via GitHub Actions (owner request)",
+        "description": "Nightly read-only VPS health check and auto-deploy after CI is green on main, through a forced-command SSH key; reusable guide for other projects. Pulls the deploy part of Phase 8 forward.",
+        "status": "done",
+        "priority": "high",
+        "dependencies": [],
+        "details": "Files: .github/workflows/vps-check.yml, vps-deploy.yml, scripts/vps/{ci-entry,check,deploy}.sh, scripts/test-vps-ci.sh, docs/GITHUB_ACTIONS_VPS_GUIDE.md, ci.yml. No third-party actions (plain ssh). Workflows skip cleanly until the owner adds the secrets. Owner runs the one-time key/secrets setup; first deploy run by hand.\n\n[2026-11-02T15:11:53-05:00] plan: forced-command SSH key -> /usr/local/bin/rf-ci-entry (installed once, allows only 'check' or 'deploy <sha>') -> repo scripts/vps/{check,deploy}.sh. deploy: flock, clean-tree check, JWT_SECRET check, backup (volume + ./data), ff-only to exact CI-green sha, compose up --build, health poll, auto-rollback to previous commit on failure. Workflows use plain ssh (no third-party actions) and skip cleanly while secrets are missing. Failure opens/updates one GitHub issue. Drift note: pulls the deploy part of Phase 8 forward at owner request; PRD goal/non-goals unchanged.\n\n[2026-11-02T15:16:08-05:00] outcome: built scripts/vps/{ci-entry,check,deploy}.sh, workflows vps-check.yml + vps-deploy.yml (plain ssh, no third-party actions, skip until secrets exist, one deduped vps-alert issue, auto-close on recovery), scripts/test-vps-ci.sh (44 checks: entry validation, deploy happy path/skip/rollback/refusals/lock, check pass+fail cases) wired into ci.yml, docs/GITHUB_ACTIONS_VPS_GUIDE.md. actionlint clean on all 4 workflows; test-backup still 32/32. NOT yet proven: a real SSH run against the VPS (owner does one-time key/secrets setup, then first run by hand). Drift check: only planned files touched; PRD decision logged; goal/non-goals unchanged.",
+        "testStrategy": "bash scripts/test-vps-ci.sh in CI (entry-point command validation, check/deploy against a fake docker+git sandbox); workflow YAML parses; bash -n on all scripts; first real run proven by the owner via workflow_dispatch",
+        "complexity": 5,
+        "id": 22,
+        "subtasks": []
       }
     ],
     "metadata": {
       "created": "2026-10-29T19:42:01-04:00",
-      "updated": "2026-11-02T13:39:11-05:00"
+      "updated": "2026-11-02T15:16:08-05:00"
     }
   }
 }
