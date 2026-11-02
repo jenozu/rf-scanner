@@ -25,6 +25,9 @@ interface WarehouseShellProps {
   children: React.ReactNode;
 }
 
+// Bottom bar on phones: Scan sits in the middle, under the thumb.
+const dockPages: PageType[] = ["home", "receive", "scan", "pick", "inventory"];
+
 const navItems: Array<{ page: PageType; label: string; shortLabel: string; icon: any; group: number }> = [
   { page: "home", label: "Dashboard", shortLabel: "Home", icon: Home, group: 0 },
   { page: "receive", label: "Receiving", shortLabel: "Receive", icon: Package, group: 1 },
@@ -158,7 +161,9 @@ export default function WarehouseShell({
 
       {isLoggedIn && (
         <nav className="wms-mobile-dock" aria-label="Quick navigation">
-          {navItems.slice(0, 5).map(({ page, shortLabel, icon: Icon }) => {
+          {dockPages
+            .map((page) => navItems.find((item) => item.page === page)!)
+            .map(({ page, shortLabel, icon: Icon }) => {
             const active = currentPage === page;
             return (
               <button
