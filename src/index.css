@@ -365,81 +365,135 @@ textarea {
 
 /* ───────── Dashboard ───────── */
 
-.queue-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+.board {
   margin-bottom: 48px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--nav);
+  color: #fff;
 }
 
-.queue-tile {
-  position: relative;
+.board-stations {
+  display: grid;
+  grid-template-columns: 1fr 40px 1fr 40px 1fr 40px 1fr;
+  align-items: stretch;
+  padding: 28px 28px 24px;
+}
+
+.station {
   display: flex;
-  min-height: 168px;
+  min-width: 0;
   flex-direction: column;
-  padding: 18px 18px 16px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--surface);
-  color: var(--ink);
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
   text-align: left;
   cursor: pointer;
-  transition: border-color 120ms ease-out, background-color 120ms ease-out;
 }
 
-.queue-tile:hover {
-  border-color: var(--accent);
-}
-
-.queue-label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--muted);
+.station-name {
+  color: var(--nav-ink);
   font-size: 15px;
   font-weight: 500;
 }
 
-.queue-count {
-  margin-top: auto;
-  font-size: 56px;
-  font-weight: 500;
-  line-height: 1;
-  letter-spacing: -0.03em;
+.station-value {
+  margin-top: 18px;
+  font-size: 80px;
+  font-weight: 400;
+  line-height: 0.95;
+  letter-spacing: -0.04em;
 }
 
-.queue-note {
+.station-unit {
   margin-top: 8px;
-  color: var(--muted);
+  color: #fff;
+  font-size: 15px;
+}
+
+.station-meter {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 3px;
+  margin-top: 20px;
+}
+
+.station-meter i {
+  height: 14px;
+  border-radius: 1px;
+  background: #1f425b;
+}
+
+.station-meter i.is-on {
+  background: var(--signal);
+  animation: seg-on 420ms ease-out both;
+  animation-delay: calc(var(--i) * 35ms);
+}
+
+@keyframes seg-on {
+  from { background: #1f425b; }
+  to { background: var(--signal); }
+}
+
+.station-note {
+  margin-top: 10px;
+  color: var(--nav-ink);
   font-size: 13px;
 }
 
-.queue-go {
-  position: absolute;
-  top: 18px;
-  right: 16px;
-  color: var(--line-strong);
-  transition: transform 120ms ease-out, color 120ms ease-out;
-}
-.queue-tile:hover .queue-go {
-  color: var(--accent);
-  transform: translateX(2px);
+.station:hover .station-name,
+.station:focus-visible .station-name {
+  color: #fff;
+  text-decoration: underline;
+  text-underline-offset: 4px;
 }
 
-.queue-tile.is-lead {
-  border-color: var(--nav);
-  background: var(--nav);
-  color: #fff;
+.board-link {
+  align-self: start;
+  width: 40px;
+  height: 16px;
+  margin-top: 34px;
+  fill: none;
+  stroke: #2c4a60;
+  stroke-width: 2;
+  stroke-linecap: square;
 }
-.queue-tile.is-lead .queue-label,
-.queue-tile.is-lead .queue-note {
-  color: var(--nav-ink);
+.board-link.is-live {
+  stroke: var(--signal);
 }
-.queue-tile.is-lead .queue-go {
-  color: var(--signal);
-}
-.queue-tile.is-lead:hover {
+
+.board-attention {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 14px 28px;
   background: var(--nav-step);
+  font-size: 14px;
+}
+
+.board-attention-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: 8px;
+  color: var(--nav-ink);
+  font-weight: 500;
+}
+
+.board-attention button {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 4px;
+  background: theme("colors.warn.100");
+  color: theme("colors.warn.900");
+  font-weight: 500;
+  cursor: pointer;
+}
+.board-attention button:hover {
+  background: theme("colors.warn.200");
 }
 
 .activity-head {
@@ -722,9 +776,12 @@ textarea {
 }
 
 @media (max-width: 900px) {
-  .queue-grid {
+  .board-stations {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    margin-bottom: 36px;
+    gap: 28px 24px;
+  }
+  .board-link {
+    display: none;
   }
 }
 
@@ -740,12 +797,15 @@ textarea {
     padding: 0 11px;
   }
 
-  .queue-tile {
-    min-height: 132px;
-    padding: 14px;
+  .board-stations {
+    padding: 20px 16px 16px;
   }
-  .queue-count {
-    font-size: 44px;
+  .station-value {
+    margin-top: 12px;
+    font-size: 56px;
+  }
+  .board-attention {
+    padding: 12px 16px;
   }
 
   .activity li {

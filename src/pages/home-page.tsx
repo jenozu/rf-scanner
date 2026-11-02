@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, ClipboardCheck, Package, Truck } from "lucide-react";
+import { Fragment, useEffect, useState } from "react";
+import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import { useCollection } from "../data/hooks";
 import {
   BinLocation,
@@ -134,42 +134,77 @@ export default function HomePage({ setPage }: HomePageProps) {
     );
   }, [pos, orders, salesOrders, waves, counts, bins, receiving, countTxns]);
 
-  const queues = useMemo(
-    () => [
-      {
-        label: "Receiving",
-        value: stats.pendingPOs + stats.receivingPOs,
-        note: `${stats.receivingPOs} in progress`,
-        page: "receive" as PageType,
-        icon: Package,
-      },
-      {
-        label: "Picking",
-        value: stats.pendingOrders,
-        note: `${stats.activeWaves} waves open`,
-        page: "pick" as PageType,
-        icon: Truck,
-      },
-      {
-        label: "Counts",
-        value: stats.pendingCounts,
-        note: stats.completedCounts ? `${stats.accuracy}% accurate to date` : "None completed yet",
-        page: "inventory" as PageType,
-        icon: ClipboardCheck,
-      },
-      {
-        label: "Ready to ship",
-        value: stats.readyToShip,
-        note: `${stats.shipped} shipped`,
-        page: "shipping" as PageType,
-        icon: Truck,
-      },
-    ],
-    [stats]
-  );
+  const queueMax = Math.max(1, stats.pendingPOs + stats.receivingPOs, stats.pendingOrders, stats.readyToShip);
+  const SEGMENTS = 12;
+  const segmentsFor = (value: number, max: number) =>
+    value <= 0 ? 0 : Math.max(1, Math.round((value / max) * SEGMENTS));
 
-  // The queue with the most work gets the filled tile.
-  const busiest = queues.reduce((a, b) => (b.value > a.value ? b : a), queues[0]);
+  const stations: Array<{
+    key: string;
+    name: string;
+    value: number;
+    unit: string;
+    note: string;
+    meter: number;
+    meterLabel: string;
+    page: PageType;
+  }> = [
+    {
+      key: "receive",
+      name: "Receiving",
+      value: stats.pendingPOs + stats.receivingPOs,
+      unit: "purchase orders open",
+      note: `${stats.receivingPOs} being received now`,
+      meter: segmentsFor(stats.pendingPOs + stats.receivingPOs, queueMax),
+      meterLabel: "Load against the busiest queue",
+      page: "receive",
+    },
+    {
+      key: "shelf",
+      name: "On the shelf",
+      value: stats.totalBins,
+      unit: "bins on record",
+      note: stats.completedCounts
+        ? `${stats.accuracy}% count accuracy, ${stats.pendingCounts} counts due`
+        : `${stats.pendingCounts} counts due`,
+      meter: stats.completedCounts ? Math.round((stats.accuracy / 100) * SEGMENTS) : 0,
+      meterLabel: "Count accuracy",
+      page: "inventory",
+    },
+    {
+      key: "pick",
+      name: "Picking",
+      value: stats.pendingOrders,
+      unit: "sales orders to pick",
+      note: `${stats.activeWaves} ${stats.activeWaves === 1 ? "wave" : "waves"} open`,
+      meter: segmentsFor(stats.pendingOrders, queueMax),
+      meterLabel: "Load against the busiest queue",
+      page: "pick",
+    },
+    {
+      key: "ship",
+      name: "Shipping",
+      value: stats.readyToShip,
+      unit: "orders ready to ship",
+      note: `${stats.shipped} shipped to date`,
+      meter: segmentsFor(stats.readyToShip, queueMax),
+      meterLabel: "Load against the busiest queue",
+      page: "shipping",
+    },
+  ];
+
+  const variances = countTxns.filter((txn) => txn.variance !== 0).length;
+  const attention: Array<{ text: string; page: PageType }> = [];
+  if (variances > 0)
+    attention.push({
+      text: `${variances} count ${variances === 1 ? "variance" : "variances"} to review`,
+      page: "inventory",
+    });
+  if (stats.receivingPOs > 0)
+    attention.push({
+      text: `${stats.receivingPOs} purchase ${stats.receivingPOs === 1 ? "order" : "orders"} part-received`,
+      page: "receive",
+    });
 
   const today = new Intl.DateTimeFormat("en-CA", {
     weekday: "long",
@@ -180,25 +215,55 @@ export default function HomePage({ setPage }: HomePageProps) {
   return (
     <div className="p-4 max-w-5xl mx-auto">
       <h1 className="page-title">Dashboard</h1>
-      <p className="page-lede">{today}. {stats.totalBins} bins on record.</p>
+      <p className="page-lede">{today}</p>
 
-      <section className="queue-grid" aria-label="Open work">
-        {queues.map((q) => (
-          <button
-            key={q.label}
-            type="button"
-            className={`queue-tile ${q.value > 0 && q === busiest ? "is-lead" : ""}`}
-            onClick={() => setPage(q.page)}
-          >
-            <span className="queue-label">
-              <q.icon size={16} strokeWidth={1.9} aria-hidden="true" />
-              {q.label}
-            </span>
-            <strong className="queue-count">{q.value}</strong>
-            <span className="queue-note">{q.note}</span>
-            <ArrowRight className="queue-go" size={18} aria-hidden="true" />
-          </button>
-        ))}
+      <section className="board" aria-label="Work moving through the warehouse">
+        <div className="board-stations">
+          {stations.map((st, index) => (
+            <Fragment key={st.key}>
+              <button type="button" className="station" onClick={() => setPage(st.page)}>
+                <span className="station-name">{st.name}</span>
+                <strong className="station-value">{st.value}</strong>
+                <span className="station-unit">{st.unit}</span>
+                <span
+                  className="station-meter"
+                  role="img"
+                  aria-label={`${st.meterLabel}: ${st.meter} of ${SEGMENTS}`}
+                >
+                  {Array.from({ length: SEGMENTS }, (_, n) => (
+                    <i
+                      key={n}
+                      className={n < st.meter ? "is-on" : ""}
+                      style={{ ["--i" as string]: n }}
+                    />
+                  ))}
+                </span>
+                <span className="station-note">{st.note}</span>
+              </button>
+              {index < stations.length - 1 && (
+                <svg
+                  className={`board-link ${stations[index].value > 0 ? "is-live" : ""}`}
+                  viewBox="0 0 40 16"
+                  aria-hidden="true"
+                >
+                  <path d="M0 8 H34 M28 2 L35 8 L28 14" />
+                </svg>
+              )}
+            </Fragment>
+          ))}
+        </div>
+
+        <div className="board-attention">
+          <span className="board-attention-title">
+            {attention.length ? <AlertTriangle size={16} aria-hidden="true" /> : <CheckCircle2 size={16} aria-hidden="true" />}
+            {attention.length ? "Needs attention" : "Nothing flagged"}
+          </span>
+          {attention.map((a) => (
+            <button key={a.text} type="button" onClick={() => setPage(a.page)}>
+              {a.text}
+            </button>
+          ))}
+        </div>
       </section>
 
       <section className="activity" aria-labelledby="activity-title">
