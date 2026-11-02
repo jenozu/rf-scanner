@@ -25,3 +25,8 @@ export function validateRecordChanges(body: any): OpFailure | null;
 export function applyRecordChanges(current: any[] | null, body: any): OpOutcome;
 export function validateBinsSet(body: any): OpFailure | null;
 export function applyBinsSet(current: any[] | null, body: any): OpOutcome;
+export interface BinClass { kind: 'real' | 'blank' | 'system' | 'placeholder' | 'warehouse-only'; real: boolean; reason: string }
+export function classifyBin(code: string | null | undefined, warehouse?: string | null): BinClass;
+export function isRealBin(code: string | null | undefined, warehouse?: string | null): boolean;
+export function validateAssignBin(body: any): OpFailure | null;
+export function applyAssignBin(state: { sos: any[] | null; bins: any[] | null }, body: any, user?: { username?: string } | null): OpOutcome;

@@ -224,6 +224,11 @@ class ApiClient {
       "/ops/receive", params);
   }
 
+  /** Give a sales-order line a real, existing bin (SAP's original value is kept on the line). */
+  assignSoBin(params: { soId: string; lineIndex: number; binCode: string }) {
+    return this.post<{ ok: true; so: any; line: any }>("/ops/so-assign-bin", params);
+  }
+
   /** One pick: sales-order line + stock taken from the bin in a single request. */
   pickSalesOrderLine(params: { soId: string; lineIndex: number; qty: number; binCode?: string }) {
     return this.post<{ ok: true; so: any; binQuantity: number | null }>("/ops/pick-so", params);

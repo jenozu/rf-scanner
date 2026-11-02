@@ -94,7 +94,7 @@ export function registerOps(app, { authenticateToken, requireWriter, dataDir }) 
         const result = await store.lockedMany(Object.values(paths), async (txs) => {
           const state = {};
           for (const [name2, file] of Object.entries(paths)) state[name2] = (await txs[file].read()).data;
-          const out = apply(state, req.body);
+          const out = apply(state, req.body, req.currentUser);
           if (out.data) {
             for (const [name2, file] of Object.entries(paths)) {
               if (out.data[name2] !== undefined) await txs[file].write(out.data[name2]);
@@ -118,6 +118,12 @@ export function registerOps(app, { authenticateToken, requireWriter, dataDir }) 
     validate: logic.validateReceive,
     files: { pos: 'rf_purchase_orders', bins: 'rf_bins', txns: 'rf_receiving_txns' },
     apply: logic.applyReceive,
+  }));
+
+  app.post('/api/ops/so-assign-bin', ...guard, composite('so-assign-bin', {
+    validate: logic.validateAssignBin,
+    files: { sos: 'rf_sales_orders', bins: 'rf_bins' },
+    apply: logic.applyAssignBin,
   }));
 
   app.post('/api/ops/pick-so', ...guard, composite('pick-so', {

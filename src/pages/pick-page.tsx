@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { Wave, Order, OrderItem, BinLocation, SalesOrder, SOItem } from "../types";
 import { useCollection } from "../data/hooks";
-import { adjustBin, pickSalesOrderLine, upsertRecord } from "../data/ops";
+import { adjustBin, assignSoBin, pickSalesOrderLine, upsertRecord } from "../data/ops";
 import { checkStock, summarizeStock } from "../data/stock-check";
 import StockNotice from "../components/stock-notice";
+import BinAssignPanel from "../components/bin-assign-panel";
+import { classifyBin } from "../../server/ops-logic.js";
 import { Truck, Package, MapPin, Check, AlertTriangle, ShoppingCart } from "lucide-react";
 
 interface PickPageProps {
@@ -49,8 +51,11 @@ export default function PickPage({ setPage }: PickPageProps) {
       if ((item.RemainingQty || 0) > 0) picks.push({ so, item, lineIndex });
     });
 
-    // Sort by bin location for efficient picking
+    // Lines that need a bin come first (so they are handled up front), then by bin for efficient picking
     picks.sort((a, b) => {
+      const realA = classifyBin(a.item.BinCode, a.item.Warehouse).real;
+      const realB = classifyBin(b.item.BinCode, b.item.Warehouse).real;
+      if (realA !== realB) return realA ? 1 : -1;
       const binA = a.item.BinCode || "";
       const binB = b.item.BinCode || "";
       return binA.localeCompare(binB);
@@ -60,6 +65,10 @@ export default function PickPage({ setPage }: PickPageProps) {
     setCurrentPickIndex(0);
     // The order becomes "picking" on the server with the first confirmed pick.
   };
+
+  // The order line as the server has it now (its bin may have been assigned since the list was built).
+  const liveLine = (entry: { so: SalesOrder; item: SOItem; lineIndex: number }) =>
+    salesOrders.find((s) => s.id === entry.so.id)?.items[entry.lineIndex] ?? entry.item;
 
   // Remaining quantity for a pick line, from the latest server data (another
   // device may have picked from the same line since this list was built).
@@ -86,10 +95,16 @@ export default function PickPage({ setPage }: PickPageProps) {
       return;
     }
 
+    const line = liveLine(currentPick);
+    if (!classifyBin(line.BinCode, line.Warehouse).real) {
+      showToast("⚠️ Assign a real bin to this line before picking it", "error");
+      return;
+    }
+
     setIsSaving(true);
     try {
-      // One request: sales-order line + stock taken from the bin.
-      await pickSalesOrderLine({ soId: so.id, lineIndex, qty: pickedQty, binCode: item.BinCode });
+      // One request: sales-order line + stock taken from the line's bin (the server picks the bin).
+      await pickSalesOrderLine({ soId: so.id, lineIndex, qty: pickedQty });
     } catch (error: any) {
       showToast(`❌ Pick not saved: ${error?.message || "server error"}. Try again.`, "error");
       setIsSaving(false);
@@ -269,13 +284,16 @@ export default function PickPage({ setPage }: PickPageProps) {
     // Stock check for every line in pick order, so two lines of one item in one bin share its stock.
     const stockResults = checkStock(
       soPickList.map((entry) => ({
-        binCode: entry.item.BinCode,
+        binCode: liveLine(entry).BinCode,
+        warehouse: liveLine(entry).Warehouse,
         itemCode: entry.item.ItemCode,
         needed: liveRemaining(entry),
       })),
       bins
     );
     const stock = stockResults[currentPickIndex];
+    const current = liveLine(currentPick);
+    const needsBin = !classifyBin(current.BinCode, current.Warehouse).real;
 
     return (
       <div className="p-4 max-w-4xl mx-auto">
@@ -326,8 +344,8 @@ export default function PickPage({ setPage }: PickPageProps) {
           <div className="flex items-center gap-2 mb-4">
             <MapPin className="text-blue-600" size={24} />
             <div>
-              <h3 className="text-2xl font-bold">{item.BinCode || "No Bin"}</h3>
-              <p className="text-sm text-gray-600">Pick from this location</p>
+              <h3 className="text-2xl font-bold">{needsBin ? "No real bin" : current.BinCode}</h3>
+              <p className="text-sm text-gray-600">{needsBin ? "Assign a bin below" : "Pick from this location"}</p>
             </div>
           </div>
 
@@ -342,7 +360,20 @@ export default function PickPage({ setPage }: PickPageProps) {
               </div>
             </div>
 
-            <StockNotice result={stock} enteredQty={pickedQty} />
+            {needsBin ? (
+              <BinAssignPanel
+                itemCode={item.ItemCode}
+                currentBin={current.BinCode}
+                warehouse={current.Warehouse}
+                bins={bins}
+                onAssign={async (binCode) => {
+                  await assignSoBin({ soId: so.id, lineIndex: currentPick.lineIndex, binCode });
+                  showToast(`✅ Bin ${binCode} assigned`, "success");
+                }}
+              />
+            ) : (
+              <StockNotice result={stock} enteredQty={pickedQty} />
+            )}
 
             <div className="bg-blue-50 rounded-lg p-4 mb-4">
               <p className="text-center text-3xl font-bold text-blue-600">
@@ -371,10 +402,10 @@ export default function PickPage({ setPage }: PickPageProps) {
           <div className="flex gap-2">
             <button
               onClick={handleConfirmSOPick}
-              disabled={isSaving}
+              disabled={isSaving || needsBin}
               className="flex-1 bg-green-600 text-white py-3 rounded-md hover:bg-green-700 font-medium text-lg disabled:bg-gray-400"
             >
-              {isSaving ? "Saving..." : "Confirm Pick"}
+              {isSaving ? "Saving..." : needsBin ? "Assign a bin first" : "Confirm Pick"}
             </button>
             <button
               onClick={() => {
@@ -454,6 +485,7 @@ export default function PickPage({ setPage }: PickPageProps) {
                 checkStock(
                   itemsToPick.map((line) => ({
                     binCode: line.BinCode,
+                    warehouse: line.Warehouse,
                     itemCode: line.ItemCode,
                     needed: line.RemainingQty || 0,
                   })),
@@ -486,8 +518,13 @@ export default function PickPage({ setPage }: PickPageProps) {
                       <p className="text-xs text-gray-500 mt-1">
                         Created: {new Date(so.createdDate).toLocaleDateString()}
                       </p>
-                      {(stockSummary.none > 0 || stockSummary.partial > 0) && (
+                      {(stockSummary.needsBin > 0 || stockSummary.none > 0 || stockSummary.partial > 0) && (
                         <div className="flex flex-wrap gap-2 mt-2">
+                          {stockSummary.needsBin > 0 && (
+                            <span className="px-2 py-1 rounded-full text-xs font-semibold bg-red-600 text-white">
+                              ✕ {stockSummary.needsBin} {stockSummary.needsBin === 1 ? "line needs" : "lines need"} a bin assigned
+                            </span>
+                          )}
                           {stockSummary.none > 0 && (
                             <span className="px-2 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800">
                               ✕ {stockSummary.none} {stockSummary.none === 1 ? "line" : "lines"} with no stock

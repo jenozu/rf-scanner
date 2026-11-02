@@ -48,9 +48,20 @@ describe("checkStock", () => {
     expect(results.map((r) => r.status)).toEqual(["ok", "ok", "ok"]);
   });
 
-  it("cannot check a line without a bin, or with a bin that is not in the system", () => {
-    expect(checkStock([{ itemCode: "MOUSE", needed: 1 }], bins)[0]).toMatchObject({ status: "no-bin", inBin: null });
-    expect(checkStock([{ binCode: "  ", itemCode: "MOUSE", needed: 1 }], bins)[0].status).toBe("no-bin");
+  it("flags a line without a real bin as needing one: blank, SAP's system bin, a placeholder, or a warehouse code", () => {
+    for (const binCode of [undefined, "  ", "01-SYSTEM-BIN-LOCATION", "NO-BIN", "01"]) {
+      expect(checkStock([{ binCode, itemCode: "MOUSE", needed: 1 }], bins)[0]).toMatchObject({ status: "needs-bin", inBin: null });
+    }
+  });
+
+  it("does not report the system bin's stock as if it were a pickable bin", () => {
+    const withSystem = [...bins, bin("01-SYSTEM-BIN-LOCATION", [["MOUSE", 50]])];
+    const [r] = checkStock([{ binCode: "01-SYSTEM-BIN-LOCATION", itemCode: "MOUSE", needed: 2 }], withSystem);
+    expect(r.status).toBe("needs-bin");
+    expect(r.inBin).toBeNull();
+  });
+
+  it("a real-looking bin that is not in the system cannot be checked, but is not blocked", () => {
     expect(checkStock([{ binCode: "Z-9", itemCode: "MOUSE", needed: 1 }], bins)[0]).toMatchObject({ status: "unknown-bin", inBin: null });
   });
 
@@ -65,7 +76,7 @@ describe("checkStock", () => {
 });
 
 describe("summarizeStock", () => {
-  it("counts partial, none and unchecked lines", () => {
+  it("counts partial, none, needs-bin and unchecked lines", () => {
     const results = checkStock([
       { binCode: "A-1", itemCode: "MOUSE", needed: 1 },
       { binCode: "A-1", itemCode: "KEYB", needed: 9 },
@@ -73,6 +84,6 @@ describe("summarizeStock", () => {
       { itemCode: "MOUSE", needed: 1 },
       { binCode: "Z-9", itemCode: "MOUSE", needed: 1 },
     ], bins);
-    expect(summarizeStock(results)).toEqual({ partial: 1, none: 1, unchecked: 2 });
+    expect(summarizeStock(results)).toEqual({ partial: 1, none: 1, needsBin: 1, unchecked: 1 });
   });
 });

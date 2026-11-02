@@ -6,6 +6,8 @@ import { parsePOFile } from "../data/csv-utils";
 import QuantityNumpad from "../components/quantity-numpad";
 import { useCollection } from "../data/hooks";
 import { receiveStock, saveCollection, upsertManyRecords } from "../data/ops";
+import BinAssignPanel from "../components/bin-assign-panel";
+import { classifyBin } from "../../server/ops-logic.js";
 
 interface ReceivePageProps {
   setPage: (page: any) => void;
@@ -68,8 +70,9 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
   const handleReceiveItem = (item: POItem, index: number) => {
     setReceivingIndex(index);
     setReceivedQty(item.OrderedQty - item.ReceivedQty); // Default to remaining qty
-    // Pre-fill with PO's bin code as default
-    setSelectedBin(item.BinCode || getStagingBinCode());
+    // Pre-fill with the PO line's bin only if it is a real bin. Otherwise (blank, SAP's system
+    // bin, a warehouse code) nothing is assumed: the receiver must choose a bin.
+    setSelectedBin(classifyBin(item.BinCode, item.Warehouse).real ? (item.BinCode as string) : "");
     setLots([]);
     setSerials([]);
     setLotMode(item.RequiresLotSerial ? "lots" : "none");
@@ -79,8 +82,13 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
   const handleSaveReceive = async () => {
     if (!selectedPO || !receivingItem) return;
 
-    // Bin is optional - use PO's bin or skip assignment if blank
-    const finalBin = selectedBin || receivingItem.BinCode || getStagingBinCode();
+    // Stock is received into a real bin the receiver chose or confirmed (no silent fall-back).
+    const finalBin = selectedBin.trim().toUpperCase();
+    const binCheck = classifyBin(finalBin, receivingItem.Warehouse);
+    if (!binCheck.real) {
+      showToast(`⚠️ ${binCheck.reason}. Choose a real bin first.`, "error");
+      return;
+    }
 
     if (receivedQty <= 0) {
       showToast("⚠️ Received quantity must be greater than 0", "error");
@@ -497,24 +505,48 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
                     </p>
                   </div>
 
-                  {/* Bin location input (optional - defaults to PO's bin if available) */}
-                  <div>
-                    <label className="block text-xs font-medium mb-1 text-gray-600">
-                      Bin Location {item.BinCode && `(default: ${item.BinCode})`}
-                    </label>
-                    <input
-                      type="text"
-                      value={selectedBin}
-                      onChange={(e) => setSelectedBin(e.target.value.toUpperCase())}
-                      placeholder={item.BinCode || "Enter bin location (optional)"}
-                      className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
-                    />
-                    <p className="text-xs text-gray-500 mt-0.5">
-                      {item.BinCode 
-                        ? `Will use "${item.BinCode}" from PO if left blank.` 
-                        : "Leave blank to use staging area."}
-                    </p>
-                  </div>
+                  {/* Bin: a real bin must be chosen before anything can be received */}
+                  {(() => {
+                    const needsBin = !classifyBin(selectedBin, item.Warehouse).real;
+                    const staging = getStagingBinCode();
+                    const stagingOption = classifyBin(staging, item.Warehouse).real
+                      ? [{ binCode: staging, label: `Staging area (${staging})` }]
+                      : [];
+                    return needsBin ? (
+                      <BinAssignPanel
+                        itemCode={item.ItemCode}
+                        currentBin={item.BinCode}
+                        warehouse={item.Warehouse}
+                        bins={bins}
+                        heading="✕ Choose a bin to receive into"
+                        explain={`${classifyBin(item.BinCode, item.Warehouse).reason}. In SAP this would land in the system bin. Choose where it is going before receiving.`}
+                        actionLabel="Use this bin"
+                        extraOptions={stagingOption}
+                        footer="Set this item's Default Bin Location in SAP before you post the goods receipt there, so SAP bins it correctly too."
+                        onAssign={async (code) => {
+                          const check = classifyBin(code, item.Warehouse);
+                          if (!check.real) throw new Error(`${check.reason}. Choose a real bin.`);
+                          setSelectedBin(code);
+                        }}
+                      />
+                    ) : (
+                      <div>
+                        <label className="block text-xs font-medium mb-1 text-gray-600">
+                          Receiving into bin {item.BinCode && classifyBin(item.BinCode, item.Warehouse).real && item.BinCode !== selectedBin ? `(PO line says ${item.BinCode})` : ""}
+                        </label>
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={selectedBin}
+                            onChange={(e) => setSelectedBin(e.target.value.toUpperCase())}
+                            className="flex-1 border border-gray-300 rounded-md px-2 py-1.5 text-sm"
+                            aria-label="Receiving bin"
+                          />
+                        </div>
+                        <p className="text-xs text-gray-500 mt-0.5">A bin that does not exist yet is created when you receive.</p>
+                      </div>
+                    );
+                  })()}
 
                   {/* Lot/Serial Capture */}
                   {item.RequiresLotSerial && (
@@ -604,10 +636,10 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
                   <div className="flex gap-2">
                     <button
                       onClick={handleSaveReceive}
-                      disabled={isSaving}
+                      disabled={isSaving || !classifyBin(selectedBin, item.Warehouse).real}
                       className="flex-1 bg-green-600 text-white py-2 rounded-md hover:bg-green-700 font-medium disabled:bg-gray-400"
                     >
-                      {isSaving ? "Saving..." : "Confirm Receive to Staging"}
+                      {isSaving ? "Saving..." : !classifyBin(selectedBin, item.Warehouse).real ? "Choose a bin first" : `Confirm Receive to ${selectedBin}`}
                     </button>
                     <button
                       onClick={() => setReceivingIndex(null)}

@@ -391,3 +391,147 @@ test('bins-set: counting different bins from two devices at once keeps every cou
   const bins = await read('rf_bins');
   assert.deepEqual(bins.map(b => b.Items[0].Quantity), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 });
+
+// ---------- real-bin rule ----------
+
+const soLine = (n, ItemCode, q, BinCode, extra = {}) => ({ LineNumber: n, ItemCode, Description: ItemCode, OrderedQty: q, DeliveredQty: 0, RemainingQty: q, BinCode, ...extra });
+
+test('pick-so refuses a line with no real bin and changes nothing', async () => {
+  await write('rf_bins', [bin('01-RACK', [{ ItemCode: 'A', Description: 'a', Quantity: 9 }]), bin('01-SYSTEM-BIN-LOCATION', [{ ItemCode: 'A', Description: 'a', Quantity: 5 }])]);
+  await write('rf_sales_orders', [{ id: 'soB', soNumber: '1', status: 'pending', items: [
+    soLine(1, 'A', 2, '01-SYSTEM-BIN-LOCATION'), soLine(2, 'A', 2, undefined), soLine(3, 'A', 2, '01', { Warehouse: '01' }), soLine(4, 'A', 2, 'NO-BIN'),
+  ] }]);
+  const before = [await read('rf_sales_orders'), await read('rf_bins')];
+  for (let i = 0; i < 4; i++) {
+    const res = await post(op, '/api/ops/pick-so', { soId: 'soB', lineIndex: i, qty: 1 });
+    assert.equal(res.status, 409, `line ${i}`);
+    assert.equal((await res.json()).code, 'NO_REAL_BIN');
+  }
+  assert.deepEqual([await read('rf_sales_orders'), await read('rf_bins')], before);
+});
+
+test('pick-so ignores a bin sent by the browser: stock comes from the line\'s own bin', async () => {
+  await write('rf_bins', [bin('01-RACK', [{ ItemCode: 'A', Description: 'a', Quantity: 9 }]), bin('OTHER', [{ ItemCode: 'A', Description: 'a', Quantity: 9 }])]);
+  await write('rf_sales_orders', [{ id: 'soC', soNumber: '2', status: 'pending', items: [soLine(1, 'A', 2, '01-RACK')] }]);
+  const res = await post(op, '/api/ops/pick-so', { soId: 'soC', lineIndex: 0, qty: 2, binCode: 'OTHER' });
+  assert.equal(res.status, 200);
+  const bins = await read('rf_bins');
+  assert.equal(bins.find(b => b.BinCode === '01-RACK').Items[0].Quantity, 7);
+  assert.equal(bins.find(b => b.BinCode === 'OTHER').Items[0].Quantity, 9);
+});
+
+test('so-assign-bin: gives the line a real, existing bin, keeps what SAP had, records who did it', async () => {
+  await write('rf_bins', [bin('01-RACK', [{ ItemCode: 'A', Description: 'a', Quantity: 9 }]), bin('01-SYSTEM-BIN-LOCATION', [])]);
+  await write('rf_sales_orders', [{ id: 'soD', soNumber: '3', status: 'pending', items: [soLine(1, 'A', 2, '01-SYSTEM-BIN-LOCATION')] }]);
+  const res = await post(op, '/api/ops/so-assign-bin', { soId: 'soD', lineIndex: 0, binCode: ' 01-rack ' });
+  assert.equal(res.status, 200);
+  const line = (await read('rf_sales_orders'))[0].items[0];
+  assert.equal(line.BinCode, '01-RACK');
+  assert.equal(line.OriginalBinCode, '01-SYSTEM-BIN-LOCATION');
+  assert.equal(line.BinAssignedBy, 'op');
+  assert.ok(line.BinAssignedAt);
+  // a second assignment keeps the FIRST original value
+  await write('rf_bins', [bin('01-RACK', []), bin('01-RACK-2', [])]);
+  await post(op, '/api/ops/so-assign-bin', { soId: 'soD', lineIndex: 0, binCode: '01-RACK-2' });
+  const again = (await read('rf_sales_orders'))[0].items[0];
+  assert.deepEqual([again.BinCode, again.OriginalBinCode], ['01-RACK-2', '01-SYSTEM-BIN-LOCATION']);
+});
+
+test('so-assign-bin refuses placeholders, unknown bins, bad input and viewers; changes nothing', async () => {
+  await write('rf_bins', [bin('01-RACK', []), bin('01-SYSTEM-BIN-LOCATION', [])]);
+  await write('rf_sales_orders', [{ id: 'soE', soNumber: '4', status: 'pending', items: [soLine(1, 'A', 2, undefined)] }]);
+  const before = await read('rf_sales_orders');
+  const r1 = await post(op, '/api/ops/so-assign-bin', { soId: 'soE', lineIndex: 0, binCode: '01-SYSTEM-BIN-LOCATION' });
+  assert.deepEqual([r1.status, (await r1.json()).code], [400, 'NOT_A_REAL_BIN']);
+  assert.equal((await post(op, '/api/ops/so-assign-bin', { soId: 'soE', lineIndex: 0, binCode: '01' })).status, 400);
+  const r2 = await post(op, '/api/ops/so-assign-bin', { soId: 'soE', lineIndex: 0, binCode: 'NOPE-9' });
+  assert.deepEqual([r2.status, (await r2.json()).code], [404, 'BIN_NOT_FOUND']);
+  assert.equal((await post(op, '/api/ops/so-assign-bin', { soId: 'zzz', lineIndex: 0, binCode: '01-RACK' })).status, 404);
+  assert.equal((await post(op, '/api/ops/so-assign-bin', { soId: 'soE', lineIndex: 9, binCode: '01-RACK' })).status, 404);
+  assert.equal((await post(op, '/api/ops/so-assign-bin', { soId: 'soE', lineIndex: 0 })).status, 400);
+  assert.equal((await post(viewer, '/api/ops/so-assign-bin', { soId: 'soE', lineIndex: 0, binCode: '01-RACK' })).status, 403);
+  assert.deepEqual(await read('rf_sales_orders'), before);
+});
+
+test('after a bin is assigned the line can be picked, taking stock from the assigned bin', async () => {
+  await write('rf_bins', [bin('01-RACK', [{ ItemCode: 'A', Description: 'a', Quantity: 9 }]), bin('01-SYSTEM-BIN-LOCATION', [{ ItemCode: 'A', Description: 'a', Quantity: 5 }])]);
+  await write('rf_sales_orders', [{ id: 'soF', soNumber: '5', status: 'pending', items: [soLine(1, 'A', 3, '01-SYSTEM-BIN-LOCATION')] }]);
+  assert.equal((await post(op, '/api/ops/pick-so', { soId: 'soF', lineIndex: 0, qty: 3 })).status, 409);
+  assert.equal((await post(op, '/api/ops/so-assign-bin', { soId: 'soF', lineIndex: 0, binCode: '01-RACK' })).status, 200);
+  const picked = await (await post(op, '/api/ops/pick-so', { soId: 'soF', lineIndex: 0, qty: 3 })).json();
+  assert.equal(picked.so.status, 'picked');
+  const bins = await read('rf_bins');
+  assert.equal(bins.find(b => b.BinCode === '01-RACK').Items[0].Quantity, 6);
+  assert.equal(bins.find(b => b.BinCode === '01-SYSTEM-BIN-LOCATION').Items[0].Quantity, 5);
+});
+
+test('an order with an unassigned line cannot finish: it stays picking until that line gets a bin and is picked', async () => {
+  await write('rf_bins', [bin('01-RACK', [{ ItemCode: 'A', Description: 'a', Quantity: 9 }])]);
+  await write('rf_sales_orders', [{ id: 'soG', soNumber: '6', status: 'pending', items: [soLine(1, 'A', 1, '01-RACK'), soLine(2, 'A', 1, '')] }]);
+  assert.equal((await post(op, '/api/ops/pick-so', { soId: 'soG', lineIndex: 0, qty: 1 })).status, 200);
+  assert.equal((await post(op, '/api/ops/pick-so', { soId: 'soG', lineIndex: 1, qty: 1 })).status, 409);
+  assert.equal((await read('rf_sales_orders'))[0].status, 'picking');
+  await post(op, '/api/ops/so-assign-bin', { soId: 'soG', lineIndex: 1, binCode: '01-RACK' });
+  assert.equal((await (await post(op, '/api/ops/pick-so', { soId: 'soG', lineIndex: 1, qty: 1 })).json()).so.status, 'picked');
+});
+
+test('so-assign-bin: a blank bin leaves no OriginalBinCode (only a real original value is kept)', async () => {
+  await write('rf_bins', [bin('01-RACK', [])]);
+  await write('rf_sales_orders', [{ id: 'soH', soNumber: '7', status: 'pending', items: [soLine(1, 'A', 1, ''), soLine(2, 'A', 1, undefined)] }]);
+  await post(op, '/api/ops/so-assign-bin', { soId: 'soH', lineIndex: 0, binCode: '01-RACK' });
+  await post(op, '/api/ops/so-assign-bin', { soId: 'soH', lineIndex: 1, binCode: '01-RACK' });
+  const items = (await read('rf_sales_orders'))[0].items;
+  assert.deepEqual(items.map(i => i.OriginalBinCode), [undefined, undefined]);
+  assert.deepEqual(items.map(i => i.BinCode), ['01-RACK', '01-RACK']);
+});
+
+// ---------- real-bin rule on receiving ----------
+
+const poLine = (n, ItemCode, q, BinCode, extra = {}) => ({ LineNumber: n, ItemCode, Description: ItemCode, OrderedQty: q, ReceivedQty: 0, BinCode, ...extra });
+const seedRecv = async (lines) => {
+  await write('rf_purchase_orders', [{ id: 'poZ', poNumber: '9', vendor: 'V', status: 'pending', expectedDate: '2026-01-01', items: lines }]);
+  await write('rf_bins', []);
+  await write('rf_receiving_txns', []);
+};
+
+test('receive refuses a destination that is not a real bin and changes nothing', async () => {
+  await seedRecv([poLine(1, 'A', 5, '01-SYSTEM-BIN-LOCATION')]);
+  const before = [await read('rf_purchase_orders'), await read('rf_bins'), await read('rf_receiving_txns')];
+  let n = 0;
+  for (const binCode of ['01-SYSTEM-BIN-LOCATION', '02-system-bin-location', 'NO-BIN', '01', 'N/A']) {
+    const res = await post(op, '/api/ops/receive', { poId: 'poZ', lineIndex: 0, qty: 1, binCode, txnId: `T-${n++}` });
+    assert.equal(res.status, 409, binCode);
+    assert.equal((await res.json()).code, 'NO_REAL_BIN');
+  }
+  assert.deepEqual([await read('rf_purchase_orders'), await read('rf_bins'), await read('rf_receiving_txns')], before);
+});
+
+test('receive into a real bin when the PO line had the system bin: keeps SAP\'s value, records who chose', async () => {
+  await seedRecv([poLine(1, 'A', 5, '01-SYSTEM-BIN-LOCATION')]);
+  const res = await post(op, '/api/ops/receive', { poId: 'poZ', lineIndex: 0, qty: 2, binCode: '01-RACK', txnId: 'T-A', createBin: {} });
+  assert.equal(res.status, 200);
+  const line = (await read('rf_purchase_orders'))[0].items[0];
+  assert.deepEqual([line.BinCode, line.OriginalBinCode, line.BinAssignedBy], ['01-RACK', '01-SYSTEM-BIN-LOCATION', 'op']);
+  assert.ok(line.BinAssignedAt);
+  assert.equal((await read('rf_bins')).find(b => b.BinCode === '01-RACK').Items[0].Quantity, 2); // a new real bin is created, as receiving always did
+});
+
+test('a blank PO bin: no OriginalBinCode is invented; a line that already had a real bin stays untouched', async () => {
+  await seedRecv([poLine(1, 'A', 5, ''), poLine(2, 'B', 5, '01-RACK')]);
+  await post(op, '/api/ops/receive', { poId: 'poZ', lineIndex: 0, qty: 1, binCode: '01-RACK', txnId: 'T-B1', createBin: {} });
+  await post(op, '/api/ops/receive', { poId: 'poZ', lineIndex: 1, qty: 1, binCode: '01-RACK', txnId: 'T-B2', createBin: {} });
+  const [blank, real] = (await read('rf_purchase_orders'))[0].items;
+  assert.deepEqual([blank.OriginalBinCode, blank.BinAssignedBy], [undefined, 'op']);
+  assert.deepEqual([real.OriginalBinCode, real.BinAssignedBy, real.BinAssignedAt], [undefined, undefined, undefined]);
+});
+
+test('receiving into a real bin other than the PO line\'s own bin is still allowed (putaway elsewhere)', async () => {
+  await seedRecv([poLine(1, 'A', 5, '01-RACK')]);
+  assert.equal((await post(op, '/api/ops/receive', { poId: 'poZ', lineIndex: 0, qty: 1, binCode: 'D-01-01', txnId: 'T-C', createBin: {} })).status, 200);
+});
+
+test('the plain po-receive op also refuses a non-real bin when one is given', async () => {
+  await seedRecv([poLine(1, 'A', 5, '')]);
+  assert.equal((await post(op, '/api/ops/po-receive', { poId: 'poZ', lineIndex: 0, qty: 1, binCode: '01-SYSTEM-BIN-LOCATION' })).status, 409);
+  assert.equal((await post(op, '/api/ops/po-receive', { poId: 'poZ', lineIndex: 0, qty: 1 })).status, 200); // no bin given: unchanged behavior
+});
