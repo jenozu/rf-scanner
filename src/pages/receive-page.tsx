@@ -5,7 +5,8 @@ import { getStagingBinCode } from "../utils/config";
 import { parsePOFile } from "../data/csv-utils";
 import QuantityNumpad from "../components/quantity-numpad";
 import { useCollection } from "../data/hooks";
-import { receiveStock, saveCollection, upsertManyRecords } from "../data/ops";
+import { receiveStock, saveCollection, upsertManyRecords, deleteRecord } from "../data/ops";
+import ManageOrdersPanel from "../components/manage-orders-panel";
 import BinAssignPanel from "../components/bin-assign-panel";
 import { classifyBin } from "../../server/ops-logic.js";
 
@@ -403,6 +404,21 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
             ))}
           </div>
         )}
+
+        <ManageOrdersPanel
+          title="Manage imported POs (delete)"
+          kind="purchase order"
+          orders={purchaseOrders.map((po) => ({
+            id: po.id,
+            label: `PO ${po.poNumber}`,
+            detail: po.vendor,
+            status: po.status,
+            lineCount: po.items.length,
+            progressQty: po.items.reduce((sum, item) => sum + (item.ReceivedQty || 0), 0),
+          }))}
+          onDelete={(id) => deleteRecord("rf_purchase_orders", id).then(() => undefined)}
+          onMessage={showToast}
+        />
       </div>
     );
   }
