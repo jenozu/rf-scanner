@@ -43,6 +43,11 @@ export function receiveStock(params: ApiParams<"receiveStock">[0]) {
   });
 }
 
+/** Give a sales-order line a real bin before it can be picked. */
+export function assignSoBin(params: ApiParams<"assignSoBin">[0]) {
+  return dataStore.mutate(() => api.assignSoBin(params), { reload: ["rf_sales_orders"] });
+}
+
 /** Pick against one sales-order line and take the stock from its bin. */
 export function pickSalesOrderLine(params: ApiParams<"pickSalesOrderLine">[0]) {
   return dataStore.mutate(() => api.pickSalesOrderLine(params), {

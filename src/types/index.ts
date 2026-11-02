@@ -35,6 +35,8 @@ export interface POItem {
   /** Convenience: remaining to receive (may be recomputed at runtime) */
   RemainingQty?: number;
   BinCode?: string;
+  /** SAP warehouse code for this line (kept apart from the bin). */
+  Warehouse?: string;
   /** Whether this line requires lot/serial capture */
   RequiresLotSerial?: boolean;
   /** Captured lots for this PO line */
@@ -102,6 +104,12 @@ export interface SOItem {
   /** Remaining quantity to pick/ship */
   RemainingQty?: number;
   BinCode?: string; // Suggested bin for picking
+  /** SAP warehouse code for this line (kept apart from the bin: "01" is a warehouse, not a bin). */
+  Warehouse?: string;
+  /** Set when someone assigned a bin in the app: what SAP had, who, and when. */
+  OriginalBinCode?: string;
+  BinAssignedBy?: string;
+  BinAssignedAt?: string;
 }
 
 /**

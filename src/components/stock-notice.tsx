@@ -59,10 +59,10 @@ export default function StockNotice({ result, enteredQty }: StockNoticeProps) {
     );
   }
 
-  if (result.status === "no-bin") {
+  if (result.status === "needs-bin") {
     return (
       <div className="mb-4 rounded-lg border border-gray-300 bg-gray-50 p-3 text-sm text-gray-700">
-        No bin on this order line, so stock could not be checked.
+        This line needs a real bin before stock can be checked.
       </div>
     );
   }

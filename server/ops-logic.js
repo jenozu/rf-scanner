@@ -202,6 +202,63 @@ export function applyUpsertMany(current, body) {
   return { data: list, result: { added, updated, skipped, total: list.length } };
 }
 
+// --- Real-bin rule ---
+// A bin is "real" when a picker can walk to it. These are not: blank values, placeholders
+// like NO-BIN, SAP's system bin (e.g. 01-SYSTEM-BIN-LOCATION, which stock lands in when an
+// item has no default bin), and a bare warehouse code such as "01".
+const PLACEHOLDER_BIN = /^(NO[\s_-]*BIN|N\/?A|NONE|NULL|UNASSIGNED|TBD|\?+|-+)$/i;
+const SYSTEM_BIN = /SYSTEM[\s_-]*BIN/i;
+const WAREHOUSE_ONLY = /^\d{1,2}$/;
+
+export function classifyBin(code, warehouse) {
+  const value = String(code ?? '').trim();
+  if (!value) return { kind: 'blank', real: false, reason: 'No bin on this line' };
+  if (SYSTEM_BIN.test(value)) return { kind: 'system', real: false, reason: `${value} is SAP's system bin, not a shelf` };
+  if (PLACEHOLDER_BIN.test(value)) return { kind: 'placeholder', real: false, reason: `"${value}" is a placeholder, not a bin` };
+  const wh = String(warehouse ?? '').trim().toUpperCase();
+  if (WAREHOUSE_ONLY.test(value) || (wh && value.toUpperCase() === wh)) {
+    return { kind: 'warehouse-only', real: false, reason: `"${value}" is a warehouse code, not a bin` };
+  }
+  return { kind: 'real', real: true, reason: '' };
+}
+
+export const isRealBin = (code, warehouse) => classifyBin(code, warehouse).real;
+
+export function validateAssignBin(body) {
+  const { soId, lineIndex, binCode } = body || {};
+  if (typeof soId !== 'string' || !soId || !Number.isInteger(lineIndex) || lineIndex < 0) {
+    return fail('soId and lineIndex are required');
+  }
+  if (typeof binCode !== 'string' || !binCode.trim()) return fail('binCode is required');
+  return null;
+}
+
+// Give one sales-order line a real, existing bin. The first time, SAP's original value is
+// kept in OriginalBinCode so the owner can fix the item's default bin in SAP afterwards.
+// state is { sos, bins }; user is the signed-in user (for the record of who changed it).
+export function applyAssignBin(state, body, user) {
+  const { soId, lineIndex } = body;
+  const code = String(body.binCode).trim().toUpperCase();
+  const so = (state.sos || []).find(s => s.id === soId);
+  if (!so) return { result: fail('Sales order not found', 404) };
+  const line = so.items?.[lineIndex];
+  if (!line) return { result: fail('Sales order line not found', 404) };
+
+  const check = classifyBin(code, line.Warehouse);
+  if (!check.real) return { result: fail(`${check.reason}. Choose a real bin.`, 400, { code: 'NOT_A_REAL_BIN' }) };
+  const exists = (state.bins || []).some(b => String(b.BinCode ?? '').trim().toUpperCase() === code);
+  if (!exists) return { result: fail(`Bin ${code} is not in the system. Choose an existing bin.`, 404, { code: 'BIN_NOT_FOUND' }) };
+
+  const before = String(line.BinCode ?? '').trim();
+  if (line.OriginalBinCode === undefined && before !== '' && before.toUpperCase() !== code) {
+    line.OriginalBinCode = line.BinCode;
+  }
+  line.BinCode = code;
+  line.BinAssignedBy = user?.username || 'unknown';
+  line.BinAssignedAt = new Date().toISOString();
+  return { data: { sos: state.sos, bins: state.bins }, result: { ok: true, so, line } };
+}
+
 // --- Composite operations (several collections changed together) ---
 
 export function validateReceive(body) {
@@ -264,10 +321,20 @@ export function validatePickSo(body) {
 // bin that does not exist is skipped, as the page always did).
 // state is { sos, bins }.
 export function applyPickSo(state, body) {
+  // The line's own bin decides where stock comes from (never a bin sent by the browser),
+  // and a line without a real bin cannot be picked: assign one first. Checked BEFORE
+  // anything is changed.
+  const target = (state.sos || []).find(s => s.id === body.soId)?.items?.[body.lineIndex];
+  if (target) {
+    const check = classifyBin(target.BinCode, target.Warehouse);
+    if (!check.real) {
+      return { result: fail(`${check.reason}. Assign a real bin before picking this line.`, 409, { code: 'NO_REAL_BIN' }) };
+    }
+  }
   const so = applySoPick(state.sos, body);
   if (so.result.error) return { result: so.result };
   const line = so.result.so.items[body.lineIndex];
-  const binCode = body.binCode || line.BinCode;
+  const binCode = line.BinCode;
   let bins = state.bins;
   let quantity = null;
   if (binCode && (state.bins || []).some(b => b.BinCode === binCode)) {

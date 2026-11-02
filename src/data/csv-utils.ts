@@ -1,6 +1,43 @@
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
+import { classifyBin } from "../../server/ops-logic.js";
 import { Item, PurchaseOrder, POItem, SalesOrder, SOItem, ReceivingTransaction, CycleCountTransaction } from "../types";
+
+// --- Bin and warehouse columns --------------------------------------------------------
+// SAP keeps the warehouse and the bin apart (a bin is like "01-RACK"; "01" is the warehouse).
+// Older code treated a WhsCode column as the bin, which sends pickers to a bin that does not
+// exist. Now the warehouse is stored on its own, and the bin comes only from bin columns:
+// the line's own bin first, then the item's Default Bin Location, then its First Bin
+// Location (the names SAP shows on the item's Inventory Data tab).
+const BIN_COLUMNS = [
+  "bincode", "bin", "binlocation", "picklocation", "putawaylocation",
+  "defaultbinlocation", "defaultbin", "firstbinlocation", "firstbin",
+  "fisrtbin", // SAP's own spelling of the "first bin" column on document lines (RDR1/POR1/DLN1.FisrtBin)
+];
+const WAREHOUSE_COLUMNS = ["whscode", "whsecode", "warehouse", "warehousecode", "whse", "whs"];
+
+const columnKey = (name: string) => name.toLowerCase().replace(/[\s_\-]/g, "");
+
+function pickColumn(row: Record<string, unknown>, wanted: string[]): string[] {
+  const byKey = new Map<string, unknown>();
+  Object.keys(row).forEach((key) => byKey.set(columnKey(key), row[key]));
+  return wanted
+    .map((key) => byKey.get(key))
+    .filter((value) => value !== undefined && value !== null && String(value).trim() !== "")
+    .map((value) => String(value).trim());
+}
+
+/**
+ * Bin and warehouse for one import row. The first bin column that holds a real bin wins;
+ * if none does, the first value found is kept (so the screen can show what SAP had, such as
+ * 01-SYSTEM-BIN-LOCATION) and the line is flagged as needing a bin.
+ */
+export function extractBinAndWarehouse(row: Record<string, unknown>): { binCode?: string; warehouse?: string } {
+  const warehouse = pickColumn(row, WAREHOUSE_COLUMNS)[0];
+  const candidates = pickColumn(row, BIN_COLUMNS);
+  const binCode = candidates.find((value) => classifyBin(value, warehouse).real) ?? candidates[0];
+  return { binCode: binCode || undefined, warehouse: warehouse || undefined };
+}
 
 /**
  * 📥 Parse CSV or XLSX file and return structured data
@@ -578,17 +615,7 @@ function normalizePOData(rawData: any[]): PurchaseOrder[] {
         ? orderedQty - openQty  // Calculate: Ordered - Open = Received
         : 0;
 
-    // SAP Business One: WhsCode (warehouse code) - bin location might be in separate table
-    // For now, use standard bin code fields
-    const binCode = (
-      row.BinCode || 
-      row.bincode || 
-      row.bin_code || 
-      row.Bin || 
-      row.PutawayLocation ||
-      row.WhsCode ||          // SAP Business One: Warehouse Code (if used as bin)
-      ""
-    ).toString().trim() || undefined;
+    const { binCode, warehouse } = extractBinAndWarehouse(row);
 
     if (itemCode && orderedQty > 0) {
       po.items.push({
@@ -599,6 +626,7 @@ function normalizePOData(rawData: any[]): PurchaseOrder[] {
         ReceivedQty: receivedQty,
         RemainingQty: orderedQty - receivedQty, // Auto-calculate remaining qty
         BinCode: binCode,
+        Warehouse: warehouse,
       });
     }
   });
@@ -926,16 +954,8 @@ function normalizeSOData(rawData: any[]): SalesOrder[] {
       "0"
     ) || 0;
 
-    // Bin code (suggested pick location)
-    const binCode = (
-      row.BinCode || 
-      row.bincode || 
-      row.bin_code || 
-      row.Bin || 
-      row.PickLocation ||
-      row.WhsCode ||          // SAP Business One: Warehouse Code
-      ""
-    ).toString().trim() || undefined;
+    // Bin (suggested pick location) and warehouse, kept apart
+    const { binCode, warehouse } = extractBinAndWarehouse(row);
 
     if (itemCode && orderedQty > 0) {
       so.items.push({
@@ -946,6 +966,7 @@ function normalizeSOData(rawData: any[]): SalesOrder[] {
         DeliveredQty: deliveredQty,
         RemainingQty: orderedQty - deliveredQty,
         BinCode: binCode,
+        Warehouse: warehouse,
       });
     }
   });

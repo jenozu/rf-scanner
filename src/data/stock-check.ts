@@ -6,16 +6,19 @@
  * Bin numbers can be out of date, so the warning informs the picker, it does not block.
  */
 import type { BinLocation } from "../types";
+import { classifyBin } from "../../server/ops-logic.js";
 
 export type StockStatus =
   | "ok"          // the bin holds enough for this line
   | "partial"     // the bin holds some, but less than the line needs
   | "none"        // the bin holds none of this item
-  | "no-bin"      // the order line has no bin, so stock cannot be checked
-  | "unknown-bin"; // the bin on the line is not in the system
+  | "needs-bin"   // no real bin on the line (blank, placeholder, SAP system bin, or a warehouse code)
+  | "unknown-bin"; // a real-looking bin that is not in the system, so stock cannot be checked
 
 export interface StockLine {
   binCode?: string;
+  /** The line's SAP warehouse code, used to recognise a bin value that is really a warehouse. */
+  warehouse?: string;
   itemCode: string;
   /** Quantity still to pick on this line. */
   needed: number;
@@ -60,8 +63,9 @@ export function checkStock(lines: StockLine[], bins: BinLocation[]): StockResult
       .sort((a, b) => b.quantity - a.quantity)
       .slice(0, 3);
 
-    if (!binCode) {
-      return { status: "no-bin", needed, inBin: null, available: null, short: 0, elsewhere };
+    // A line without a real bin is not checked here: it must be given a bin first.
+    if (!classifyBin(line.binCode, line.warehouse).real) {
+      return { status: "needs-bin", needed, inBin: null, available: null, short: 0, elsewhere };
     }
     const bin = binByCode.get(binCode);
     if (!bin) {
@@ -83,7 +87,9 @@ export interface StockSummary {
   partial: number;
   /** Lines with no stock at all in their bin. */
   none: number;
-  /** Lines where stock could not be checked (no bin, or a bin that is not in the system). */
+  /** Lines that need a real bin assigned before they can be picked. */
+  needsBin: number;
+  /** Lines whose bin is not in the system, so stock could not be checked. */
   unchecked: number;
 }
 
@@ -91,6 +97,7 @@ export function summarizeStock(results: StockResult[]): StockSummary {
   return {
     partial: results.filter((r) => r.status === "partial").length,
     none: results.filter((r) => r.status === "none").length,
-    unchecked: results.filter((r) => r.status === "no-bin" || r.status === "unknown-bin").length,
+    needsBin: results.filter((r) => r.status === "needs-bin").length,
+    unchecked: results.filter((r) => r.status === "unknown-bin").length,
   };
 }

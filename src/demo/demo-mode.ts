@@ -365,6 +365,13 @@ function demoOperation(endpoint: string, method: string, body: any): unknown {
       (state) => ops.applyReceive(state, body)
     );
   }
+  if (method === "POST" && endpoint === "/ops/so-assign-bin") {
+    return demoApplyMany(
+      { sos: "rf_sales_orders", bins: "rf_bins" },
+      ops.validateAssignBin(body),
+      (state) => ops.applyAssignBin(state, body, demoUser)
+    );
+  }
   if (method === "POST" && endpoint === "/ops/pick-so") {
     return demoApplyMany(
       { sos: "rf_sales_orders", bins: "rf_bins" },
