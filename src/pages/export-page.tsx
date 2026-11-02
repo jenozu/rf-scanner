@@ -30,56 +30,55 @@ export default function ExportPage({ setPage }: ExportPageProps) {
   };
 
   return (
-    <div className="p-4 max-w-4xl mx-auto">
-      <h1 className="page-title">Exports</h1>
-      <p className="page-lede">
-        Download inventory results and transaction logs.
-        {data.length > 0 && <> {data.length} items ready for export.</>}
-      </p>
+    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 text-gray-900 px-6 text-center">
+      <div className="w-full max-w-md bg-white rounded-xl shadow p-8 space-y-6">
+        <h2 className="text-2xl font-bold text-green-600">✅ Exports</h2>
+        <p className="text-gray-600">Download inventory results and transaction logs.</p>
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        <button
-          onClick={handleExport}
-          className="bg-blue-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-blue-700 transition text-left"
-        >
-          Inventory results
-          <span className="block text-sm font-normal text-blue-100">Updated CSV</span>
-        </button>
+        <div className="space-y-4 mt-6">
+          <button
+            onClick={handleExport}
+            className="w-full bg-primary text-white py-3 rounded-lg font-medium shadow hover:bg-blue-700 transition"
+          >
+            ⬇ Download Updated CSV
+          </button>
 
-        <button
-          onClick={handleExportReceivingTxns}
-          className="bg-blue-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-blue-700 transition text-left"
-        >
-          Receiving log
-          <span className="block text-sm font-normal text-blue-100">
-            {receivingTxns.length > 0 ? `${receivingTxns.length} transactions` : "No transactions yet"}
-          </span>
-        </button>
+          <button
+            onClick={handleExportReceivingTxns}
+            className="w-full bg-blue-600 text-white py-3 rounded-lg font-medium shadow hover:bg-blue-700 transition"
+          >
+            ⬇ Download Receiving Log CSV {receivingTxns.length > 0 ? `(${receivingTxns.length})` : ""}
+          </button>
 
-        <button
-          onClick={handleExportCycleCountTxns}
-          className="bg-blue-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-blue-700 transition text-left"
-        >
-          Cycle count log
-          <span className="block text-sm font-normal text-blue-100">
-            {cycleCountTxns.length > 0 ? `${cycleCountTxns.length} transactions` : "No transactions yet"}
-          </span>
-        </button>
-      </div>
+          <button
+            onClick={handleExportCycleCountTxns}
+            className="w-full bg-indigo-600 text-white py-3 rounded-lg font-medium shadow hover:bg-indigo-700 transition"
+          >
+            ⬇ Download Cycle Count Log CSV {cycleCountTxns.length > 0 ? `(${cycleCountTxns.length})` : ""}
+          </button>
 
-      <div className="mt-6 flex gap-2">
-        <button
-          onClick={() => setPage("scan")}
-          className="bg-gray-100 hover:bg-gray-200 py-2 px-4 rounded-lg font-medium transition"
-        >
-          Back to counting
-        </button>
-        <button
-          onClick={() => setPage("home")}
-          className="bg-gray-100 hover:bg-gray-200 py-2 px-4 rounded-lg font-medium transition"
-        >
-          Dashboard
-        </button>
+          <button
+            onClick={() => setPage("scan")}
+            className="w-full bg-gray-200 hover:bg-gray-300 py-3 rounded-lg font-medium transition"
+          >
+            Back to Counting
+          </button>
+
+          <button
+            onClick={() => setPage("home")}
+            className="w-full bg-gray-100 hover:bg-gray-200 py-3 rounded-lg font-medium transition"
+          >
+            Return to Home
+          </button>
+        </div>
+
+        {data.length > 0 && (
+          <div className="mt-6 text-sm text-gray-500">
+            <p>
+              <span className="font-semibold">{data.length}</span> items ready for export.
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );

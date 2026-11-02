@@ -337,8 +337,10 @@ export default function SettingsPage({ onLogin }: SettingsPageProps) {
     return (
       <div className="max-w-md mx-auto mt-8">
         <div className="bg-white rounded-lg shadow-md p-6">
-          <h1 className="page-title">Sign in</h1>
-          <p className="page-lede">Use your warehouse account.</p>
+          <div className="flex items-center justify-center mb-6">
+            <LogIn className="mr-2" size={32} />
+            <h2 className="text-2xl font-bold">Login</h2>
+          </div>
 
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
@@ -386,22 +388,25 @@ export default function SettingsPage({ onLogin }: SettingsPageProps) {
 
   return (
     <div className="max-w-4xl mx-auto">
-      <div className="flex items-start justify-between gap-4 mb-5">
-        <div>
-          <h1 className="page-title">Settings</h1>
-          <p className="page-lede">
-            Signed in as {auth.currentUser?.fullName} ({auth.currentUser?.role})
-          </p>
-        </div>
-        <button
-          onClick={handleLogout}
-          className="flex items-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-800 px-4 py-2 rounded-md transition-colors"
-        >
-          <LogOut size={18} />
-          Sign out
-        </button>
-      </div>
       <div className="bg-white rounded-lg shadow-md overflow-hidden">
+        <div className="bg-blue-600 text-white p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Settings</h2>
+              <p className="text-sm text-blue-100">
+                Logged in as: {auth.currentUser?.fullName} ({auth.currentUser?.role})
+              </p>
+            </div>
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-2 bg-blue-700 hover:bg-blue-800 px-4 py-2 rounded-md transition-colors"
+            >
+              <LogOut size={18} />
+              Logout
+            </button>
+          </div>
+        </div>
+
         <div className="flex border-b overflow-x-auto scrollbar-hide">
           <button
             onClick={() => setActiveTab("profile")}
@@ -504,15 +509,15 @@ export default function SettingsPage({ onLogin }: SettingsPageProps) {
                       <li>✓ Receive, scan, pick items</li>
                       <li>✓ View inventory</li>
                       <li>✓ Export data</li>
-                      <li>Cannot replace master inventory</li>
+                      <li>✗ Cannot replace master inventory</li>
                     </>
                   )}
                   {auth.currentUser?.role === "viewer" && (
                     <>
                       <li>✓ View inventory</li>
                       <li>✓ View reports</li>
-                      <li>Cannot scan or modify items</li>
-                      <li>Cannot replace master inventory</li>
+                      <li>✗ Cannot scan or modify items</li>
+                      <li>✗ Cannot replace master inventory</li>
                     </>
                   )}
                 </ul>
@@ -526,7 +531,7 @@ export default function SettingsPage({ onLogin }: SettingsPageProps) {
                 <h3 className="text-lg font-semibold">User Management</h3>
                 <button
                   onClick={() => setShowAddUser(!showAddUser)}
-                  className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
+                  className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700"
                 >
                   <Plus size={18} /> Add User
                 </button>
@@ -585,7 +590,7 @@ export default function SettingsPage({ onLogin }: SettingsPageProps) {
                   <div className="flex gap-2 mt-3">
                     <button
                       onClick={handleAddUser}
-                      className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
+                      className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700"
                     >
                       Create User
                     </button>

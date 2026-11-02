@@ -27,7 +27,7 @@ export default function StockNotice({ result, enteredQty }: StockNoticeProps) {
   if (result.status === "none") {
     return (
       <div role="alert" className="mb-4 rounded-lg border-2 border-red-500 bg-red-50 p-4 text-red-900">
-        <p className="font-bold text-lg">No stock in this bin</p>
+        <p className="font-bold text-lg">✕ No stock in this bin</p>
         <p className="text-sm">The system shows none here, and this line needs {result.needed}.</p>
         <AlsoIn result={result} />
       </div>
@@ -37,7 +37,7 @@ export default function StockNotice({ result, enteredQty }: StockNoticeProps) {
   if (result.status === "partial") {
     return (
       <div role="alert" className="mb-4 rounded-lg border-2 border-amber-500 bg-amber-50 p-4 text-amber-900">
-        <p className="font-bold text-lg">Short stock: only {result.available} in this bin</p>
+        <p className="font-bold text-lg">⚠ Short stock: only {result.available} in this bin</p>
         <p className="text-sm">
           This line needs {result.needed}, so it is short by {result.short}. Pick what is there and check the other bins.
         </p>
