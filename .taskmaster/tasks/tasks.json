@@ -262,9 +262,9 @@
           {
             "title": "Quantity and date parsing primitives",
             "description": "parseQty accepts numbers, thousands separators (1,000 and 1 000) and rejects junk instead of returning 0. parseSapDate accepts Excel serial numbers, yyyymmdd, ISO dates and Date objects; anything else is reported, never replaced by today's date.",
-            "status": "pending",
+            "status": "done",
             "dependencies": [],
-            "details": "",
+            "details": "[2026-11-03T11:06:10-05:00] plan: src/data/sap-values.ts parseQty (thousands separators, null on junk) and parseSapDate (Excel serial, yyyymmdd, ISO, Date object; null otherwise, no today fallback).\n\n[2026-11-03T11:06:10-05:00] outcome: 7 unit tests pass in UTC, America/Toronto and Pacific/Kiritimati; tsc ok. Serial 46327 = 2026-11-01 verified. Decision: ambiguous text dates such as 03/11/2026 are rejected and reported, not guessed. Drift check: new file only.",
             "testStrategy": "Vitest unit tests: 1,000 -> 1000; 46327 -> 2026-11-03-style serial converted; 20261103 -> 2026-11-03; 'abc' -> reported invalid; no fallback to new Date()",
             "complexity": 4,
             "id": 2
@@ -529,7 +529,7 @@
     ],
     "metadata": {
       "created": "2026-10-29T19:42:01-04:00",
-      "updated": "2026-11-03T11:05:26-05:00"
+      "updated": "2026-11-03T11:06:10-05:00"
     }
   }
 }
