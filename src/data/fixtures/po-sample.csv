@@ -1,0 +1,8 @@
+poNumber,vendor,CardCode,expectedDate,LineNumber,ItemCode,Description,OrderedQty,ReceivedQty,OpenQty,BinCode,Warehouse
+5000001,Acme Fasteners,V-1001,46327,1,ITEM-100,Widget 10mm,"1,000",0,1000,01-RACK-A1,01
+5000001,Acme Fasteners,V-1001,46327,2,ITEM-100,Widget 10mm bulk pack,50,0,50,NO-BIN,01
+5000001,Acme Fasteners,V-1001,46327,3,ITEM-200,Bracket,20,5,15,01-RACK-B3,01
+5000002,Beta Metals,V-1002,2026-11-15,1,ITEM-300,RMA Hose,8,8,0,02-BIN-07,02
+5000003,Gamma Cable,V-1003,not a date,1,ITEM-400,Cable tie,abc,0,0,01-RACK-C1,01
+5000003,Gamma Cable,V-1003,not a date,2,,Missing item code,3,0,3,01-RACK-C2,01
+,No Number Co,V-1004,2026-11-20,1,ITEM-500,Row without a PO number,4,0,4,01-RACK-D1,01

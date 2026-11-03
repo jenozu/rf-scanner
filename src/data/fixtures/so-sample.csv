@@ -1,0 +1,4 @@
+soNumber,customer,CardCode,LineNumber,ItemCode,Description,OrderedQty,OpenQty,BinCode,BinQty,Warehouse
+7000001,Maple Ridge Hardware,C-2001,1,ITEM-100,Widget 10mm,30,30,01-RACK-A1,1000,01
+7000001,Maple Ridge Hardware,C-2001,2,ITEM-100,Widget 10mm,5,5,NO-BIN,0,01
+7000002,Pine Creek Supply,C-2002,1,ITEM-200,Bracket,10,10,01-SYSTEM-BIN-LOCATION,4,01
