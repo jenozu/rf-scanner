@@ -39,7 +39,7 @@ const navItems: Array<{ page: PageType; label: string; shortLabel: string; icon:
 
 const pageCopy: Record<PageType, { eyebrow: string; title: string }> = {
   setup: { eyebrow: "System setup", title: "Initialize warehouse data" },
-  home: { eyebrow: "Operations", title: "Warehouse control centre" },
+  home: { eyebrow: "Operations", title: "Dashboard" },
   transactions: { eyebrow: "Inventory movement", title: "Transactions" },
   receive: { eyebrow: "Inbound", title: "Receiving / GRPO" },
   scan: { eyebrow: "Identification", title: "Scan & inquiry" },
