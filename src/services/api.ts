@@ -13,6 +13,18 @@ export interface ApiResponse<T> {
 }
 
 /** Error from the API with the HTTP status and any extra fields the server sent. */
+export interface OrderImportResult {
+  ok: true;
+  documentsAdded: number;
+  documentsUpdated: number;
+  documentsUnchanged: number;
+  linesAdded: number;
+  linesUpdated: number;
+  linesKept: number;
+  linesRemoved: number;
+  total: number;
+}
+
 export class ApiError extends Error {
   status: number;
   details: Record<string, unknown>;
@@ -255,6 +267,11 @@ class ApiClient {
     changes?: Array<{ binCode: string; itemCode: string; description?: string; setQuantity: number }>;
   }) {
     return this.post<{ ok: true; bins: number; changed: number; created: number }>("/ops/bins-set", params);
+  }
+
+  /** Purchase or sales order file: new documents are added, existing ones merged on the server. */
+  importOrders(kind: "po" | "so", orders: Array<Record<string, unknown>>) {
+    return this.post<OrderImportResult>("/imports/orders", { kind, orders });
   }
 
   upsertManyRecords(key: string, records: Array<{ id: string }>, skipExisting = false) {

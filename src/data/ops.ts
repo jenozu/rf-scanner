@@ -11,6 +11,12 @@ import type { BinLocation } from "../types";
 
 type ApiParams<K extends keyof typeof api> = Parameters<(typeof api)[K] extends (...a: any) => any ? (typeof api)[K] : never>;
 
+/** Import a purchase or sales order file. Same file again changes nothing. */
+export function importOrders(kind: "po" | "so", orders: Array<{ id: string }>) {
+  const key = kind === "po" ? "rf_purchase_orders" : "rf_sales_orders";
+  return dataStore.mutate(() => api.importOrders(kind, orders), { reload: [key] });
+}
+
 /** Add log/transaction records (newest first). Retrying the same ids is safe. */
 export function appendRecords(
   key: "rf_receiving_txns" | "rf_cycle_count_txns" | "rf_activity_logs" | "rf_session_count_logs", records: Array<{ id: string }>) {

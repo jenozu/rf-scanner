@@ -310,11 +310,11 @@
           {
             "title": "Server-side idempotent PO import and re-import merge",
             "description": "Pure function in server/ops-logic.js: applyOrderImport(current, {kind, orders}) matched by id. New orders are added. Existing orders: OrderedQty, expectedDate, vendor and bin fields are updated from the file; ReceivedQty, Lots, Serials, BinCode set by the app and receive history are kept. Lines missing from the file are removed only when nothing was received. Returns added/updated/unchanged counts. Exposed as POST /api/imports/orders (requireWriter, operation wrapper, same write queue). Demo backend mirrors it in demo-mode.ts.",
-            "status": "pending",
+            "status": "done",
             "dependencies": [
               3
             ],
-            "details": "",
+            "details": "[2026-11-03T11:51:34-05:00] plan: pure applyOrderImport/validateOrderImport in server/ops-logic.js (shared with demo backend); route POST /api/imports/orders under the per-file lock; match by document number; server rebuilds id; keep stored id on match; quantities = max(app done, SAP-implied done) capped at ordered; app-set bin kept; missing lines removed only if nothing done, else kept and marked RemovedFromSource. Demo route + api.importOrders + ops.importOrders. outcome: 12 order-import tests pass (repeat = unchanged, re-import keeps received, SAP progress moves forward only, line add/remove/keep, app bin kept, legacy id matched not duplicated, viewer 403, bad body 400, 6 concurrent imports from devices create one PO). Full server suite 117/117, frontend 104/104, tsc ok. Decision: stored ids are never rewritten on match.",
             "testStrategy": "server/test: importing the same file twice gives unchanged on the second run; re-import after a qty change updates OrderedQty and keeps ReceivedQty; two concurrent imports of the same file create one PO; demo-mode route covered by a unit test",
             "complexity": 8,
             "id": 6
@@ -529,7 +529,7 @@
     ],
     "metadata": {
       "created": "2026-10-29T19:42:01-04:00",
-      "updated": "2026-11-03T11:42:11-05:00"
+      "updated": "2026-11-03T11:51:34-05:00"
     }
   }
 }

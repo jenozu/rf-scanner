@@ -83,6 +83,13 @@ export function registerOps(app, { authenticateToken, requireWriter, dataDir }) 
     apply: (cur, req) => logic.applyUpsertMany(cur, req.body),
   }));
 
+  // Purchase and sales order files: add new documents, merge changes into existing ones.
+  app.post('/api/imports/orders', ...guard, operation('order import', {
+    validate: (req) => logic.validateOrderImport(req.body),
+    file: (req) => (req.body.kind === 'so' ? 'rf_sales_orders' : 'rf_purchase_orders'),
+    apply: (cur, req) => logic.applyOrderImport(cur, req.body),
+  }));
+
   // Composite operations: several collections change in one request, under the
   // locks of all of them (taken in a fixed order by store.lockedMany).
   function composite(name, { validate, files, apply }) {

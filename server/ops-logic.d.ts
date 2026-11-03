@@ -9,6 +9,8 @@ export function validateBinAdjust(body: any): OpFailure | null;
 export function applyBinAdjust(current: any[] | null, body: any): OpOutcome;
 export function validatePoReceive(body: any): OpFailure | null;
 export function applyPoReceive(current: any[] | null, body: any): OpOutcome;
+export function validateOrderImport(body: any): OpFailure | null;
+export function applyOrderImport(current: any[] | null, body: any): OpOutcome;
 export function validateSoPick(body: any): OpFailure | null;
 export function applySoPick(current: any[] | null, body: any): OpOutcome;
 export function validateRecordKey(key: string): OpFailure | null;

@@ -355,6 +355,10 @@ function demoOperation(endpoint: string, method: string, body: any): unknown {
     return demoApply("rf_sales_orders", ops.validateSoPick(body), (cur) => ops.applySoPick(cur, body));
   }
 
+  if (method === "POST" && endpoint === "/imports/orders") {
+    const key = body.kind === "so" ? "rf_sales_orders" : "rf_purchase_orders";
+    return demoApply(key, ops.validateOrderImport(body), (cur) => ops.applyOrderImport(cur, body));
+  }
   if (method === "POST" && endpoint === "/ops/bins-set") {
     return demoApply("rf_bins", ops.validateBinsSet(body), (cur) => ops.applyBinsSet(cur, body));
   }

@@ -442,3 +442,130 @@ export function applyBinsSet(current, body) {
   }
   return { data: bins, result: { ok: true, bins: bins.length, changed: changes.length, created: newBins.length } };
 }
+
+// --- Order import (PO / SO) ---
+// Matched by document number, so an older record with a time-based id still matches. The id
+// is rebuilt here as "<kind>-<number>", whatever the client sent. The file sets what was
+// ordered and the header details. The app keeps what has been done (received on a PO, delivered
+// on an SO), the lots and serials, and a bin someone set in the app.
+const ORDER_IMPORT = {
+  po: { key: 'poNumber', done: 'ReceivedQty', header: ['vendor', 'cardCode', 'expectedDate'] },
+  so: { key: 'soNumber', done: 'DeliveredQty', header: ['customer', 'cardCode', 'shipToStreet', 'shipToCity', 'shipToProvince', 'shipToPostal', 'shipToCountry', 'shipToPhone'] },
+};
+
+export function validateOrderImport(body) {
+  const cfg = ORDER_IMPORT[body?.kind];
+  if (!cfg) return fail('kind must be "po" or "so"');
+  const ok = Array.isArray(body.orders) && body.orders.every(o =>
+    isObject(o) && typeof o[cfg.key] === 'string' && o[cfg.key].trim() !== '' && Array.isArray(o.items));
+  return ok ? null : fail(`orders with a ${cfg.key} and items are required`);
+}
+
+const sameJson = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const lineNo = (l) => Number(l.LineNumber) || 0;
+
+/**
+ * Merge one imported document into the stored one. Quantities that the app has counted are
+ * kept as the higher of the app's figure and what SAP's open quantity implies, so a re-import
+ * can move them forward but never back over received or delivered history.
+ */
+function mergeOrder(stored, incoming, cfg, counts) {
+  const next = { ...stored };
+  for (const field of cfg.header) {
+    const value = incoming[field];
+    if (value !== undefined && value !== '' && value !== null) next[field] = value;
+  }
+
+  const storedLines = stored.items || [];
+  const byLine = new Map(storedLines.map(l => [lineNo(l), l]));
+  const seen = new Set();
+  const items = [];
+
+  for (const inc of incoming.items) {
+    const n = lineNo(inc);
+    seen.add(n);
+    const cur = byLine.get(n);
+    const ordered = Number(inc.OrderedQty) || 0;
+    if (!cur) {
+      const done = Math.min(Number(inc[cfg.done]) || 0, ordered);
+      items.push({ ...inc, [cfg.done]: done, RemainingQty: ordered - done });
+      counts.linesAdded++;
+      continue;
+    }
+    const { RemovedFromSource, ...kept } = cur;
+    const doneBefore = Number(cur[cfg.done]) || 0;
+    const done = Math.min(Math.max(doneBefore, Number(inc[cfg.done]) || 0), ordered);
+    const appBin = Boolean(cur.BinAssignedBy) || done > 0;
+    const line = {
+      ...kept,
+      Description: inc.Description || cur.Description,
+      OrderedQty: ordered,
+      [cfg.done]: done,
+      RemainingQty: ordered - done,
+      BinCode: appBin ? cur.BinCode : (inc.BinCode || cur.BinCode),
+      Warehouse: inc.Warehouse || cur.Warehouse,
+    };
+    if (!sameJson(line, cur)) counts.linesUpdated++;
+    items.push(line);
+  }
+
+  for (const cur of storedLines) {
+    if (seen.has(lineNo(cur))) continue;
+    if ((Number(cur[cfg.done]) || 0) > 0) {
+      items.push({ ...cur, RemovedFromSource: true });
+      counts.linesKept++;
+    } else {
+      counts.linesRemoved++;
+    }
+  }
+
+  items.sort((a, b) => lineNo(a) - lineNo(b));
+  next.items = items;
+
+  if (cfg.done === 'ReceivedQty') {
+    const allDone = items.every(i => !i.RemovedFromSource && (Number(i.ReceivedQty) || 0) >= (Number(i.OrderedQty) || 0));
+    const anyDone = items.some(i => (Number(i.ReceivedQty) || 0) > 0);
+    next.status = allDone ? 'completed' : anyDone ? 'receiving' : 'pending';
+  } else {
+    const allDone = items.every(i => !i.RemovedFromSource && (Number(i.DeliveredQty) || 0) >= (Number(i.OrderedQty) || 0));
+    const anyDone = items.some(i => (Number(i.DeliveredQty) || 0) > 0);
+    next.status = allDone ? 'shipped' : anyDone ? 'picking' : 'pending';
+  }
+  return next;
+}
+
+/** Add or merge a parsed PO or SO file. Running the same file again changes nothing. */
+export function applyOrderImport(current, body) {
+  const cfg = ORDER_IMPORT[body.kind];
+  const list = current || [];
+  const counts = {
+    documentsAdded: 0, documentsUpdated: 0, documentsUnchanged: 0,
+    linesAdded: 0, linesUpdated: 0, linesKept: 0, linesRemoved: 0,
+  };
+  for (const incoming of body.orders) {
+    const number = String(incoming[cfg.key]).trim();
+    const i = list.findIndex(r => String(r[cfg.key]).trim() === number);
+    if (i < 0) {
+      const items = incoming.items.map(l => {
+        const ordered = Number(l.OrderedQty) || 0;
+        const done = Math.min(Number(l[cfg.done]) || 0, ordered);
+        return { ...l, [cfg.done]: done, RemainingQty: ordered - done };
+      }).sort((a, b) => lineNo(a) - lineNo(b));
+      list.push({ ...incoming, id: `${body.kind}-${number}`, [cfg.key]: number, items, status: 'pending' });
+      counts.documentsAdded++;
+      counts.linesAdded += items.length;
+      continue;
+    }
+    const before = list[i];
+    const counted = { ...counts };
+    const after = mergeOrder(before, incoming, cfg, counts);
+    if (sameJson(after, before)) {
+      Object.assign(counts, counted);
+      counts.documentsUnchanged++;
+    } else {
+      counts.documentsUpdated++;
+    }
+    list[i] = after;
+  }
+  return { data: list, result: { ok: true, ...counts, total: list.length } };
+}
