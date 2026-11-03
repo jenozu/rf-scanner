@@ -272,7 +272,7 @@
           {
             "title": "Deterministic document and line identity",
             "description": "PO id = po-<DocNum>, SO id = so-<DocNum>; a line is identified by DocNum + LineNumber. Remove Date.now()-based ids from both parsers. Duplicate ItemCodes stay separate lines.",
-            "status": "pending",
+            "status": "done",
             "dependencies": [
               2
             ],
@@ -284,7 +284,7 @@
           {
             "title": "Validation report from the parsers",
             "description": "Parsers return { orders, report } where report lists counts and every skipped or warned row with a reason (missing DocNum, missing ItemCode, invalid qty, invalid date, closed line, missing LineNumber). Silent drops are removed. Only setup-page.tsx calls these parsers today.",
-            "status": "pending",
+            "status": "done",
             "dependencies": [
               2,
               3
@@ -297,7 +297,7 @@
           {
             "title": "XLSX reading keeps date and number cells",
             "description": "Read workbooks so date cells come through as dates (cellDates) or serials that parseSapDate handles; numeric cells keep their value; text cells with separators go through parseQty. Covers audit items 4f and 4g.",
-            "status": "pending",
+            "status": "done",
             "dependencies": [
               1,
               2
@@ -340,7 +340,7 @@
               4,
               6
             ],
-            "details": "",
+            "details": "[2026-11-03T11:42:11-05:00] progress: parser side done (SO identity, shipTo, delivered-from-open, repeat ItemCodes; 4 SO tests pass in order-parse.test.ts). Status stays pending until 11.6 (server merge for SO) and the SO setup upload in 11.7 are done, because the subtask depends on 11.6.",
             "testStrategy": "Server and vitest tests mirror the PO cases: same file twice unchanged; re-import keeps DeliveredQty; duplicate ItemCode lines stay separate",
             "complexity": 6,
             "id": 8
@@ -529,7 +529,7 @@
     ],
     "metadata": {
       "created": "2026-10-29T19:42:01-04:00",
-      "updated": "2026-11-03T11:06:10-05:00"
+      "updated": "2026-11-03T11:42:11-05:00"
     }
   }
 }

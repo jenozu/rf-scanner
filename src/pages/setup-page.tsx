@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { parseCSV, parsePOFile, parseSalesOrderFile } from "../data/csv-utils";
+import { parseCSV } from "../data/csv-utils";
+import { parsePOFile, parseSalesOrderFile } from "../data/order-parse";
 import { useCollection } from "../data/hooks";
 import { saveCollection, upsertManyRecords } from "../data/ops";
 import { useAuth } from "../hooks/useAuth";

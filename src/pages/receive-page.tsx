@@ -3,7 +3,7 @@ import { PurchaseOrder, POItem, BinLocation } from "../types";
 import { Package, Check, AlertCircle, Plus, Upload, Search as SearchIcon, Download, Calculator } from "lucide-react";
 import { getStagingBinCode } from "../utils/config";
 import WarehouseBadge from "../components/warehouse-badge";
-import { parsePOFile } from "../data/csv-utils";
+import { parsePOFile } from "../data/order-parse";
 import QuantityNumpad from "../components/quantity-numpad";
 import { useCollection } from "../data/hooks";
 import { receiveStock, saveCollection, upsertManyRecords, deleteRecord } from "../data/ops";
