@@ -6,6 +6,7 @@ import ManageOrdersPanel from "../components/manage-orders-panel";
 import { checkStock, summarizeStock } from "../data/stock-check";
 import StockNotice from "../components/stock-notice";
 import BinAssignPanel from "../components/bin-assign-panel";
+import WarehouseBadge from "../components/warehouse-badge";
 import { classifyBin } from "../../server/ops-logic.js";
 import { Truck, Package, MapPin, Check, AlertTriangle, ShoppingCart } from "lucide-react";
 
@@ -356,6 +357,7 @@ export default function PickPage({ setPage }: PickPageProps) {
               <div className="flex-1">
                 <h4 className="font-semibold text-lg">{item.Description}</h4>
                 <p className="text-sm text-gray-600">Code: {item.ItemCode}</p>
+                <WarehouseBadge warehouse={current.Warehouse} />
                 <p className="text-sm text-gray-600">SO: {so.soNumber}</p>
                 <p className="text-sm text-gray-600">Customer: {so.customer}</p>
               </div>

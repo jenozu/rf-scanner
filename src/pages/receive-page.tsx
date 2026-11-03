@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { PurchaseOrder, POItem, BinLocation } from "../types";
 import { Package, Check, AlertCircle, Plus, Upload, Search as SearchIcon, Download, Calculator } from "lucide-react";
 import { getStagingBinCode } from "../utils/config";
+import WarehouseBadge from "../components/warehouse-badge";
 import { parsePOFile } from "../data/csv-utils";
 import QuantityNumpad from "../components/quantity-numpad";
 import { useCollection } from "../data/hooks";
@@ -475,6 +476,7 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
                 <div className="flex-1">
                   <h4 className="font-semibold">{item.Description}</h4>
                   <p className="text-sm text-gray-600">Code: {item.ItemCode}</p>
+                  <WarehouseBadge warehouse={item.Warehouse} />
                   <p className="text-sm text-gray-600">
                     Received: {item.ReceivedQty} / {item.OrderedQty}
                     {item.BinCode && ` → Bin: ${item.BinCode}`}

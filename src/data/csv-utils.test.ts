@@ -29,6 +29,11 @@ describe('mergeCSVData', () => {
 });
 
 describe('extractBinAndWarehouse', () => {
+  it('reads warehouse 05 (even as the number 5) and keeps the shared 01 bin', () => {
+    expect(extractBinAndWarehouse({ WhsCode: 5, BinCode: '01-RACK-A' })).toEqual({ binCode: '01-RACK-A', warehouse: '05' });
+    expect(extractBinAndWarehouse({ WhsCode: '05', 'Default Bin Location': '01-RACK-A' })).toEqual({ binCode: '01-RACK-A', warehouse: '05' });
+  });
+
   it('keeps the warehouse apart: a WhsCode column is never turned into a bin', () => {
     expect(extractBinAndWarehouse({ ItemCode: 'A', WhsCode: '01' })).toEqual({ binCode: undefined, warehouse: '01' });
   });

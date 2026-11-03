@@ -1,6 +1,6 @@
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
-import { classifyBin } from "../../server/ops-logic.js";
+import { classifyBin, normalizeWarehouse } from "../../server/ops-logic.js";
 import { Item, PurchaseOrder, POItem, SalesOrder, SOItem, ReceivingTransaction, CycleCountTransaction } from "../types";
 
 // --- Bin and warehouse columns --------------------------------------------------------
@@ -33,7 +33,7 @@ function pickColumn(row: Record<string, unknown>, wanted: string[]): string[] {
  * 01-SYSTEM-BIN-LOCATION) and the line is flagged as needing a bin.
  */
 export function extractBinAndWarehouse(row: Record<string, unknown>): { binCode?: string; warehouse?: string } {
-  const warehouse = pickColumn(row, WAREHOUSE_COLUMNS)[0];
+  const warehouse = normalizeWarehouse(pickColumn(row, WAREHOUSE_COLUMNS)[0]); // 5 / "5" / "05" -> "05"
   const candidates = pickColumn(row, BIN_COLUMNS);
   const binCode = candidates.find((value) => classifyBin(value, warehouse).real) ?? candidates[0];
   return { binCode: binCode || undefined, warehouse: warehouse || undefined };
