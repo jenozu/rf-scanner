@@ -1,9 +1,10 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Quagga from "@ericblade/quagga2";
 import { Item, BinLocation } from "../types";
 import { Package, MapPin, Plus, Search, ClipboardCheck, Tag } from "lucide-react";
 import { displayBinCode, fullBinCode, isSameBin, normalizeBinInput } from "../utils/bin-utils";
 import { smartSearch } from "../utils/search-utils";
+import { mergeScanBins, mergeScanItems } from "../utils/scan-inventory";
 import { useCollection } from "../data/hooks";
 import { saveBinChanges } from "../data/ops";
 
@@ -37,13 +38,23 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem, onStartCount
   // Bins and items come from the server (shared by every device).
   const binsCollection = useCollection<BinLocation[]>("rf_bins", []);
   const itemsCollection = useCollection<Item[]>("rf_active", [], { refresh: false });
-  const bins = binsCollection.data;
-  const activeItems = itemsCollection.data;
-  const inventoryLoading = binsCollection.isLoading || itemsCollection.isLoading;
-  const inventoryError = binsCollection.error || itemsCollection.error;
+  // The full SAP master list: searched too, so a part missing from rf_active is still found
+  const masterCollection = useCollection<Item[]>("rf_master", [], { refresh: false });
+  const activeItems = useMemo(
+    () => mergeScanItems(itemsCollection.data, masterCollection.data),
+    [itemsCollection.data, masterCollection.data]
+  );
+  const bins = useMemo(
+    () => mergeScanBins(binsCollection.data, activeItems),
+    [binsCollection.data, activeItems]
+  );
+  const inventoryLoading =
+    binsCollection.isLoading || itemsCollection.isLoading || masterCollection.isLoading;
+  const inventoryError = binsCollection.error || itemsCollection.error || masterCollection.error;
   const reloadInventory = () => {
     void binsCollection.reload();
     void itemsCollection.reload();
+    void masterCollection.reload();
   };
   const [showNewBinModal, setShowNewBinModal] = useState(false);
   const [newBinCode, setNewBinCode] = useState<string>("");

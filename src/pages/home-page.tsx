@@ -1,10 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
+  Activity,
   AlertCircle,
   ArrowRight,
+  CheckCircle2,
   ClipboardCheck,
   Package,
   Search,
+  TrendingUp,
   Truck,
 } from "lucide-react";
 import { useCollection } from "../data/hooks";
@@ -141,119 +144,201 @@ export default function HomePage({ setPage }: HomePageProps) {
     );
   }, [pos, orders, salesOrders, waves, counts, bins, receiving, countTxns]);
 
+  const workload = useMemo(
+    () => [
+      { label: "Receiving", value: stats.pendingPOs + stats.receivingPOs, page: "receive" as PageType },
+      { label: "Picking", value: stats.pendingOrders, page: "pick" as PageType },
+      { label: "Cycle counts", value: stats.pendingCounts, page: "inventory" as PageType },
+      { label: "Shipping", value: stats.readyToShip, page: "shipping" as PageType },
+    ],
+    [stats]
+  );
+
+  const maxWorkload = Math.max(1, ...workload.map((item) => item.value));
+
+  const recommended =
+    workload.find((item) => item.value > 0) ||
+    ({ label: "Inventory inquiry", value: 0, page: "scan" } as const);
+
   const today = new Intl.DateTimeFormat("en-CA", {
     weekday: "long",
     month: "long",
     day: "numeric",
   }).format(new Date());
 
-  const queues = [
-    {
-      label: "Receiving",
-      page: "receive" as PageType,
-      value: stats.pendingPOs + stats.receivingPOs,
-      detail: `${stats.pendingPOs} not started · ${stats.receivingPOs} in progress`,
-      icon: Package,
-    },
-    {
-      label: "Picking",
-      page: "pick" as PageType,
-      value: stats.pendingOrders,
-      detail: `${stats.activeWaves} ${stats.activeWaves === 1 ? "wave" : "waves"} open`,
-      icon: Truck,
-    },
-    {
-      label: "Cycle counts",
-      page: "inventory" as PageType,
-      value: stats.pendingCounts,
-      detail: `${stats.completedCounts} completed`,
-      icon: ClipboardCheck,
-    },
-    {
-      label: "Shipping",
-      page: "shipping" as PageType,
-      value: stats.readyToShip,
-      detail: `${stats.shipped} shipped`,
-      icon: Truck,
-    },
-  ];
-
-  const recommended = queues.find((q) => q.value > 0) || { label: "", page: "scan" as PageType, value: 0 };
-
-  const hasWarning = timeline.some((entry) => entry.tone === "warn");
-
   return (
     <div className="ops-dashboard">
-      <header className="fo-head">
-        <h1>{today}</h1>
-        <button className="fo-inquiry" onClick={() => setPage("scan")}>
-          <Search size={18} />
-          Item / bin inquiry
-        </button>
-      </header>
-
-      <div className="fo-layout">
-        <section className="fo-queues" aria-label="Work queues">
-          <h2 className="fo-h2">Open work</h2>
-          <ul>
-            {queues.map((q) => {
-              const Icon = q.icon;
-              const isNext = q.label === recommended.label && q.value > 0;
-              return (
-                <li key={q.label}>
-                  <button
-                    className={`fo-queue ${q.value === 0 ? "is-empty" : ""} ${isNext ? "is-next" : ""}`}
-                    onClick={() => setPage(q.page)}
-                  >
-                    <span className="fo-queue-count">{q.value}</span>
-                    <span className="fo-queue-body">
-                      <strong>
-                        <Icon size={17} aria-hidden="true" />
-                        {q.label}
-                        {isNext && <em>Start here</em>}
-                      </strong>
-                      <small>{q.value === 0 ? "Nothing waiting" : q.detail}</small>
-                    </span>
-                    <ArrowRight size={20} aria-hidden="true" />
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-          <p className="fo-foot">
-            {stats.totalBins} bins on record
-            {stats.completedCounts > 0 && <> · count accuracy {stats.accuracy}%</>}
+      <section className="ops-hero">
+        <div className="ops-hero-copy">
+          <span className="ops-kicker">WAREHOUSE PULSE · {today.toUpperCase()}</span>
+          <h1>
+            Move the right work,
+            <br />
+            <em>without the noise.</em>
+          </h1>
+          <p>
+            A live operational view built from the warehouse data already in RF Scanner.
+            Prioritize inbound, outbound, counts, and shipping from one place.
           </p>
-        </section>
 
-        <section className="fo-events" aria-label="Recent activity">
-          <h2 className="fo-h2">
-            Recent activity
-            {hasWarning && (
-              <span className="fo-flag">
-                <AlertCircle size={14} aria-hidden="true" /> Variance to review
-              </span>
+          <div className="ops-hero-actions">
+            <button className="ops-primary-action" onClick={() => setPage(recommended.page)}>
+              Continue with {recommended.label}
+              <ArrowRight size={17} />
+            </button>
+            <button className="ops-secondary-action" onClick={() => setPage("scan")}>
+              <Search size={17} />
+              Item / bin inquiry
+            </button>
+          </div>
+        </div>
+
+        <div className="ops-focus-panel">
+          <div className="ops-focus-head">
+            <span>NEXT ACTION</span>
+            <span className="ops-live-dot">LIVE</span>
+          </div>
+          <strong>{recommended.label}</strong>
+          <p>
+            {recommended.value > 0
+              ? `${recommended.value} active ${recommended.value === 1 ? "task" : "tasks"} in queue`
+              : "No urgent queue detected. Use inquiry or inventory tools as needed."}
+          </p>
+          <button onClick={() => setPage(recommended.page)}>
+            Open workflow <ArrowRight size={15} />
+          </button>
+          <div className="ops-focus-grid" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+            <span />
+          </div>
+        </div>
+      </section>
+
+      <section className="ops-metric-grid" aria-label="Warehouse metrics">
+        <article className="ops-metric-card">
+          <div className="ops-metric-icon"><Package size={18} /></div>
+          <span>Inbound queue</span>
+          <strong>{stats.pendingPOs + stats.receivingPOs}</strong>
+          <small>{stats.receivingPOs} currently receiving</small>
+        </article>
+        <article className="ops-metric-card">
+          <div className="ops-metric-icon"><Truck size={18} /></div>
+          <span>Orders to pick</span>
+          <strong>{stats.pendingOrders}</strong>
+          <small>{stats.activeWaves} active / pending waves</small>
+        </article>
+        <article className="ops-metric-card">
+          <div className="ops-metric-icon"><ClipboardCheck size={18} /></div>
+          <span>Counts pending</span>
+          <strong>{stats.pendingCounts}</strong>
+          <small>{stats.completedCounts} completed in current data</small>
+        </article>
+        <article className="ops-metric-card">
+          <div className="ops-metric-icon"><TrendingUp size={18} /></div>
+          <span>Count accuracy</span>
+          <strong>{stats.completedCounts ? `${stats.accuracy}%` : "—"}</strong>
+          <small>{stats.completedCounts ? "Based on completed counts" : "No completed counts yet"}</small>
+        </article>
+      </section>
+
+      <section className="ops-grid-two">
+        <article className="ops-panel ops-workload">
+          <div className="ops-panel-heading">
+            <div>
+              <span className="ops-section-kicker">WORK QUEUES</span>
+              <h2>Current workload</h2>
+            </div>
+            <Activity size={19} />
+          </div>
+
+          <div className="ops-workload-list">
+            {workload.map((item) => (
+              <button key={item.label} onClick={() => setPage(item.page)}>
+                <div className="ops-workload-row">
+                  <span>{item.label}</span>
+                  <strong>{item.value}</strong>
+                </div>
+                <div className="ops-progress-track">
+                  <span style={{ width: `${Math.max(item.value ? 8 : 0, (item.value / maxWorkload) * 100)}%` }} />
+                </div>
+              </button>
+            ))}
+          </div>
+
+          <div className="ops-panel-foot">
+            <span>{stats.totalBins} active bin records available</span>
+            <button onClick={() => setPage("inventory")}>Open inventory</button>
+          </div>
+        </article>
+
+        <article className="ops-panel">
+          <div className="ops-panel-heading">
+            <div>
+              <span className="ops-section-kicker">ACTIVITY</span>
+              <h2>Recent warehouse events</h2>
+            </div>
+            {timeline.some((entry) => entry.tone === "warn") ? (
+              <AlertCircle size={19} />
+            ) : (
+              <CheckCircle2 size={19} />
             )}
-          </h2>
-          {timeline.length === 0 ? (
-            <p className="fo-none">
-              No activity yet. Receipts, counts and shipments will be listed here.
-            </p>
-          ) : (
-            <ol>
-              {timeline.map((entry) => (
-                <li key={entry.id} className={`fo-event ${entry.tone}`}>
-                  <time>{entry.time}</time>
+          </div>
+
+          <div className="ops-timeline">
+            {timeline.length === 0 ? (
+              <div className="ops-empty-state">
+                <Activity size={22} />
+                <strong>No activity recorded yet</strong>
+                <span>Receiving, counts, and shipment events will appear here.</span>
+              </div>
+            ) : (
+              timeline.map((entry) => (
+                <div className="ops-timeline-row" key={entry.id}>
+                  <span className={`ops-event-dot ${entry.tone}`} />
                   <div>
                     <strong>{entry.title}</strong>
                     <span>{entry.detail}</span>
                   </div>
-                </li>
-              ))}
-            </ol>
-          )}
-        </section>
-      </div>
+                  <time>{entry.time}</time>
+                </div>
+              ))
+            )}
+          </div>
+        </article>
+      </section>
+
+      <section className="ops-module-grid">
+        <button className="ops-module-card" onClick={() => setPage("receive")}>
+          <span>01 · INBOUND</span>
+          <Package size={24} />
+          <strong>Receive purchase orders</strong>
+          <p>Verify product, quantity, lot / serial details, and staging location.</p>
+          <i><ArrowRight size={16} /></i>
+        </button>
+        <button className="ops-module-card" onClick={() => setPage("pick")}>
+          <span>02 · OUTBOUND</span>
+          <Truck size={24} />
+          <strong>Pick sales orders</strong>
+          <p>Work bin-sorted pick lists with clear progress and completion states.</p>
+          <i><ArrowRight size={16} /></i>
+        </button>
+        <button className="ops-module-card" onClick={() => setPage("inventory")}>
+          <span>03 · ACCURACY</span>
+          <ClipboardCheck size={24} />
+          <strong>Run cycle counts</strong>
+          <p>Resume sessions, verify bins, capture quantities, and surface variance.</p>
+          <i><ArrowRight size={16} /></i>
+        </button>
+        <button className="ops-module-card" onClick={() => setPage("shipping")}>
+          <span>04 · SHIPPING</span>
+          <Truck size={24} />
+          <strong>Prepare shipments</strong>
+          <p>{stats.readyToShip} ready to ship · {stats.shipped} shipped in current data.</p>
+          <i><ArrowRight size={16} /></i>
+        </button>
+      </section>
     </div>
   );
 }
