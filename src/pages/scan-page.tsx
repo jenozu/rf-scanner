@@ -29,9 +29,22 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem, onStartCount
   const [scannedCode, setScannedCode] = useState<string>("");
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
   const [manualCode, setManualCode] = useState<string>("");
+  // The camera listener is set up once, so it must call the latest handleScan
+  // (with the loaded inventory), not the one from the first render.
+  const handleScanRef = useRef<(code: string) => void>(() => {});
+  const lastCameraCodeRef = useRef<string | null>(null);
+  const lastCameraTimeRef = useRef<number>(0);
   // Bins and items come from the server (shared by every device).
-  const { data: bins } = useCollection<BinLocation[]>("rf_bins", []);
-  const { data: activeItems } = useCollection<Item[]>("rf_active", [], { refresh: false });
+  const binsCollection = useCollection<BinLocation[]>("rf_bins", []);
+  const itemsCollection = useCollection<Item[]>("rf_active", [], { refresh: false });
+  const bins = binsCollection.data;
+  const activeItems = itemsCollection.data;
+  const inventoryLoading = binsCollection.isLoading || itemsCollection.isLoading;
+  const inventoryError = binsCollection.error || itemsCollection.error;
+  const reloadInventory = () => {
+    void binsCollection.reload();
+    void itemsCollection.reload();
+  };
   const [showNewBinModal, setShowNewBinModal] = useState(false);
   const [newBinCode, setNewBinCode] = useState<string>("");
   const [newBinZone, setNewBinZone] = useState<string>("");
@@ -105,9 +118,13 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem, onStartCount
 
         Quagga.onDetected((result) => {
           const code = result.codeResult.code;
-          if (code && code !== scannedCode) {
-            handleScan(code);
-          }
+          if (!code) return;
+          // Camera reports the same barcode on many frames: look it up once
+          const now = Date.now();
+          if (code === lastCameraCodeRef.current && now - lastCameraTimeRef.current < 2000) return;
+          lastCameraCodeRef.current = code;
+          lastCameraTimeRef.current = now;
+          handleScanRef.current(code);
         });
       } catch (error) {
         console.error("Scanner initialization error:", error);
@@ -129,6 +146,13 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem, onStartCount
     console.log("Scanned:", code);
     setScannedCode(code);
 
+    // Never report "not found" before the inventory has actually arrived
+    if (inventoryLoading) {
+      setScanResult(null);
+      showToast("⏳ Inventory is still loading. Try again in a moment.", "info");
+      return;
+    }
+
     const result = smartSearch(code, bins, activeItems);
     
     if (result) {
@@ -144,9 +168,14 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem, onStartCount
       }
     } else {
       setScanResult(null);
-      showToast(`❌ No matches found for: ${code}`, "error");
+      showToast(
+        `❌ No matches found for: ${code} (searched ${activeItems.length} items, ${bins.length} bins)`,
+        "error"
+      );
     }
   };
+
+  handleScanRef.current = handleScan;
 
   // Handle manual lookup with normalization
   const handleManualLookup = () => {
@@ -503,6 +532,16 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem, onStartCount
           <p className="text-yellow-800">
             No bin or item found for code: <strong>{scannedCode}</strong>
           </p>
+          <p className="text-sm text-yellow-700 mt-2">
+            Searched {activeItems.length} items and {bins.length} bins on this device.
+            {inventoryError && <span className="block text-red-700">Inventory failed to load: {inventoryError}</span>}
+          </p>
+          <button
+            onClick={reloadInventory}
+            className="mt-2 text-blue-600 hover:underline text-sm"
+          >
+            Reload inventory from server
+          </button>
           <button
             onClick={() => {
               setNewBinCode(scannedCode);
