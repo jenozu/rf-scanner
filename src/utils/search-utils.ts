@@ -1,5 +1,5 @@
 import { Item } from "../types";
-import { fullBinCode, looksLikeBinCode } from "./bin-utils";
+import { isSameBin, looksLikeBinCode } from "./bin-utils";
 
 const buildSearchTerms = (query: string): string[] => {
   const normalized = query.toUpperCase().trim();
@@ -44,13 +44,10 @@ export function searchItems(query: string, allItems: Item[]): Item[] {
       if (searchTerms.some(term => binCode.includes(term))) {
         return true;
       }
-      // If query looks like a bin code, try with prefix added
+      // If query looks like a bin code, compare ignoring the warehouse prefix
       const firstTerm = searchTerms[0];
-      if (looksLikeBinCode(firstTerm)) {
-        const fullBin = fullBinCode(firstTerm);
-        if (binCode === fullBin) {
-          return true;
-        }
+      if (looksLikeBinCode(firstTerm) && isSameBin(item.BinCode, firstTerm)) {
+        return true;
       }
     }
     
@@ -99,13 +96,11 @@ export function smartSearch(query: string, bins: any[], allItems: Item[]): Searc
   const searchTerms = buildSearchTerms(query);
   const normalized = searchTerms[0];
   
-  // Try exact bin match first (with prefix normalization)
-  let binToFind = normalized;
-  if (looksLikeBinCode(normalized)) {
-    binToFind = fullBinCode(normalized);
-  }
-  
-  const exactBin = bins.find(b => b.BinCode.toUpperCase() === binToFind);
+  // Try exact bin match first. Bins may be stored with or without the "01-"
+  // prefix, so compare on the canonical form of both sides.
+  const exactBin = looksLikeBinCode(normalized)
+    ? bins.find(b => isSameBin(b.BinCode ?? "", query))
+    : undefined;
   if (exactBin) {
     return { type: "bin", bin: exactBin };
   }

@@ -32,6 +32,23 @@ export function fullBinCode(binCode: string): string {
 }
 
 /**
+ * Canonical form used to compare bin codes. Bins can be stored with or without
+ * the warehouse prefix (SAP imports and manually created bins differ), so
+ * both sides are reduced to the same unprefixed, upper-case form.
+ * Example: "01-0209" and "0209" both → "0209"
+ */
+export function canonicalBinCode(binCode: string): string {
+  return displayBinCode(binCode.trim().toUpperCase());
+}
+
+/**
+ * True when two bin codes refer to the same bin, ignoring the warehouse prefix.
+ */
+export function isSameBin(a: string, b: string): boolean {
+  return canonicalBinCode(a) !== "" && canonicalBinCode(a) === canonicalBinCode(b);
+}
+
+/**
  * Check if input might be a bin code (short numeric string)
  */
 export function looksLikeBinCode(input: string): boolean {

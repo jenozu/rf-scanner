@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import Quagga from "@ericblade/quagga2";
 import { Item, BinLocation } from "../types";
 import { Package, MapPin, Plus, Search, ClipboardCheck, Tag } from "lucide-react";
-import { displayBinCode, normalizeBinInput } from "../utils/bin-utils";
+import { displayBinCode, fullBinCode, isSameBin, normalizeBinInput } from "../utils/bin-utils";
 import { smartSearch } from "../utils/search-utils";
 import { useCollection } from "../data/hooks";
 import { saveBinChanges } from "../data/ops";
@@ -177,14 +177,15 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem, onStartCount
       return;
     }
 
-    // Check if bin already exists
-    if (bins.some((bin) => bin.BinCode === newBinCode.toUpperCase())) {
+    // Check if bin already exists (with or without the warehouse prefix)
+    if (bins.some((bin) => isSameBin(bin.BinCode, newBinCode))) {
       showToast("⚠️ Bin already exists", "error");
       return;
     }
 
+    // Always store the full code so scans and lookups match it
     const newBin: BinLocation = {
-      BinCode: newBinCode.toUpperCase(),
+      BinCode: fullBinCode(newBinCode.trim().toUpperCase()),
       Zone: newBinZone,
       Capacity: 100,
       Status: "active",
