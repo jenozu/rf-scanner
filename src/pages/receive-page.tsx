@@ -7,7 +7,7 @@ import { parsePOFile } from "../data/csv-utils";
 import QuantityNumpad from "../components/quantity-numpad";
 import { useCollection } from "../data/hooks";
 import { receiveStock, saveCollection, upsertManyRecords, deleteRecord } from "../data/ops";
-import ManageOrdersPanel from "../components/manage-orders-panel";
+import OrderDeleteButton from "../components/order-delete-button";
 import BinAssignPanel from "../components/bin-assign-panel";
 import { classifyBin } from "../../server/ops-logic.js";
 
@@ -386,6 +386,7 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
                       Expected: {new Date(po.expectedDate).toLocaleDateString()}
                     </p>
                   </div>
+                  <div className="flex items-start gap-2">
                   <span
                     className={`px-3 py-1 rounded-full text-xs font-medium ${
                       po.status === "completed"
@@ -397,6 +398,15 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
                   >
                     {po.status.toUpperCase()}
                   </span>
+                  <OrderDeleteButton
+                    label={`PO ${po.poNumber}`}
+                    kind="purchase order"
+                    lineCount={po.items.length}
+                    progressQty={po.items.reduce((sum, item) => sum + (item.ReceivedQty || 0), 0)}
+                    onDelete={() => deleteRecord("rf_purchase_orders", po.id).then(() => undefined)}
+                    onMessage={showToast}
+                  />
+                  </div>
                 </div>
                 <div className="mt-3 text-sm text-gray-700">
                   {po.items.length} items • {po.items.reduce((sum, item) => sum + item.ReceivedQty, 0)} / {po.items.reduce((sum, item) => sum + item.OrderedQty, 0)} received
@@ -406,20 +416,6 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
           </div>
         )}
 
-        <ManageOrdersPanel
-          title="Manage imported POs (delete)"
-          kind="purchase order"
-          orders={purchaseOrders.map((po) => ({
-            id: po.id,
-            label: `PO ${po.poNumber}`,
-            detail: po.vendor,
-            status: po.status,
-            lineCount: po.items.length,
-            progressQty: po.items.reduce((sum, item) => sum + (item.ReceivedQty || 0), 0),
-          }))}
-          onDelete={(id) => deleteRecord("rf_purchase_orders", id).then(() => undefined)}
-          onMessage={showToast}
-        />
       </div>
     );
   }
