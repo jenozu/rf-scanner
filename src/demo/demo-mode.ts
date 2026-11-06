@@ -14,6 +14,7 @@ import {
   Wave,
 } from "../types";
 import * as ops from "../../server/ops-logic.js";
+import { applyOrderImport, importCollection, validateOrderImport } from "../../server/order-import.js";
 
 const DEMO_VERSION = "premium-wms-v1";
 
@@ -355,6 +356,9 @@ function demoOperation(endpoint: string, method: string, body: any): unknown {
     return demoApply("rf_sales_orders", ops.validateSoPick(body), (cur) => ops.applySoPick(cur, body));
   }
 
+  if (method === "POST" && endpoint === "/imports/orders") {
+    return demoApply(importCollection(body.kind) ?? "rf_purchase_orders", validateOrderImport(body), (cur) => applyOrderImport(cur, body, demoUser));
+  }
   if (method === "POST" && endpoint === "/ops/bins-set") {
     return demoApply("rf_bins", ops.validateBinsSet(body), (cur) => ops.applyBinsSet(cur, body));
   }

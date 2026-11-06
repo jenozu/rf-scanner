@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { parseCSV, parsePOFile, parseSalesOrderFile } from "../data/csv-utils";
+import { parseCSV } from "../data/csv-utils";
+import { runOrderImport, ImportError } from "../data/import-run";
+import { summarizeImport } from "../data/import-summary";
+import ImportReportPanel, { type ImportView } from "../components/import-report-panel";
 import { useCollection } from "../data/hooks";
 import { saveCollection, upsertManyRecords } from "../data/ops";
 import { useAuth } from "../hooks/useAuth";
@@ -21,6 +24,7 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
   const auth = useAuth();
   const sampleBlockedReason = sampleDataBlockedReason(data.length);
   const [status, setStatus] = useState<string>("");
+  const [importView, setImportView] = useState<ImportView | null>(null);
   const [isLoadingMaster, setIsLoadingMaster] = useState(false);
 
   const persistInventoryData = useCallback(
@@ -221,78 +225,25 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
     }
   };
 
-  // 📥 Handle PO file upload
-  const handlePOFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  // 📥 Purchase-order / sales-order file upload. The file is read here; the server merges it
+  // (new orders added, existing ones updated, received/picked work kept, no duplicates).
+  const handleOrderFileUpload = (kind: "po" | "so") => async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const input = e.target;
+    const file = input.files?.[0];
     if (!file) return;
-
-    const fileType = file.name.toLowerCase().endsWith('.xlsx') || file.name.toLowerCase().endsWith('.xls') 
-      ? 'Excel' 
-      : 'CSV';
-    setStatus(`⏳ Parsing PO ${fileType} file...`);
-
+    setImportView(null);
+    setStatus(`⏳ Reading ${file.name}...`);
     try {
-      const newPOs = await parsePOFile(file);
-      
-      // Compare against the server's current list; the merge itself happens on the server.
-      const existingPOs = ((await api.getData("rf_purchase_orders")) as PurchaseOrder[] | null) || [];
-      const existingPONumbers = new Set(existingPOs.map(po => po.poNumber));
-      
-      // Filter out duplicates
-      const uniqueNewPOs = newPOs.filter(po => !existingPONumbers.has(po.poNumber));
-      
-      if (uniqueNewPOs.length === 0) {
-        setStatus("⚠️ All POs in file already exist. No new POs added.");
-        e.target.value = "";
-        return;
-      }
-
-      await upsertManyRecords("rf_purchase_orders", uniqueNewPOs, true);
-      
-      const totalItems = uniqueNewPOs.reduce((sum, po) => sum + po.items.length, 0);
-      setStatus(`✅ Loaded ${uniqueNewPOs.length} purchase order(s) with ${totalItems} total line items from ${fileType} file`);
-      e.target.value = "";
+      const run = await runOrderImport(kind, file);
+      setImportView({ run });
+      setStatus(`${summarizeImport(run.report, run.server).tone === "success" ? "✅" : "⚠️"} ${summarizeImport(run.report, run.server).headline}`);
     } catch (err) {
-      console.error("Error importing PO file:", err);
-      setStatus(`❌ Could not import the PO ${fileType} file (${(err as Error)?.message || "unknown error"}). Check the format. Required columns: poNumber, vendor, expectedDate, ItemCode, Description, OrderedQty`);
-      e.target.value = "";
-    }
-  };
-
-  // 📥 Handle Sales Order file upload
-  const handleSOFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const fileType = file.name.toLowerCase().endsWith('.xlsx') || file.name.toLowerCase().endsWith('.xls') 
-      ? 'Excel' 
-      : 'CSV';
-    setStatus(`⏳ Parsing Sales Order ${fileType} file...`);
-
-    try {
-      const newSOs = await parseSalesOrderFile(file);
-      
-      // Compare against the server's current list; the merge itself happens on the server.
-      const existingSOs = ((await api.getData("rf_sales_orders")) as SalesOrder[] | null) || [];
-      const existingSONumbers = new Set(existingSOs.map(so => so.soNumber));
-      
-      // Filter out duplicates
-      const uniqueNewSOs = newSOs.filter(so => !existingSONumbers.has(so.soNumber));
-      
-      if (uniqueNewSOs.length === 0) {
-        setStatus("⚠️ All Sales Orders in file already exist. No new SOs added.");
-        e.target.value = "";
-        return;
-      }
-
-      await upsertManyRecords("rf_sales_orders", uniqueNewSOs, true);
-      
-      setStatus(`✅ Loaded ${uniqueNewSOs.length} sales order(s) with ${newSOs.reduce((sum, so) => sum + so.items.length, 0)} total line items from ${fileType} file`);
-      e.target.value = "";
-    } catch (err) {
-      console.error("Error importing Sales Order file:", err);
-      setStatus(`❌ Could not import the Sales Order ${fileType} file (${(err as Error)?.message || "unknown error"}). Check the format. Required columns: soNumber, customer, CardCode, ItemCode, Description, OrderedQty, DeliveredQty`);
-      e.target.value = "";
+      console.error("Error importing order file:", err);
+      const message = (err as Error)?.message || "unknown error";
+      setImportView({ error: message, report: err instanceof ImportError ? err.report : undefined });
+      setStatus(`❌ Could not import ${file.name}.`);
+    } finally {
+      input.value = "";
     }
   };
 
@@ -432,18 +383,15 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
             id="poFile"
             type="file"
             accept=".csv,.xlsx,.xls"
-            onChange={handlePOFileUpload}
+            onChange={handleOrderFileUpload("po")}
             className="hidden"
           />
           <p className="text-xs text-gray-600 mt-2">
-            Required columns: <code>poNumber</code>, <code>vendor</code>, <code>expectedDate</code>,{" "}
-            <code>ItemCode</code>, <code>Description</code>, <code>OrderedQty</code>
+            Read as SAP exports it: <code>Document Number</code>, <code>Item No.</code>, <code>Quantity</code>,{" "}
+            <code>Remaining Open Quantity</code>, <code>LineNumber</code>, <code>Warehouse</code>, <code>Due Date</code>
           </p>
           <p className="text-xs text-gray-500 mt-1">
-            Supports multiple purchase orders in one file (separated by blank lines)
-          </p>
-          <p className="text-xs text-gray-500">
-            Optional: <code>ReceivedQty</code>, <code>BinCode</code>, <code>CardCode</code>, <code>LineNumber</code>
+            Importing a file again updates the orders already here and keeps what was received.
           </p>
         </div>
 
@@ -460,18 +408,15 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
             id="soFile"
             type="file"
             accept=".csv,.xlsx,.xls"
-            onChange={handleSOFileUpload}
+            onChange={handleOrderFileUpload("so")}
             className="hidden"
           />
           <p className="text-xs text-gray-600 mt-2">
-            Required columns: <code>soNumber</code>, <code>customer</code>, <code>CardCode</code>,{" "}
-            <code>ItemCode</code>, <code>Description</code>, <code>OrderedQty</code>, <code>DeliveredQty</code>
+            Read as SAP exports it: <code>Document Number</code>, <code>Item No.</code>, <code>OrderedQty</code>,{" "}
+            <code>DeliveredQty</code>, <code>LineNumber</code>, <code>Warehouse</code>, <code>Due Date</code>
           </p>
           <p className="text-xs text-gray-500 mt-1">
-            Supports multiple sales orders in one file (separated by blank lines)
-          </p>
-          <p className="text-xs text-gray-500">
-            Optional: <code>LineNumber</code>, <code>BinCode</code>
+            Importing a file again updates the orders already here and keeps what was picked.
           </p>
         </div>
 
@@ -503,6 +448,8 @@ const SetupPage: React.FC<SetupPageProps> = ({ setPage, onSetupComplete }) => {
             {status}
           </div>
         )}
+
+        {importView && <ImportReportPanel view={importView} onClose={() => setImportView(null)} />}
 
         {/* 📦 Summary */}
         {data.length > 0 && (

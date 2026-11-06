@@ -8,6 +8,7 @@ import { api, ApiError } from "../services/api";
 import { dataStore } from "./hooks";
 import { diffBins, diffRecords } from "./diff";
 import type { BinLocation } from "../types";
+import type { ImportBody } from "../../server/order-import.js";
 
 type ApiParams<K extends keyof typeof api> = Parameters<(typeof api)[K] extends (...a: any) => any ? (typeof api)[K] : never>;
 
@@ -52,6 +53,13 @@ export function assignSoBin(params: ApiParams<"assignSoBin">[0]) {
 export function pickSalesOrderLine(params: ApiParams<"pickSalesOrderLine">[0]) {
   return dataStore.mutate(() => api.pickSalesOrderLine(params), {
     reload: ["rf_sales_orders", "rf_bins"],
+  });
+}
+
+/** Import parsed SAP purchase orders or sales orders; the server adds new ones and updates existing ones. */
+export function importOrders(kind: "po" | "so", orders: ImportBody["orders"]) {
+  return dataStore.mutate(() => api.importOrders({ kind, orders }), {
+    reload: [kind === "po" ? "rf_purchase_orders" : "rf_sales_orders"],
   });
 }
 

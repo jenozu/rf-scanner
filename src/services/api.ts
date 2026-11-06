@@ -4,6 +4,7 @@
  */
 
 import { demoRequest, isDemoMode } from "../demo/demo-mode";
+import type { ImportBody, ImportResult } from "../../server/order-import.js";
 
 const API_BASE = import.meta.env.VITE_API_URL || "/api";
 
@@ -255,6 +256,14 @@ class ApiClient {
     changes?: Array<{ binCode: string; itemCode: string; description?: string; setQuantity: number }>;
   }) {
     return this.post<{ ok: true; bins: number; changed: number; created: number }>("/ops/bins-set", params);
+  }
+
+  /**
+   * Import parsed SAP orders. The server merges them under its file lock, so the same file
+   * imported twice, or on two devices at once, never creates an order twice.
+   */
+  importOrders(params: ImportBody) {
+    return this.post<ImportResult>("/imports/orders", params);
   }
 
   upsertManyRecords(key: string, records: Array<{ id: string }>, skipExisting = false) {

@@ -4,6 +4,7 @@
 import path from 'node:path';
 import { store } from './store.js';
 import * as logic from './ops-logic.js';
+import { applyOrderImport, importCollection, validateOrderImport } from './order-import.js';
 
 export function registerOps(app, { authenticateToken, requireWriter, dataDir }) {
   const fileFor = (key) => path.join(dataDir, `${key}.json`);
@@ -51,6 +52,14 @@ export function registerOps(app, { authenticateToken, requireWriter, dataDir }) 
     validate: (req) => logic.validateSoPick(req.body),
     file: 'rf_sales_orders',
     apply: (cur, req) => logic.applySoPick(cur, req.body),
+  }));
+
+  // SAP file import. The browser sends the parsed orders; the merge runs here under the file's
+  // lock, so the same file imported twice (or on two devices at once) never duplicates an order.
+  app.post('/api/imports/orders', ...guard, operation('order import', {
+    validate: (req) => validateOrderImport(req.body),
+    file: (req) => importCollection(req.body.kind),
+    apply: (cur, req) => applyOrderImport(cur, req.body, req.currentUser),
   }));
 
   app.put('/api/records/:key/:id', ...guard, operation('record upsert', {

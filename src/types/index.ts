@@ -27,7 +27,11 @@ export interface PurchaseOrder {
 }
 
 export interface POItem {
-  LineNumber?: number; // Line number for sorting
+  LineNumber?: number; // SAP line number (a blank cell in the export is line 0)
+  /** Stable identity of the line: "<DocNum>:<LineNumber>". Receipts address the line by this, never by position. */
+  LineKey?: string;
+  /** True when a later SAP export no longer lists this line (closed or removed in SAP). It cannot be received. */
+  SapClosed?: boolean;
   ItemCode: string;
   Description: string;
   OrderedQty: number;
@@ -84,6 +88,8 @@ export interface SalesOrder {
   items: SOItem[];
   status: "pending" | "picking" | "picked" | "shipped";
   createdDate: string;
+  /** SAP due date, "YYYY-MM-DD". */
+  dueDate?: string;
   shippedDate?: string;
   shipmentPin?: string; // Purolator tracking PIN
   // Shipping address fields (from SAP export)
@@ -96,7 +102,13 @@ export interface SalesOrder {
 }
 
 export interface SOItem {
-  LineNumber: number;
+  LineNumber: number; // SAP line number (a blank cell in the export is line 0)
+  /** Stable identity of the line: "<DocNum>:<LineNumber>". Picks address the line by this, never by position. */
+  LineKey?: string;
+  /** True when a later SAP export no longer lists this line. It cannot be picked. */
+  SapClosed?: boolean;
+  /** The last short pick on this line (the picker could not take everything that was still open). */
+  ShortPick?: { reason: string; qtyPicked: number; stillOpen: number; by: string; at: string };
   ItemCode: string;
   Description: string;
   OrderedQty: number;
