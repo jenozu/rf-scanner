@@ -24,7 +24,7 @@ const call = (method, key, body) => fetch(`${srv.base}/api/data/${key}`, {
   body: body === undefined ? undefined : JSON.stringify(body),
 });
 
-for (const key of ['rf_receiving_txns', 'rf_cycle_count_txns', 'rf_temporary_locations']) {
+for (const key of ['rf_receiving_txns', 'rf_pick_txns', 'rf_cycle_count_txns', 'rf_temporary_locations']) {
   test(`${key}: empty read, save, read back`, async () => {
     assert.deepEqual(await (await call('GET', key)).json(), []);
     const rows = [{ id: 't1', qty: 3 }];

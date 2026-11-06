@@ -6,6 +6,10 @@ import { store } from './store.js';
 import * as logic from './ops-logic.js';
 import { applyOrderImport, importCollection, validateOrderImport } from './order-import.js';
 
+function sendRefusal(res, { status, ...body }) {
+  return res.status(status).json(body);
+}
+
 export function registerOps(app, { authenticateToken, requireWriter, dataDir }) {
   const fileFor = (key) => path.join(dataDir, `${key}.json`);
   const guard = [authenticateToken, requireWriter];
@@ -15,7 +19,7 @@ export function registerOps(app, { authenticateToken, requireWriter, dataDir }) 
     return async (req, res) => {
       try {
         const problem = validate?.(req);
-        if (problem) return res.status(problem.status).json({ error: problem.error });
+        if (problem) return sendRefusal(res, problem);
         const key = typeof file === 'function' ? file(req) : file;
         const result = await store.update(fileFor(key), (current) => apply(current, req));
         if (result?.error) {
@@ -51,7 +55,13 @@ export function registerOps(app, { authenticateToken, requireWriter, dataDir }) 
   app.post('/api/ops/so-pick', ...guard, operation('so-pick', {
     validate: (req) => logic.validateSoPick(req.body),
     file: 'rf_sales_orders',
-    apply: (cur, req) => logic.applySoPick(cur, req.body),
+    apply: (cur, req) => logic.applySoPick(cur, req.body, req.currentUser),
+  }));
+
+  app.post('/api/ops/so-ship', ...guard, operation('so-ship', {
+    validate: (req) => logic.validateShip(req.body),
+    file: 'rf_sales_orders',
+    apply: (cur, req) => logic.applyShip(cur, req.body),
   }));
 
   // SAP file import. The browser sends the parsed orders; the merge runs here under the file's
@@ -63,7 +73,7 @@ export function registerOps(app, { authenticateToken, requireWriter, dataDir }) 
   }));
 
   app.put('/api/records/:key/:id', ...guard, operation('record upsert', {
-    validate: (req) => logic.validateRecordKey(req.params.key) || logic.validateRecordUpsert(req.params.id, req.body),
+    validate: (req) => logic.validateRecordKey(req.params.key) || logic.blockOrderWrites(req.params.key) || logic.validateRecordUpsert(req.params.id, req.body),
     file: (req) => req.params.key,
     apply: (cur, req) => logic.applyRecordUpsert(cur, req.body.record),
   }));
@@ -75,7 +85,8 @@ export function registerOps(app, { authenticateToken, requireWriter, dataDir }) 
   }));
 
   app.post('/api/records/:key/apply', ...guard, operation('record changes', {
-    validate: (req) => logic.validateRecordKey(req.params.key) || logic.validateRecordChanges(req.body),
+    validate: (req) => logic.validateRecordKey(req.params.key) || logic.validateRecordChanges(req.body)
+      || logic.blockOrderWrites(req.params.key, (req.body.upsert || []).length > 0),
     file: (req) => req.params.key,
     apply: (cur, req) => logic.applyRecordChanges(cur, req.body),
   }));
@@ -87,7 +98,7 @@ export function registerOps(app, { authenticateToken, requireWriter, dataDir }) 
   }));
 
   app.post('/api/records/:key/upsert-many', ...guard, operation('upsert-many', {
-    validate: (req) => logic.validateRecordKey(req.params.key) || logic.validateUpsertMany(req.body),
+    validate: (req) => logic.validateRecordKey(req.params.key) || logic.blockOrderWrites(req.params.key) || logic.validateUpsertMany(req.body),
     file: (req) => req.params.key,
     apply: (cur, req) => logic.applyUpsertMany(cur, req.body),
   }));
@@ -98,7 +109,7 @@ export function registerOps(app, { authenticateToken, requireWriter, dataDir }) 
     return async (req, res) => {
       try {
         const problem = validate(req.body);
-        if (problem) return res.status(problem.status).json({ error: problem.error });
+        if (problem) return sendRefusal(res, problem);
         const paths = Object.fromEntries(Object.entries(files).map(([k, key]) => [k, fileFor(key)]));
         const result = await store.lockedMany(Object.values(paths), async (txs) => {
           const state = {};
@@ -137,7 +148,7 @@ export function registerOps(app, { authenticateToken, requireWriter, dataDir }) 
 
   app.post('/api/ops/pick-so', ...guard, composite('pick-so', {
     validate: logic.validatePickSo,
-    files: { sos: 'rf_sales_orders', bins: 'rf_bins' },
+    files: { sos: 'rf_sales_orders', bins: 'rf_bins', txns: 'rf_pick_txns' },
     apply: logic.applyPickSo,
   }));
 }

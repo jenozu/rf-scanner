@@ -388,9 +388,9 @@
           {
             "title": "Tests first: two same-ItemCode lines on PO and SO, partial receipts, over-pick refusal, two-client concurrency",
             "description": "Failing server + frontend tests for every Phase 4 bug before any fix",
-            "status": "pending",
+            "status": "done",
             "dependencies": [],
-            "details": "",
+            "details": "[2026-11-06T10:08:41-05:00] 36 tests in server/test/line-ops.test.js written first (33 failed on old code); old pick tests in ops.test.js moved to new contract (txnId, scannedCode, no silent clamp)",
             "testStrategy": "server tests fail on current code for the right reasons, pass after 12.2-12.4",
             "complexity": 4,
             "id": 1
@@ -398,11 +398,11 @@
           {
             "title": "Server: line addressing by LineKey, receipt/pick caps, no silent clamp, txn idempotency, short pick, scan check",
             "description": "ops-logic.js: resolveLine (lineKey, legacy lineIndex only for unkeyed lines), OVER_RECEIPT/OVER_PICK 409, INSUFFICIENT_BIN_STOCK unless explicit acceptShortfall (logged), SapClosed lines refused, pick txn log rf_pick_txns idempotent by txnId, short-pick reason, scannedCode must match ItemCode",
-            "status": "pending",
+            "status": "done",
             "dependencies": [
               1
             ],
-            "details": "",
+            "details": "[2026-11-06T10:08:41-05:00] ops-logic: findLine (LineKey; position only for unkeyed legacy lines), OVER_RECEIPT/OVER_PICK caps with float-safe roundQty, LINE_CLOSED, scan check, short pick, INSUFFICIENT_BIN_STOCK vs acceptShortfall, rf_pick_txns log with txnId idempotency, applyAssignBin by key",
             "testStrategy": "server/test ops + bin-rules tests; vitest demo-ops mirror",
             "complexity": 7,
             "id": 2
@@ -410,11 +410,11 @@
           {
             "title": "Conflict-safe order writes: stop stale whole-record overwrites (shipping page) ",
             "description": "shipping-page saves whole SalesOrder records from a possibly stale copy, which can erase a picker's progress; replace with a narrow server op",
-            "status": "pending",
+            "status": "done",
             "dependencies": [
               2
             ],
-            "details": "",
+            "details": "[2026-11-06T10:08:42-05:00] so-ship narrow op (status/PIN/date under lock); PUT/apply(upsert)/upsert-many on rf_sales_orders and rf_purchase_orders now 409 USE_ORDER_OPERATIONS; delete still allowed",
             "testStrategy": "server test: pick and ship-status update in parallel keep both",
             "complexity": 4,
             "id": 3
@@ -577,7 +577,7 @@
     ],
     "metadata": {
       "created": "2026-10-29T19:42:01-04:00",
-      "updated": "2026-11-06T10:02:29-05:00"
+      "updated": "2026-11-06T10:08:42-05:00"
     }
   }
 }
