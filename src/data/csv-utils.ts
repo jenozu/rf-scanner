@@ -16,7 +16,7 @@ const BIN_COLUMNS = [
 ];
 const WAREHOUSE_COLUMNS = ["whscode", "whsecode", "warehouse", "warehousecode", "whse", "whs"];
 
-const columnKey = (name: string) => name.toLowerCase().replace(/[\s_\-]/g, "");
+const columnKey = (name: string) => name.toLowerCase().replace(/[^a-z0-9]/g, ""); // "Item No." -> "itemno"
 
 function pickColumn(row: Record<string, unknown>, wanted: string[]): string[] {
   const byKey = new Map<string, unknown>();
@@ -146,68 +146,50 @@ async function parseExcel(file: File): Promise<Item[]> {
  * Note: CountedQty and Variance are left undefined until user actually counts the item.
  * When re-importing data that already has counted values, they will be preserved.
  */
-function normalizeData(rawData: any[]): Item[] {
-  return rawData.map((row: any) => {
+const ITEM_CODE_COLUMNS = ["itemcode", "itemno", "itemnumber", "itemnum", "item", "sku", "partnumber", "partno", "part"];
+const DESCRIPTION_COLUMNS = ["description", "desc", "itemdescription", "itemname", "name"];
+const QTY_COLUMNS = [
+  "expectedqty", "quantity", "qty", "qtyinbin", "onhandqty", "onhand", "instock", "qtyonhand",
+];
+
+export function normalizeData(rawData: any[]): Item[] {
+  const items = rawData.map((row: any) => {
+    const { binCode } = extractBinAndWarehouse(row);
     const item: Item = {
-      BinCode: (
-        row.BinCode || 
-        row.bincode || 
-        row.bin_code || 
-        row.Bin || 
-        row.BIN || 
-        ""
-      ).toString().trim(),
-      
-      ItemCode: (
-        row.ItemCode || 
-        row.itemcode || 
-        row.item_code || 
-        row.Item || 
-        row.SKU || 
-        row.sku || 
-        ""
-      ).toString().trim(),
-      
-      Description: (
-        row.Description || 
-        row.description || 
-        row.desc || 
-        row.Name || 
-        row.name || 
-        row.ItemName ||  // SAP export column
-        row.itemname ||
-        row.item_name ||
-        ""
-      ).toString().trim(),
-      
-      ExpectedQty: parseFloat(
-        row.ExpectedQty || 
-        row.expectedqty || 
-        row.expected_qty || 
-        row.Quantity || 
-        row.quantity ||
-        row.Qty || 
-        row.qty ||
-        row.QtyInBin ||  // SAP export column
-        row.qtyinbin ||
-        row.qty_in_bin ||
-        row.OnHandQty ||
-        row.onhandqty ||
-        "0"
-      ) || 0,
+      BinCode: binCode ?? "",
+      ItemCode: pickColumn(row, ITEM_CODE_COLUMNS)[0] ?? "",
+      Description: pickColumn(row, DESCRIPTION_COLUMNS)[0] ?? "",
+      ExpectedQty: parseQty(pickColumn(row, QTY_COLUMNS)[0]),
     };
 
     // If CountedQty exists in the source data (re-importing counted data), preserve it
     if (row.CountedQty !== undefined && row.CountedQty !== null && row.CountedQty !== "") {
-      const countedQty = parseFloat(row.CountedQty) || 0;
+      const countedQty = parseQty(row.CountedQty);
       item.CountedQty = countedQty;
       // Auto-calculate Variance if CountedQty is present
       item.Variance = countedQty - item.ExpectedQty;
     }
     // Otherwise, leave CountedQty and Variance undefined (not yet counted)
-    
+
     return item;
   });
+
+  // A file whose headers match nothing used to import as thousands of blank rows and
+  // report success. Fail loudly instead, and say which headers were found.
+  if (items.length > 0 && !items.some((item) => item.ItemCode)) {
+    const headers = Object.keys(rawData[0] ?? {}).filter(Boolean).join(", ") || "(none)";
+    throw new Error(
+      `No item codes found. Row 1 must have an ItemCode column (also accepted: Item No., Item Number, SKU). Columns found: ${headers}`
+    );
+  }
+  return items;
+}
+
+/** "1,000" or 12 or "12.5" -> number; anything unreadable -> 0 */
+function parseQty(value: unknown): number {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  const n = parseFloat(String(value ?? "").replace(/,/g, "").trim());
+  return Number.isFinite(n) ? n : 0;
 }
 
 /**
