@@ -573,11 +573,24 @@
         "complexity": 5,
         "id": 22,
         "subtasks": []
+      },
+      {
+        "title": "Vendor SheetJS xlsx fix; confirm blank-LineNumber rule; record owner decisions",
+        "description": "Owner decisions 2026-11-06: vendor fixed SheetJS release, check blank LineNumber in real exports, no supervisor override, keep SapClosed lines, leave /api/data/:key.",
+        "status": "pending",
+        "priority": "high",
+        "dependencies": [
+          12
+        ],
+        "details": "Closes the xlsx advisory parked in task 9. Not part of Phase 5; done before task 13.\n\n[2026-11-06T10:55:13-05:00] owner decisions 2026-11-06 recorded in parking-lot (supervisor override: not planned; SapClosed kept, no cleanup; /api/data/:key unchanged). PR #13 and #11 were already merged to main 2026-11-06 15:33Z; CI on PR head 52e7c3f, main 385fcfd and the VPS deploy workflow all green.\n\n[2026-11-06T10:55:13-05:00] BLOCKED: cdn.sheetjs.com returns 403 through the workspace proxy; npm has only xlsx 0.18.5. Vendoring not done. Real PO/SO .xlsx were not attached to this session (the message still had the placeholder), so the blank-LineNumber count and the real-file e2e re-run were not done. Earlier count recorded in task 11 log (42 PO / 125 SO blank, first row of each doc) is from a previous session, not re-checked.",
+        "testStrategy": "tsc, vitest, server tests, vite build pass; src/data/real-files-e2e.test.ts passes with RF_REAL_PO_XLSX/RF_REAL_SO_XLSX before and after vendoring with identical results",
+        "id": 23,
+        "subtasks": []
       }
     ],
     "metadata": {
       "created": "2026-10-29T19:42:01-04:00",
-      "updated": "2026-11-06T10:24:33-05:00"
+      "updated": "2026-11-06T10:55:13-05:00"
     }
   }
 }
