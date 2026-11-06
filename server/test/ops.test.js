@@ -34,6 +34,9 @@ before(async () => {
 });
 after(async () => { await srv.close(); });
 
+// A pick now needs a transaction id and the scanned item code (these tests' items are all 'A').
+let pickSeq = 0;
+const pk = (body) => ({ txnId: `PK-${++pickSeq}`, scannedCode: 'A', ...body });
 const bin = (code, items = []) => ({ BinCode: code, Zone: 'Z', Capacity: 100, Status: 'active', Items: items });
 
 test('viewer cannot use any write operation; unauthenticated gets 401', async () => {
@@ -279,7 +282,7 @@ test('receive: lots and serials reach the PO line, the bin item and the log', as
   assert.deepEqual(po.items[1].Serials, ['S1', 'S2']);
 });
 
-test('pick-so: updates the SO line and takes stock from the bin; clamps at zero; missing bin is skipped', async () => {
+test('pick-so: updates the SO line and takes stock from the bin; a pick past the bin stock is refused unless confirmed; missing bin is skipped', async () => {
   await write('rf_sales_orders', [{
     id: 'soP', soNumber: '9', status: 'pending',
     items: [
@@ -288,10 +291,13 @@ test('pick-so: updates the SO line and takes stock from the bin; clamps at zero;
     ],
   }]);
   await write('rf_bins', [bin('B-1', [{ ItemCode: 'A', Description: 'a', Quantity: 3 }])]);
-  const first = await (await post(op, '/api/ops/pick-so', { soId: 'soP', lineIndex: 0, qty: 4 })).json();
+  const refused = await post(op, '/api/ops/pick-so', pk({ soId: 'soP', lineIndex: 0, qty: 4 }));
+  assert.deepEqual([refused.status, (await refused.json()).code], [409, 'INSUFFICIENT_BIN_STOCK']); // 3 in stock, 4 asked: no silent clamp
+  const first = await (await post(op, '/api/ops/pick-so', pk({ soId: 'soP', lineIndex: 0, qty: 4, acceptShortfall: true }))).json();
   assert.equal(first.so.status, 'picking');
-  assert.equal(first.binQuantity, 0); // 3 in stock, 4 picked: clamps like the page always did
-  const second = await (await post(op, '/api/ops/pick-so', { soId: 'soP', lineIndex: 1, qty: 3 })).json();
+  assert.equal(first.binQuantity, 0); // the picker confirmed the shortfall on purpose
+  assert.equal(first.shortfall, 1);
+  const second = await (await post(op, '/api/ops/pick-so', pk({ soId: 'soP', lineIndex: 1, qty: 3 }))).json();
   assert.equal(second.so.status, 'picked');
   assert.equal(second.binQuantity, null);
   const so = (await read('rf_sales_orders'))[0];
@@ -305,12 +311,12 @@ test('pick-so: parallel picks on one bin all land; errors change nothing', async
   }]);
   await write('rf_bins', [bin('B-1', [{ ItemCode: 'A', Description: 'a', Quantity: 100 }])]);
   const results = await Promise.all(Array.from({ length: 20 }, () =>
-    post(op, '/api/ops/pick-so', { soId: 'soQ', lineIndex: 0, qty: 2 })));
+    post(op, '/api/ops/pick-so', pk({ soId: 'soQ', lineIndex: 0, qty: 2 }))));
   assert.ok(results.every(r => r.status === 200));
   assert.equal((await read('rf_sales_orders'))[0].items[0].DeliveredQty, 40);
   assert.equal((await read('rf_bins'))[0].Items[0].Quantity, 60);
-  assert.equal((await post(op, '/api/ops/pick-so', { soId: 'zzz', lineIndex: 0, qty: 1 })).status, 404);
-  assert.equal((await post(viewer, '/api/ops/pick-so', { soId: 'soQ', lineIndex: 0, qty: 1 })).status, 403);
+  assert.equal((await post(op, '/api/ops/pick-so', pk({ soId: 'zzz', lineIndex: 0, qty: 1 }))).status, 404);
+  assert.equal((await post(viewer, '/api/ops/pick-so', pk({ soId: 'soQ', lineIndex: 0, qty: 1 }))).status, 403);
   assert.equal((await read('rf_bins'))[0].Items[0].Quantity, 60);
 });
 
@@ -403,7 +409,7 @@ test('pick-so refuses a line with no real bin and changes nothing', async () => 
   ] }]);
   const before = [await read('rf_sales_orders'), await read('rf_bins')];
   for (let i = 0; i < 4; i++) {
-    const res = await post(op, '/api/ops/pick-so', { soId: 'soB', lineIndex: i, qty: 1 });
+    const res = await post(op, '/api/ops/pick-so', pk({ soId: 'soB', lineIndex: i, qty: 1 }));
     assert.equal(res.status, 409, `line ${i}`);
     assert.equal((await res.json()).code, 'NO_REAL_BIN');
   }
@@ -413,7 +419,7 @@ test('pick-so refuses a line with no real bin and changes nothing', async () => 
 test('pick-so ignores a bin sent by the browser: stock comes from the line\'s own bin', async () => {
   await write('rf_bins', [bin('01-RACK', [{ ItemCode: 'A', Description: 'a', Quantity: 9 }]), bin('OTHER', [{ ItemCode: 'A', Description: 'a', Quantity: 9 }])]);
   await write('rf_sales_orders', [{ id: 'soC', soNumber: '2', status: 'pending', items: [soLine(1, 'A', 2, '01-RACK')] }]);
-  const res = await post(op, '/api/ops/pick-so', { soId: 'soC', lineIndex: 0, qty: 2, binCode: 'OTHER' });
+  const res = await post(op, '/api/ops/pick-so', pk({ soId: 'soC', lineIndex: 0, qty: 2, binCode: 'OTHER' }));
   assert.equal(res.status, 200);
   const bins = await read('rf_bins');
   assert.equal(bins.find(b => b.BinCode === '01-RACK').Items[0].Quantity, 7);
@@ -456,9 +462,9 @@ test('so-assign-bin refuses placeholders, unknown bins, bad input and viewers; c
 test('after a bin is assigned the line can be picked, taking stock from the assigned bin', async () => {
   await write('rf_bins', [bin('01-RACK', [{ ItemCode: 'A', Description: 'a', Quantity: 9 }]), bin('01-SYSTEM-BIN-LOCATION', [{ ItemCode: 'A', Description: 'a', Quantity: 5 }])]);
   await write('rf_sales_orders', [{ id: 'soF', soNumber: '5', status: 'pending', items: [soLine(1, 'A', 3, '01-SYSTEM-BIN-LOCATION')] }]);
-  assert.equal((await post(op, '/api/ops/pick-so', { soId: 'soF', lineIndex: 0, qty: 3 })).status, 409);
+  assert.equal((await post(op, '/api/ops/pick-so', pk({ soId: 'soF', lineIndex: 0, qty: 3 }))).status, 409);
   assert.equal((await post(op, '/api/ops/so-assign-bin', { soId: 'soF', lineIndex: 0, binCode: '01-RACK' })).status, 200);
-  const picked = await (await post(op, '/api/ops/pick-so', { soId: 'soF', lineIndex: 0, qty: 3 })).json();
+  const picked = await (await post(op, '/api/ops/pick-so', pk({ soId: 'soF', lineIndex: 0, qty: 3 }))).json();
   assert.equal(picked.so.status, 'picked');
   const bins = await read('rf_bins');
   assert.equal(bins.find(b => b.BinCode === '01-RACK').Items[0].Quantity, 6);
@@ -468,11 +474,11 @@ test('after a bin is assigned the line can be picked, taking stock from the assi
 test('an order with an unassigned line cannot finish: it stays picking until that line gets a bin and is picked', async () => {
   await write('rf_bins', [bin('01-RACK', [{ ItemCode: 'A', Description: 'a', Quantity: 9 }])]);
   await write('rf_sales_orders', [{ id: 'soG', soNumber: '6', status: 'pending', items: [soLine(1, 'A', 1, '01-RACK'), soLine(2, 'A', 1, '')] }]);
-  assert.equal((await post(op, '/api/ops/pick-so', { soId: 'soG', lineIndex: 0, qty: 1 })).status, 200);
-  assert.equal((await post(op, '/api/ops/pick-so', { soId: 'soG', lineIndex: 1, qty: 1 })).status, 409);
+  assert.equal((await post(op, '/api/ops/pick-so', pk({ soId: 'soG', lineIndex: 0, qty: 1 }))).status, 200);
+  assert.equal((await post(op, '/api/ops/pick-so', pk({ soId: 'soG', lineIndex: 1, qty: 1 }))).status, 409);
   assert.equal((await read('rf_sales_orders'))[0].status, 'picking');
   await post(op, '/api/ops/so-assign-bin', { soId: 'soG', lineIndex: 1, binCode: '01-RACK' });
-  assert.equal((await (await post(op, '/api/ops/pick-so', { soId: 'soG', lineIndex: 1, qty: 1 })).json()).so.status, 'picked');
+  assert.equal((await (await post(op, '/api/ops/pick-so', pk({ soId: 'soG', lineIndex: 1, qty: 1 }))).json()).so.status, 'picked');
 });
 
 test('so-assign-bin: a blank bin leaves no OriginalBinCode (only a real original value is kept)', async () => {

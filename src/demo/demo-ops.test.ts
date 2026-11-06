@@ -70,8 +70,37 @@ describe("demo backend operations (shared logic with the server)", () => {
     store.set("rf_sales_orders", JSON.stringify([{ id: "s", items: [
       { ItemCode: "X", OrderedQty: 2, DeliveredQty: 0, RemainingQty: 2, BinCode: "A" },
     ] }]));
-    const res = await post("/ops/pick-so", { soId: "s", lineIndex: 0, qty: 2 });
+    const res = await post("/ops/pick-so", { soId: "s", lineIndex: 0, qty: 2, txnId: "PK-1", scannedCode: "x" });
     expect(res.so.status).toBe("picked");
     expect(JSON.parse(store.get("rf_bins")!)[0].Items[0].Quantity).toBe(3);
+    expect(JSON.parse(store.get("rf_pick_txns")!)).toHaveLength(1);
+  });
+
+  it("refuses like the server does, with the same codes the screens read", async () => {
+    store.set("rf_bins", JSON.stringify([{ BinCode: "A", Zone: "Z", Capacity: 10, Status: "active",
+      Items: [{ ItemCode: "X", Description: "x", Quantity: 5 }] }]));
+    store.set("rf_sales_orders", JSON.stringify([{ id: "s", soNumber: "1", status: "pending", items: [
+      { LineKey: "1:0", ItemCode: "X", OrderedQty: 2, DeliveredQty: 0, RemainingQty: 2, BinCode: "A" },
+      { LineKey: "1:1", ItemCode: "X", OrderedQty: 2, DeliveredQty: 0, RemainingQty: 2, BinCode: "A" },
+    ] }]));
+    const codeOf = async (body: object) => {
+      try { await post("/ops/pick-so", body); return "ok"; } catch (e: any) { return e.details?.code; }
+    };
+    expect(await codeOf({ soId: "s", lineIndex: 0, qty: 1, txnId: "a", scannedCode: "X" })).toBe("LINE_KEY_REQUIRED");
+    expect(await codeOf({ soId: "s", lineKey: "1:1", qty: 3, txnId: "b", scannedCode: "X" })).toBe("OVER_PICK");
+    expect(await codeOf({ soId: "s", lineKey: "1:1", qty: 1, txnId: "c" })).toBe("SCAN_REQUIRED");
+    expect(await codeOf({ soId: "s", lineKey: "1:1", qty: 1, txnId: "d", scannedCode: "Y" })).toBe("SCAN_MISMATCH");
+    expect(await codeOf({ soId: "s", lineKey: "1:1", qty: 1, txnId: "e", scannedCode: "x" })).toBe("ok");
+    const sos = JSON.parse(store.get("rf_sales_orders")!);
+    expect(sos[0].items.map((i: any) => i.DeliveredQty)).toEqual([0, 1]);
+  });
+
+  it("ships with the narrow operation and refuses whole-order saves", async () => {
+    store.set("rf_sales_orders", JSON.stringify([{ id: "s", soNumber: "1", status: "picking", items: [] }]));
+    const shipped = await post("/ops/so-ship", { shipments: [{ soId: "s", shipmentPin: "P1" }] });
+    expect(shipped.orders[0].status).toBe("shipped");
+    let code: string | undefined;
+    try { await post("/records/rf_sales_orders/s", { record: { id: "s" } }, "PUT"); } catch (e: any) { code = e.details?.code; }
+    expect(code).toBe("USE_ORDER_OPERATIONS");
   });
 });

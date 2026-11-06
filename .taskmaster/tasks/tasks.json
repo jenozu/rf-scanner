@@ -239,12 +239,12 @@
       {
         "title": "Phase 3: SAP import fidelity",
         "description": "Stable line identity (DocNum+LineNum), Warehouse vs Bin, Excel dates, number parsing, validation report, re-import updates.",
-        "status": "in-progress",
+        "status": "done",
         "priority": "high",
         "dependencies": [
           10
         ],
-        "details": "BLOCKED ON INPUT: needs one real SAP XLSX export each for POs and Sales Orders. Audit items 4e-4h. csv-utils.ts lines ~502-507, 589, 936.\n\n[2026-10-29T20:02:46-04:00] input received 2026-10-29: RF_Scanner_Sample_SAP_XLSX_Exports.xlsx (synthetic, NOT a raw SAP export; its README calls it a target-format contract). Sheets: Master Inventory (Warehouse|BinCode|ItemCode|ItemName|QtyInBin, keep zero-stock rows, an ItemCode can be in many bins); Purchase Orders (poNumber, vendor, CardCode, expectedDate, LineNumber, ItemCode, Description, OrderedQty, ReceivedQty, OpenQty, BinCode, Warehouse; BinCode may be 'NO-BIN'); Sales Orders (soNumber, customer, CardCode, LineNumber, ItemCode, Description, OrderedQty, OpenQty, BinCode, BinQty, Warehouse). New vs current PO parser: Warehouse, OpenQty, expectedDate as datetime. README says inspect the existing parsers before renaming fields and keep backwards compatibility. Workbook is kept outside the public repo for now; when Phase 3 starts, commit it as tests/fixtures (it is synthetic). A real raw SAP XLSX export is still worth getting, since SAP date cells and thousands separators (audit 4f, 4g) are not exercised by a clean sample.\n\n[2026-10-30T10:58:29-04:00] OWNER REQUIREMENT (2026-10-30): the tool must scale to LARGER warehouses with MULTIPLE PICKERS working at once, so duplicates and concurrency problems are not acceptable even if rare today. Phase 3 must therefore (a) give every imported PO/SO line a deterministic identity from the SAP DocNum + LineNum (not Date.now()-based ids) and make import idempotent on the SERVER (same file twice, or from two devices at the same moment, gives identical results and no duplicates), (b) re-import updates open quantities without losing received/picked history. Phase 4 must cover two pickers on the same order/line (server-side remaining-quantity check and claim/lock per pick, over-pick refused), not only the single-user case. Today's behavior for reference: import ids are time-based, so the same PO file imported on two devices at the same instant can create the same PO twice; receive/pick quantity changes are already safe under concurrency (server-side, per line).\n\n[2026-11-03T10:50:17-05:00] plan: Phase 3 expanded into 11.1-11.10 (fixtures, parse primitives, deterministic ids, validation report, XLSX cells, server idempotent merge, setup PO, SO parity, docs, verify+merge). Files: src/data/csv-utils.ts (+ test), server/ops-logic.js, server/ops.js, src/demo/demo-mode.ts, src/pages/setup-page.tsx, src/services/api.ts, docs. Workbook not present in repo or sandbox: fixtures built from the logged column list; real workbook to replace them when supplied. Owner merge instruction (2026-11-03) applies to this phase: merge to main at the end. Drift check: plan only, no code changed.",
+        "details": "BLOCKED ON INPUT: needs one real SAP XLSX export each for POs and Sales Orders. Audit items 4e-4h. csv-utils.ts lines ~502-507, 589, 936.\n\n[2026-10-29T20:02:46-04:00] input received 2026-10-29: RF_Scanner_Sample_SAP_XLSX_Exports.xlsx (synthetic, NOT a raw SAP export; its README calls it a target-format contract). Sheets: Master Inventory (Warehouse|BinCode|ItemCode|ItemName|QtyInBin, keep zero-stock rows, an ItemCode can be in many bins); Purchase Orders (poNumber, vendor, CardCode, expectedDate, LineNumber, ItemCode, Description, OrderedQty, ReceivedQty, OpenQty, BinCode, Warehouse; BinCode may be 'NO-BIN'); Sales Orders (soNumber, customer, CardCode, LineNumber, ItemCode, Description, OrderedQty, OpenQty, BinCode, BinQty, Warehouse). New vs current PO parser: Warehouse, OpenQty, expectedDate as datetime. README says inspect the existing parsers before renaming fields and keep backwards compatibility. Workbook is kept outside the public repo for now; when Phase 3 starts, commit it as tests/fixtures (it is synthetic). A real raw SAP XLSX export is still worth getting, since SAP date cells and thousands separators (audit 4f, 4g) are not exercised by a clean sample.\n\n[2026-10-30T10:58:29-04:00] OWNER REQUIREMENT (2026-10-30): the tool must scale to LARGER warehouses with MULTIPLE PICKERS working at once, so duplicates and concurrency problems are not acceptable even if rare today. Phase 3 must therefore (a) give every imported PO/SO line a deterministic identity from the SAP DocNum + LineNum (not Date.now()-based ids) and make import idempotent on the SERVER (same file twice, or from two devices at the same moment, gives identical results and no duplicates), (b) re-import updates open quantities without losing received/picked history. Phase 4 must cover two pickers on the same order/line (server-side remaining-quantity check and claim/lock per pick, over-pick refused), not only the single-user case. Today's behavior for reference: import ids are time-based, so the same PO file imported on two devices at the same instant can create the same PO twice; receive/pick quantity changes are already safe under concurrency (server-side, per line).\n\n[2026-11-03T10:50:17-05:00] plan: Phase 3 expanded into 11.1-11.10 (fixtures, parse primitives, deterministic ids, validation report, XLSX cells, server idempotent merge, setup PO, SO parity, docs, verify+merge). Files: src/data/csv-utils.ts (+ test), server/ops-logic.js, server/ops.js, src/demo/demo-mode.ts, src/pages/setup-page.tsx, src/services/api.ts, docs. Workbook not present in repo or sandbox: fixtures built from the logged column list; real workbook to replace them when supplied. Owner merge instruction (2026-11-03) applies to this phase: merge to main at the end. Drift check: plan only, no code changed.\n\n[2026-11-06T09:46:40-05:00] [2026-11-06 owner session] REAL SAP EXPORTS RECEIVED (PO 267 rows/76 docs, SO 417 rows/154 docs; values NOT committed, repo is public). Real headers are NOT the synthetic contract: 'Document Number', 'Customer/Vendor Code', 'Customer/Vendor Name', 'Due Date', 'LineNumber', 'Item No.', 'Description', PO: 'Quantity'+'Remaining Open Quantity'; SO: 'OrderedQty'+'DeliveredQty'; 'Warehouse', 'BinCode'. BASELINE RUN with current main parsers on the real files: PO 0 orders (267 rows skipped), SO 0 orders (417 rows skipped), only a console.warn per row = same failure class as the master import. Shape facts: dates are real date cells (arrive as serials e.g. 46188 -> old code gives year 46188); LineNumber is BLANK on 42 PO / 125 SO rows, always the FIRST row of its document with the others 1..n, <=1 blank per doc => blank = SAP line 0 (ASSUMPTION to confirm with owner); Warehouse is the NUMBER 1 or 5 (not '01'); BinCode blank on every row; SO qty has fractions (3.5, 0.25...); 7 SO docs repeat an ItemCode on separate lines (one has 17 lines with T045 x4); PO export holds only open lines (open>0 on all rows); no doc has duplicate (doc,line). PLAN: new module src/data/sap-import.ts (primitives, column resolver, PO/SO normalizers returning {orders, report}, one file reader that uses file.arrayBuffer/text so it also runs in node tests); server applyOrderImport in ops-logic.js (shared with demo), route POST /api/imports/orders; merge rule ReceivedQty/DeliveredQty = max(app total, SAP ordered-open) so a GRPO posted in SAP after an app receipt is not double counted; lines absent from a re-import are flagged SapClosed, never deleted; id po-<DocNum>/so-<DocNum>, LineKey '<DocNum>:<LineNum>'; legacy orders matched by DocNum. xlsx package NOT swapped (owner must decide).",
         "testStrategy": "Fixture tests for each format incl. duplicate ItemCodes, closed lines, date cells; same file imported twice gives identical results",
         "complexity": 8,
         "id": 11,
@@ -252,9 +252,9 @@
           {
             "title": "Fixtures from the sample workbook contract",
             "description": "Commit test fixtures (CSV and XLSX) that match the sample workbook's column contract: Master Inventory, Purchase Orders, Sales Orders. The owner's workbook is not in the repo or sandbox, so fixtures are built from the logged column list and must be replaced by the real workbook when supplied.",
-            "status": "pending",
+            "status": "done",
             "dependencies": [],
-            "details": "",
+            "details": "[2026-11-06T09:46:40-05:00] plan: fixtures built from the REAL shapes (not the synthetic contract): scripts/make-import-fixtures.mjs generates src/data/fixtures/*.xlsx with synthetic codes/names, real date cells, blank line 0, numeric warehouse, fractional qty, repeated ItemCode docs, plus an edge-case workbook (text dates, '1,000' text qty, bad rows). Real files used only locally via gated test (RF_REAL_PO_XLSX / RF_REAL_SO_XLSX) and never committed.",
             "testStrategy": "npm test runs fixture-based tests for each sheet; a fixture README lists the source and what it covers (duplicate ItemCodes, closed lines, date cells, NO-BIN)",
             "complexity": 3,
             "id": 1
@@ -262,7 +262,7 @@
           {
             "title": "Quantity and date parsing primitives",
             "description": "parseQty accepts numbers, thousands separators (1,000 and 1 000) and rejects junk instead of returning 0. parseSapDate accepts Excel serial numbers, yyyymmdd, ISO dates and Date objects; anything else is reported, never replaced by today's date.",
-            "status": "pending",
+            "status": "done",
             "dependencies": [],
             "details": "",
             "testStrategy": "Vitest unit tests: 1,000 -> 1000; 46327 -> 2026-11-03-style serial converted; 20261103 -> 2026-11-03; 'abc' -> reported invalid; no fallback to new Date()",
@@ -272,11 +272,11 @@
           {
             "title": "Deterministic document and line identity",
             "description": "PO id = po-<DocNum>, SO id = so-<DocNum>; a line is identified by DocNum + LineNumber. Remove Date.now()-based ids from both parsers. Duplicate ItemCodes stay separate lines.",
-            "status": "pending",
+            "status": "done",
             "dependencies": [
               2
             ],
-            "details": "",
+            "details": "[2026-11-06T09:56:13-05:00] done: server/order-identity.js (orderId po-/so-<DocNum>, LineKey '<DocNum>:<Line>', normalizeDocNum), used by both sap-import.ts and the server merge. Date.now ids removed from the PO/SO parsers (old parsers deleted from csv-utils.ts). Mutation check: time-based ids make 3 tests fail.",
             "testStrategy": "Parse the same fixture twice: identical ids and line keys. Two lines with the same ItemCode keep distinct LineNumbers.",
             "complexity": 5,
             "id": 3
@@ -284,12 +284,12 @@
           {
             "title": "Validation report from the parsers",
             "description": "Parsers return { orders, report } where report lists counts and every skipped or warned row with a reason (missing DocNum, missing ItemCode, invalid qty, invalid date, closed line, missing LineNumber). Silent drops are removed. Only setup-page.tsx calls these parsers today.",
-            "status": "pending",
+            "status": "done",
             "dependencies": [
               2,
               3
             ],
-            "details": "",
+            "details": "[2026-11-06T09:56:13-05:00] done: ImportReport (rowsRead, ordersFound, linesAccepted, skipped[{row,reason,message}], warnings[{code,count,rows}], columns found/mapped); files with no order-number/item-code/quantity column, no data rows, or no usable rows throw ImportError listing the columns found.",
             "testStrategy": "Vitest: a fixture with one bad row of each kind yields one report entry per row with the right reason; a clean fixture yields an empty report",
             "complexity": 5,
             "id": 4
@@ -297,12 +297,12 @@
           {
             "title": "XLSX reading keeps date and number cells",
             "description": "Read workbooks so date cells come through as dates (cellDates) or serials that parseSapDate handles; numeric cells keep their value; text cells with separators go through parseQty. Covers audit items 4f and 4g.",
-            "status": "pending",
+            "status": "done",
             "dependencies": [
               1,
               2
             ],
-            "details": "",
+            "details": "[2026-11-06T09:56:13-05:00] done: one reader for CSV+XLSX (file.arrayBuffer/file.text, no FileReader, so it runs in node tests), date cells arrive as serials and go through parseSapDate; cell primitives live in src/data/cell-parsing.ts and the master import now shares parseQty ('1,000', '2,5'). VERIFIED against the REAL files (local gated test): PO 267 rows -> 76 orders, SO 417 rows -> 154 orders, 0 skipped, blank LineNumber 42/125, 7 SO docs with repeated ItemCodes, all LineKeys unique.",
             "testStrategy": "Vitest on an XLSX fixture with a real date cell and a '1,000' text cell: expectedDate is 2026-era ISO, quantity is 1000",
             "complexity": 4,
             "id": 5
@@ -310,11 +310,11 @@
           {
             "title": "Server-side idempotent PO import and re-import merge",
             "description": "Pure function in server/ops-logic.js: applyOrderImport(current, {kind, orders}) matched by id. New orders are added. Existing orders: OrderedQty, expectedDate, vendor and bin fields are updated from the file; ReceivedQty, Lots, Serials, BinCode set by the app and receive history are kept. Lines missing from the file are removed only when nothing was received. Returns added/updated/unchanged counts. Exposed as POST /api/imports/orders (requireWriter, operation wrapper, same write queue). Demo backend mirrors it in demo-mode.ts.",
-            "status": "pending",
+            "status": "done",
             "dependencies": [
               3
             ],
-            "details": "",
+            "details": "[2026-11-06T09:56:13-05:00] server/order-import.js applyOrderImport + validateOrderImport + POST /api/imports/orders: 37 server tests pass incl. 8 parallel identical imports -> each of 12 orders exactly once; overlapping files from two devices; pick preserved across re-import; legacy (time-id) orders matched by DocNum; mutation-checked (sum instead of max, random ids).",
             "testStrategy": "server/test: importing the same file twice gives unchanged on the second run; re-import after a qty change updates OrderedQty and keeps ReceivedQty; two concurrent imports of the same file create one PO; demo-mode route covered by a unit test",
             "complexity": 8,
             "id": 6
@@ -322,12 +322,12 @@
           {
             "title": "Setup page PO import uses the server merge",
             "description": "setup-page.tsx sends parsed POs to the new import endpoint instead of client-side filtering by poNumber, and shows the report (added, updated, unchanged, skipped rows with reasons). Remove the old upsert-many call for POs.",
-            "status": "pending",
+            "status": "done",
             "dependencies": [
               4,
               6
             ],
-            "details": "",
+            "details": "[2026-11-06T10:02:29-05:00] done: Setup and Receive pages now use runOrderImport (src/data/import-run.ts): read file -> POST /api/imports/orders -> ImportReportPanel (headline, skipped rows with reasons, columns used). The client-side 'skip PO numbers already present' filter is gone. Demo backend mirrors the route.",
             "testStrategy": "npm run check and vitest pass; manual check: import sample PO file twice in the dev server, second run reports 0 added, 0 updated",
             "complexity": 5,
             "id": 7
@@ -335,7 +335,7 @@
           {
             "title": "Sales order parser and merge, same rules",
             "description": "Apply tasks 2-7 to sales orders: so-<DocNum> ids, line identity, validation report, merge that keeps DeliveredQty and pick history, Warehouse vs bin kept apart. Setup page SO import switched to the same endpoint.",
-            "status": "pending",
+            "status": "done",
             "dependencies": [
               4,
               6
@@ -348,7 +348,7 @@
           {
             "title": "Docs and file-format guide updated to match",
             "description": "Update PO_FILE_FORMAT.md and SO_UPLOAD_GUIDE.md (or FILE_FORMAT_GUIDE.md) for the column list, date and quantity rules, line identity, re-import behaviour and the report. Remove statements the code no longer makes true.",
-            "status": "pending",
+            "status": "done",
             "dependencies": [
               7,
               8
@@ -361,7 +361,7 @@
           {
             "title": "Phase 3 verification and merge",
             "description": "Run tsc, vitest, server tests and vite build on the phase branch. Push, then merge to main as the owner asked. Phase summary to the owner.",
-            "status": "pending",
+            "status": "done",
             "dependencies": [
               9
             ],
@@ -375,7 +375,7 @@
       {
         "title": "Phase 4: Receiving and picking correctness",
         "description": "Act on line identity, cap over-receipt, scan confirmation for picks, short-pick handling, per-bin stock changes.",
-        "status": "pending",
+        "status": "done",
         "priority": "high",
         "dependencies": [
           11
@@ -384,7 +384,55 @@
         "testStrategy": "A PO and an SO each with two lines of the same item process correctly end to end; over-receipt and over-pick are refused",
         "complexity": 8,
         "id": 12,
-        "subtasks": []
+        "subtasks": [
+          {
+            "title": "Tests first: two same-ItemCode lines on PO and SO, partial receipts, over-pick refusal, two-client concurrency",
+            "description": "Failing server + frontend tests for every Phase 4 bug before any fix",
+            "status": "done",
+            "dependencies": [],
+            "details": "[2026-11-06T10:08:41-05:00] 36 tests in server/test/line-ops.test.js written first (33 failed on old code); old pick tests in ops.test.js moved to new contract (txnId, scannedCode, no silent clamp)",
+            "testStrategy": "server tests fail on current code for the right reasons, pass after 12.2-12.4",
+            "complexity": 4,
+            "id": 1
+          },
+          {
+            "title": "Server: line addressing by LineKey, receipt/pick caps, no silent clamp, txn idempotency, short pick, scan check",
+            "description": "ops-logic.js: resolveLine (lineKey, legacy lineIndex only for unkeyed lines), OVER_RECEIPT/OVER_PICK 409, INSUFFICIENT_BIN_STOCK unless explicit acceptShortfall (logged), SapClosed lines refused, pick txn log rf_pick_txns idempotent by txnId, short-pick reason, scannedCode must match ItemCode",
+            "status": "done",
+            "dependencies": [
+              1
+            ],
+            "details": "[2026-11-06T10:08:41-05:00] ops-logic: findLine (LineKey; position only for unkeyed legacy lines), OVER_RECEIPT/OVER_PICK caps with float-safe roundQty, LINE_CLOSED, scan check, short pick, INSUFFICIENT_BIN_STOCK vs acceptShortfall, rf_pick_txns log with txnId idempotency, applyAssignBin by key",
+            "testStrategy": "server/test ops + bin-rules tests; vitest demo-ops mirror",
+            "complexity": 7,
+            "id": 2
+          },
+          {
+            "title": "Conflict-safe order writes: stop stale whole-record overwrites (shipping page) ",
+            "description": "shipping-page saves whole SalesOrder records from a possibly stale copy, which can erase a picker's progress; replace with a narrow server op",
+            "status": "done",
+            "dependencies": [
+              2
+            ],
+            "details": "[2026-11-06T10:08:42-05:00] so-ship narrow op (status/PIN/date under lock); PUT/apply(upsert)/upsert-many on rf_sales_orders and rf_purchase_orders now 409 USE_ORDER_OPERATIONS; delete still allowed",
+            "testStrategy": "server test: pick and ship-status update in parallel keep both",
+            "complexity": 4,
+            "id": 3
+          },
+          {
+            "title": "Receive and pick pages: act on LineKey, cap quantities, scan confirmation, short-pick, shortfall prompt",
+            "description": "UI wiring only after server ops are proven",
+            "status": "done",
+            "dependencies": [
+              2,
+              3
+            ],
+            "details": "[2026-11-06T10:24:33-05:00] receive/pick UI: line refs, live lookup by key, caps, item scan, short-pick reason, shortfall confirm, closed lines; shipping uses so-ship; verified in Chrome (demo mode) + real-file e2e",
+            "testStrategy": "tsc, vitest, vite build; local logic tests for line refs",
+            "complexity": 6,
+            "id": 4
+          }
+        ]
       },
       {
         "title": "Phase 5: SAP-ready exports",
@@ -529,7 +577,7 @@
     ],
     "metadata": {
       "created": "2026-10-29T19:42:01-04:00",
-      "updated": "2026-11-03T10:50:17-05:00"
+      "updated": "2026-11-06T10:24:33-05:00"
     }
   }
 }

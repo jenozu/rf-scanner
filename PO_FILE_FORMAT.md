@@ -1,5 +1,7 @@
 # 📦 Purchase Order File Format Guide
 
+> **Updated (Phase 3/4, 2026-11):** the importer now reads the real SAP export headers (e.g. `Document Number`, `Item No.`, `Remaining Open Quantity`), identifies lines by DocNum + LineNumber, and updates an order when the file is imported again. See `.taskmaster/docs/phase-3-4-notes.md` for the current rules; where this guide differs, that note wins.
+
 ## Overview
 
 Your RF Warehouse Management System now supports importing Purchase Orders (POs) directly from CSV or XLSX files! This guide explains the exact format your `master_PO` spreadsheet should follow.

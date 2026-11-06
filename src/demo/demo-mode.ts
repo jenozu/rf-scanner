@@ -14,6 +14,7 @@ import {
   Wave,
 } from "../types";
 import * as ops from "../../server/ops-logic.js";
+import { applyOrderImport, importCollection, validateOrderImport } from "../../server/order-import.js";
 
 const DEMO_VERSION = "premium-wms-v1";
 
@@ -219,6 +220,7 @@ const demoData: Record<string, unknown> = {
   rf_waves: demoWaves,
   rf_cycle_counts: demoCounts,
   rf_receiving_txns: demoReceivingTransactions,
+  rf_pick_txns: [],
   rf_cycle_count_txns: demoCountTransactions,
   rf_activity_logs: demoActivity,
   rf_inventory_sessions: demoSessions,
@@ -306,16 +308,22 @@ function demoRead(key: string): any[] | null {
   }
 }
 
+/** A refusal as the real API reports it: message, HTTP status and extra fields such as `code`. */
+function refusal(failure: { error: string; status?: number; [extra: string]: unknown }): Error {
+  const { error, status, ...details } = failure;
+  return Object.assign(new Error(error), { name: "ApiError", status: status ?? 400, details });
+}
+
 /** Validate, apply to the stored value, save, and return the result (or throw like the API would). */
 function demoApply(
   key: string,
   problem: ops.OpFailure | null,
   apply: (current: any[] | null) => ops.OpOutcome
 ): any {
-  if (problem) throw new Error(problem.error);
+  if (problem) throw refusal(problem);
   const outcome = apply(demoRead(key));
   const result: any = outcome.result;
-  if (result && typeof result === "object" && "error" in result) throw new Error(result.error);
+  if (result && typeof result === "object" && "error" in result) throw refusal(result as any);
   if (outcome.data !== undefined) localStorage.setItem(key, JSON.stringify(outcome.data));
   return result;
 }
@@ -326,12 +334,12 @@ function demoApplyMany(
   problem: ops.OpFailure | null,
   apply: (state: any) => ops.OpOutcome
 ): any {
-  if (problem) throw new Error(problem.error);
+  if (problem) throw refusal(problem);
   const state: Record<string, any> = {};
   for (const [name, key] of Object.entries(files)) state[name] = demoRead(key);
   const outcome = apply(state);
   const result: any = outcome.result;
-  if (result && typeof result === "object" && "error" in result) throw new Error(result.error);
+  if (result && typeof result === "object" && "error" in result) throw refusal(result as any);
   if (outcome.data) {
     for (const [name, key] of Object.entries(files)) {
       if (outcome.data[name] !== undefined) localStorage.setItem(key, JSON.stringify(outcome.data[name]));
@@ -352,9 +360,15 @@ function demoOperation(endpoint: string, method: string, body: any): unknown {
     return demoApply("rf_purchase_orders", ops.validatePoReceive(body), (cur) => ops.applyPoReceive(cur, body));
   }
   if (method === "POST" && endpoint === "/ops/so-pick") {
-    return demoApply("rf_sales_orders", ops.validateSoPick(body), (cur) => ops.applySoPick(cur, body));
+    return demoApply("rf_sales_orders", ops.validateSoPick(body), (cur) => ops.applySoPick(cur, body, demoUser));
+  }
+  if (method === "POST" && endpoint === "/ops/so-ship") {
+    return demoApply("rf_sales_orders", ops.validateShip(body), (cur) => ops.applyShip(cur, body));
   }
 
+  if (method === "POST" && endpoint === "/imports/orders") {
+    return demoApply(importCollection(body.kind) ?? "rf_purchase_orders", validateOrderImport(body), (cur) => applyOrderImport(cur, body, demoUser));
+  }
   if (method === "POST" && endpoint === "/ops/bins-set") {
     return demoApply("rf_bins", ops.validateBinsSet(body), (cur) => ops.applyBinsSet(cur, body));
   }
@@ -362,7 +376,7 @@ function demoOperation(endpoint: string, method: string, body: any): unknown {
     return demoApplyMany(
       { pos: "rf_purchase_orders", bins: "rf_bins", txns: "rf_receiving_txns" },
       ops.validateReceive(body),
-      (state) => ops.applyReceive(state, body)
+      (state) => ops.applyReceive(state, body, demoUser)
     );
   }
   if (method === "POST" && endpoint === "/ops/so-assign-bin") {
@@ -374,9 +388,9 @@ function demoOperation(endpoint: string, method: string, body: any): unknown {
   }
   if (method === "POST" && endpoint === "/ops/pick-so") {
     return demoApplyMany(
-      { sos: "rf_sales_orders", bins: "rf_bins" },
+      { sos: "rf_sales_orders", bins: "rf_bins", txns: "rf_pick_txns" },
       ops.validatePickSo(body),
-      (state) => ops.applyPickSo(state, body)
+      (state) => ops.applyPickSo(state, body, demoUser)
     );
   }
 
@@ -385,13 +399,13 @@ function demoOperation(endpoint: string, method: string, body: any): unknown {
     const key = records[1];
     const id = decodeURIComponent(records[2]);
     if (method === "POST" && id === "apply") {
-      return demoApply(key, ops.validateRecordKey(key) || ops.validateRecordChanges(body), (cur) => ops.applyRecordChanges(cur, body));
+      return demoApply(key, ops.validateRecordKey(key) || ops.validateRecordChanges(body) || ops.blockOrderWrites(key, (body.upsert || []).length > 0), (cur) => ops.applyRecordChanges(cur, body));
     }
     if (method === "POST" && id === "upsert-many") {
-      return demoApply(key, ops.validateRecordKey(key) || ops.validateUpsertMany(body), (cur) => ops.applyUpsertMany(cur, body));
+      return demoApply(key, ops.validateRecordKey(key) || ops.blockOrderWrites(key) || ops.validateUpsertMany(body), (cur) => ops.applyUpsertMany(cur, body));
     }
     if (method === "PUT") {
-      return demoApply(key, ops.validateRecordKey(key) || ops.validateRecordUpsert(id, body), (cur) => ops.applyRecordUpsert(cur, body.record));
+      return demoApply(key, ops.validateRecordKey(key) || ops.blockOrderWrites(key) || ops.validateRecordUpsert(id, body), (cur) => ops.applyRecordUpsert(cur, body.record));
     }
     if (method === "DELETE") {
       return demoApply(key, ops.validateRecordKey(key), (cur) => ops.applyRecordDelete(cur, id));

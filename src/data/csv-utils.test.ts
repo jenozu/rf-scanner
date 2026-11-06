@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mergeCSVData, extractBinAndWarehouse } from './csv-utils';
+import { mergeCSVData, extractBinAndWarehouse, normalizeData } from './csv-utils';
 import type { Item } from '../types';
 
 const item = (over: Partial<Item>): Item => ({
@@ -75,4 +75,26 @@ describe('extractBinAndWarehouse', () => {
     expect(extractBinAndWarehouse({ Warehouse: '02' }).warehouse).toBe('02');
     expect(extractBinAndWarehouse({ 'Whse Code': '03' }).warehouse).toBe('03');
   });
+});
+
+describe('normalizeData (master inventory import)', () => {
+  it('reads the standard headers', () => {
+    const [row] = normalizeData([{ ItemCode: 'A1', Description: 'Part', BinCode: '01-RACK', ExpectedQty: 3 }]);
+    expect(row).toMatchObject({ ItemCode: 'A1', Description: 'Part', BinCode: '01-RACK', ExpectedQty: 3 });
+  });
+
+  it('reads the SAP header "Item No." (this blank-imported 20,334 rows before)', () => {
+    const [row] = normalizeData([{ 'Item No.': '2992047-DTZ', Description: 'LOCK', BinCode: '01-4A04', ExpectedQty: 1 }]);
+    expect(row.ItemCode).toBe('2992047-DTZ');
+    expect(row.BinCode).toBe('01-4A04');
+  });
+
+  it('refuses a file whose headers match nothing, and lists the headers it found', () => {
+    expect(() => normalizeData([{ Foo: 'x', Bar: 'y' }])).toThrow(/No item codes found.*Foo, Bar/);
+  });
+
+  it('reads quantities with thousands separators', () => {
+    expect(normalizeData([{ ItemCode: 'A', ExpectedQty: '1,000' }])[0].ExpectedQty).toBe(1000);
+  });
+
 });

@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { PageType, SalesOrder, Order } from "../types";
 import { isDemoMode } from "../demo/demo-mode";
 import { useCollection } from "../data/hooks";
-import { saveRecordChanges } from "../data/ops";
+import { shipOrders, upsertRecord } from "../data/ops";
 import { 
   Package, 
   Truck, 
@@ -55,9 +55,25 @@ export default function ShippingPage({ setPage }: ShippingPageProps) {
       })) as SalesOrder[];
   }, [salesOrdersData, regularOrders]);
 
-  // Save only the orders whose status changed. A failure is thrown to the caller.
+  // Record the shipments. Sales orders go through the server's ship operation, which changes only
+  // status, PIN and date under the file's lock: a pick made a moment ago on another handheld is
+  // never undone by this screen's older copy. (When there are no sales orders, the screen shows
+  // legacy wave orders; those are saved to their own record.) A failure is thrown to the caller.
   const saveOrders = async (updatedOrders: SalesOrder[]) => {
-    await saveRecordChanges("rf_sales_orders", salesOrdersData, updatedOrders);
+    const justShipped = updatedOrders.filter((order) => {
+      if (order.status !== "shipped" || !order.shipmentPin) return false;
+      const stored = (salesOrdersData.length > 0 ? salesOrdersData : regularOrders).find((o) => o.id === order.id);
+      return stored && !(stored.status === "shipped" && (stored as SalesOrder).shipmentPin === order.shipmentPin);
+    });
+    if (justShipped.length === 0) return;
+    if (salesOrdersData.length > 0) {
+      await shipOrders(justShipped.map((order) => ({ soId: order.id, shipmentPin: order.shipmentPin as string })));
+      return;
+    }
+    for (const order of justShipped) {
+      const wave = regularOrders.find((o) => o.id === order.id);
+      if (wave) await upsertRecord("rf_orders", { ...wave, status: "shipped" } as { id: string });
+    }
   };
 
   const filteredOrders = orders.filter(order => {

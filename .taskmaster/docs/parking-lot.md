@@ -23,3 +23,16 @@ Ideas that are not part of the current plan. Review at the end of each phase: pr
 - (10.6, 2026-10-29) The sync indicator and error banner (src/components/sync-status.tsx) are verified only by tsc/build and the demo smoke test. No React component tests exist (jsdom + testing-library would be new dependencies).
 - (18, 2026-10-30) inventory-page has TWO blocks for sequential counting with the same condition (~lines 1426 and 2336+). The first (bare layout with an Export button, no Confirm-expected / Submit Count buttons) always returns first, so the second (toast, Confirm (expected qty), Submit Count, backspace) is unreachable dead code (~150 lines). Phase 7: pick one screen on purpose, merge the Export button, delete the other, as part of splitting this file.
 - (owner, 2026-10-30) KEEP ON THE LIST, raised priority: duplicate orders from simultaneous imports and any multi-picker conflicts. The owner wants larger warehouses with multiple pickers using this tool, so these are scheduled work (tasks 11 and 12 carry the requirement), not nice-to-haves.
+
+## Added 2026-11-06 (Phase 3/4)
+- RESOLVED in 11/12: PO/SO deterministic ids + server-side dedupe by DocNum (10.4); no over-receipt/over-pick cap and silent clamp of bin stock (10.4).
+- The legacy routes `POST /api/records/:key/upsert-many` and `/apply` still exist for non-order keys; orders are blocked from them. The older whole-collection writer (`/api/data/:key`, used by `saveCollection` for master/bins/sample data) can still write rf_purchase_orders/rf_sales_orders in full. Restrict it together with 10.2 (viewer writes).
+- `xlsx` advisory still open (see task 9 note). Not swapped or vendored: owner decision pending.
+- Lines missing from a re-import are flagged `SapClosed`, never deleted; orders missing from a whole file are untouched. Decide whether to auto-close/clean old orders (e.g. after N days with nothing open).
+- Receipts are not re-checked against SAP: `max(app, SAP-derived)` means a goods receipt posted in SAP for stock the app also received can under-count open quantity. Needs a real example to tune.
+- Shipping legacy wave orders (`rf_orders`) only update their own record; the shipping screen's carrier calls still carry no login token (Phase 6, task 14).
+- No supervisor override for over-receipt/over-pick (kept simple on purpose). If wanted: a `supervisorOverride` flag checked against admin role, logged.
+- Scan confirmation compares the scan to SAP's ItemCode. If handhelds scan a different barcode (UPC), add a barcode field to the master and compare against both.
+- Short pick has no follow-up workflow (no replenishment task or supervisor list); open short lines are just visible on the line. Phase 7 candidate: "short picks" report.
+- UI verified in demo mode in Chrome only; no React component tests (see 10.6 note).
+

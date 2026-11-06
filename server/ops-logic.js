@@ -5,8 +5,11 @@
 //   result - what to send back; { error, status, ... } means "refuse".
 // Keep this file free of Node-only imports so it also runs in the browser.
 
+import { QTY_EPSILON, roundQty } from './order-identity.js';
+
 export const APPEND_KEYS = {
   rf_receiving_txns: { cap: null },
+  rf_pick_txns: { cap: null },
   rf_cycle_count_txns: { cap: null },
   rf_activity_logs: { cap: 100 },
   rf_session_count_logs: { cap: null },
@@ -113,53 +116,156 @@ export function applyBinAdjust(current, body) {
   return { data: bins, result: { ok: true, bin, quantity: after, previous: before } };
 }
 
-function validateLineOp(body, idField) {
-  const { lineIndex, qty } = body || {};
-  if (typeof body?.[idField] !== 'string' || !Number.isInteger(lineIndex) || lineIndex < 0) {
-    return fail(`${idField} and lineIndex are required`);
+// ---- Addressing one order line ----
+// A line is named by its LineKey ("<DocNum>:<LineNumber>"), which survives a re-import that adds,
+// removes or re-orders lines. A bare position (lineIndex) is only accepted for orders imported
+// before line keys existed; on a keyed line it is refused, because the position may have moved.
+function validateLineRef(body, idField) {
+  if (typeof body?.[idField] !== 'string' || !body[idField]) return fail(`${idField} and lineKey are required`);
+  const { lineKey, lineIndex } = body;
+  const hasKey = typeof lineKey === 'string' && lineKey !== '';
+  const hasIndex = Number.isInteger(lineIndex) && lineIndex >= 0;
+  if (!hasKey && !hasIndex) return fail(`${idField} and lineKey are required`);
+  return null;
+}
+
+function findLine(items, body, label) {
+  const list = items || [];
+  if (typeof body.lineKey === 'string' && body.lineKey !== '') {
+    const index = list.findIndex((l) => l?.LineKey === body.lineKey);
+    if (index < 0) return { error: fail(`${label} line ${body.lineKey} not found`, 404, { code: 'LINE_NOT_FOUND' }) };
+    return { line: list[index], index };
   }
-  if (num(qty) === null || qty <= 0) return fail('qty must be a positive number');
+  const line = list[body.lineIndex];
+  if (!line) return { error: fail(`${label} line not found`, 404, { code: 'LINE_NOT_FOUND' }) };
+  if (line.LineKey) {
+    return { error: fail(`${label} line ${body.lineIndex} has a line key (${line.LineKey}); send the line key, not a position`, 409, { code: 'LINE_KEY_REQUIRED' }) };
+  }
+  return { line, index: body.lineIndex };
+}
+
+const openQty = (line) => Math.max(0, roundQty((Number(line.OrderedQty) || 0) - (Number(line.ReceivedQty ?? line.DeliveredQty) || 0)));
+const isClosed = (line) => line?.SapClosed === true;
+const closedError = (line) => fail(`Line ${line.LineKey || line.LineNumber} is no longer in SAP's export and is closed`, 409, { code: 'LINE_CLOSED' });
+
+function validateLineOp(body, idField) {
+  const problem = validateLineRef(body, idField);
+  if (problem) return problem;
+  if (num(body.qty) === null || body.qty <= 0) return fail('qty must be a positive number');
   return null;
 }
 export const validatePoReceive = (body) => validateLineOp(body, 'poId');
 export const validateSoPick = (body) => validateLineOp(body, 'soId');
 
-// Receive quantity against exactly one PO line (identified by its position).
+// Receive quantity against exactly one PO line. Refused (nothing changed) when it would take the
+// line past its ordered quantity or the line is closed.
 export function applyPoReceive(current, body) {
-  const { poId, lineIndex, qty, binCode, lots, serials } = body;
+  const { poId, qty, binCode, lots, serials } = body;
   const pos = current || [];
   const po = pos.find(p => p.id === poId);
   if (!po) return { result: fail('PO not found', 404) };
-  const line = po.items?.[lineIndex];
-  if (!line) return { result: fail('PO line not found', 404) };
+  const found = findLine(po.items, body, 'PO');
+  if (found.error) return { result: found.error };
+  const { line } = found;
+  if (isClosed(line)) return { result: closedError(line) };
   if (binCode !== undefined && binCode !== '' && !classifyBin(binCode, line.Warehouse).real) {
     return { result: fail(`${classifyBin(binCode, line.Warehouse).reason}. Receive into a real bin.`, 409, { code: 'NO_REAL_BIN' }) };
   }
-  line.ReceivedQty = (Number(line.ReceivedQty) || 0) + qty;
-  line.RemainingQty = Math.max(0, (Number(line.OrderedQty) || 0) - line.ReceivedQty);
+  const remaining = openQty({ OrderedQty: line.OrderedQty, ReceivedQty: line.ReceivedQty });
+  if (qty > remaining + QTY_EPSILON) {
+    return { result: fail(`Only ${remaining} left to receive on this line (asked for ${qty})`, 409, { code: 'OVER_RECEIPT', remaining, requested: qty }) };
+  }
+  line.ReceivedQty = roundQty((Number(line.ReceivedQty) || 0) + qty);
+  line.RemainingQty = openQty({ OrderedQty: line.OrderedQty, ReceivedQty: line.ReceivedQty });
   if (binCode) line.BinCode = binCode;
   if (lots !== undefined) line.Lots = lots;
   if (serials !== undefined) line.Serials = serials;
-  const allReceived = po.items.every(i => (Number(i.ReceivedQty) || 0) >= (Number(i.OrderedQty) || 0));
+  const allReceived = po.items.filter((i) => !isClosed(i)).every(i => openQty({ OrderedQty: i.OrderedQty, ReceivedQty: i.ReceivedQty }) <= QTY_EPSILON);
   po.status = allReceived ? 'completed' : 'receiving';
   if (allReceived) po.receivedDate = new Date().toISOString();
-  return { data: pos, result: { ok: true, po } };
+  return { data: pos, result: { ok: true, po, line } };
 }
 
-// Pick quantity against exactly one sales-order line (identified by position).
-export function applySoPick(current, body) {
-  const { soId, lineIndex, qty } = body;
+// Record a pick on a sales-order line and recompute the order's status. Callers have already
+// checked the cap. An order that has shipped stays shipped (a late pick must not undo that).
+function recordPick(so, line, qty, user, short) {
+  line.DeliveredQty = roundQty((Number(line.DeliveredQty) || 0) + qty);
+  line.RemainingQty = openQty({ OrderedQty: line.OrderedQty, ReceivedQty: line.DeliveredQty });
+  if (short) {
+    line.ShortPick = { reason: short.reason.trim(), qtyPicked: line.DeliveredQty, stillOpen: line.RemainingQty,
+                       by: user?.username || 'unknown', at: new Date().toISOString() };
+  } else if (line.RemainingQty <= QTY_EPSILON) {
+    delete line.ShortPick;
+  } else if (line.ShortPick) {
+    line.ShortPick = { ...line.ShortPick, qtyPicked: line.DeliveredQty, stillOpen: line.RemainingQty };
+  }
+  if (so.status === 'shipped') return;
+  const allPicked = so.items.filter((i) => !isClosed(i)).every(i => (Number(i.RemainingQty) || 0) <= QTY_EPSILON);
+  so.status = allPicked ? 'picked' : 'picking';
+  so.shippedDate = allPicked ? new Date().toISOString().split('T')[0] : undefined;
+}
+
+// Pick quantity against exactly one sales-order line (no stock, no scan: see applyPickSo).
+export function applySoPick(current, body, user) {
+  const { soId, qty } = body;
   const sos = current || [];
   const so = sos.find(s => s.id === soId);
   if (!so) return { result: fail('Sales order not found', 404) };
-  const line = so.items?.[lineIndex];
-  if (!line) return { result: fail('Sales order line not found', 404) };
-  line.DeliveredQty = (Number(line.DeliveredQty) || 0) + qty;
-  line.RemainingQty = (Number(line.OrderedQty) || 0) - line.DeliveredQty;
-  const allPicked = so.items.every(i => (i.RemainingQty || 0) === 0);
-  so.status = allPicked ? 'picked' : 'picking';
-  so.shippedDate = allPicked ? new Date().toISOString().split('T')[0] : undefined;
-  return { data: sos, result: { ok: true, so } };
+  const found = findLine(so.items, body, 'Sales order');
+  if (found.error) return { result: found.error };
+  const { line } = found;
+  if (isClosed(line)) return { result: closedError(line) };
+  const remaining = openQty({ OrderedQty: line.OrderedQty, ReceivedQty: line.DeliveredQty });
+  if (qty > remaining + QTY_EPSILON) {
+    return { result: fail(`Only ${remaining} left to pick on this line (asked for ${qty})`, 409, { code: 'OVER_PICK', remaining, requested: qty }) };
+  }
+  recordPick(so, line, qty, user, null);
+  return { data: sos, result: { ok: true, so, line } };
+}
+
+// --- Shipping ---
+export function validateShip(body) {
+  const { shipments } = body || {};
+  if (!Array.isArray(shipments) || shipments.length === 0 ||
+      !shipments.every(x => isObject(x) && typeof x.soId === 'string' && x.soId && typeof x.shipmentPin === 'string' && x.shipmentPin.trim())) {
+    return fail('shipments must be [{ soId, shipmentPin }]');
+  }
+  return null;
+}
+
+// Mark orders shipped. Only status, shipmentPin and shippedDate are touched, under the file's
+// lock, so it can never overwrite a pick that landed a moment earlier. Repeating the same PIN is
+// fine; a different PIN on a shipped order is refused. If any order is unknown nothing changes.
+export function applyShip(current, body) {
+  const sos = current || [];
+  for (const { soId, shipmentPin } of body.shipments) {
+    const so = sos.find(s => s.id === soId);
+    if (!so) return { result: fail(`Sales order ${soId} not found`, 404) };
+    if (so.status === 'shipped' && so.shipmentPin && so.shipmentPin !== shipmentPin.trim()) {
+      return { result: fail(`Sales order ${so.soNumber} is already shipped with PIN ${so.shipmentPin}`, 409, { code: 'ALREADY_SHIPPED' }) };
+    }
+  }
+  const shipped = [];
+  for (const { soId, shipmentPin } of body.shipments) {
+    const so = sos.find(s => s.id === soId);
+    if (!(so.status === 'shipped' && so.shipmentPin === shipmentPin.trim())) {
+      so.status = 'shipped';
+      so.shipmentPin = shipmentPin.trim();
+      so.shippedDate = new Date().toISOString();
+    }
+    shipped.push(so);
+  }
+  return { data: sos, result: { ok: true, orders: shipped } };
+}
+
+// Purchase and sales orders are changed only through the order operations (import, receive, pick,
+// assign bin, ship), never by saving a whole record from a screen that may be out of date: that
+// could silently undo a pick or receipt made on another device.
+const ORDER_KEYS = ['rf_purchase_orders', 'rf_sales_orders'];
+export function blockOrderWrites(key, writesRecords = true) {
+  return writesRecords && ORDER_KEYS.includes(key)
+    ? fail('Orders are changed through the order operations (import, receive, pick, ship), not by saving the whole record', 409, { code: 'USE_ORDER_OPERATIONS' })
+    : null;
 }
 
 export function validateRecordKey(key) {
@@ -242,10 +348,9 @@ export function classifyBin(code, warehouse) {
 export const isRealBin = (code, warehouse) => classifyBin(code, warehouse).real;
 
 export function validateAssignBin(body) {
-  const { soId, lineIndex, binCode } = body || {};
-  if (typeof soId !== 'string' || !soId || !Number.isInteger(lineIndex) || lineIndex < 0) {
-    return fail('soId and lineIndex are required');
-  }
+  const { binCode } = body || {};
+  const problem = validateLineRef(body, 'soId');
+  if (problem) return problem;
   if (typeof binCode !== 'string' || !binCode.trim()) return fail('binCode is required');
   return null;
 }
@@ -254,12 +359,13 @@ export function validateAssignBin(body) {
 // kept in OriginalBinCode so the owner can fix the item's default bin in SAP afterwards.
 // state is { sos, bins }; user is the signed-in user (for the record of who changed it).
 export function applyAssignBin(state, body, user) {
-  const { soId, lineIndex } = body;
+  const { soId } = body;
   const code = String(body.binCode).trim().toUpperCase();
   const so = (state.sos || []).find(s => s.id === soId);
   if (!so) return { result: fail('Sales order not found', 404) };
-  const line = so.items?.[lineIndex];
-  if (!line) return { result: fail('Sales order line not found', 404) };
+  const found = findLine(so.items, body, 'Sales order');
+  if (found.error) return { result: found.error };
+  const { line } = found;
 
   const check = classifyBin(code, line.Warehouse);
   if (!check.real) return { result: fail(`${check.reason}. Choose a real bin.`, 400, { code: 'NOT_A_REAL_BIN' }) };
@@ -293,22 +399,29 @@ export function validateReceive(body) {
 // state is { pos, bins, txns } (current stored arrays). Retrying the same txnId
 // is a no-op, so a lost response can be retried safely.
 export function applyReceive(state, body, user) {
-  const { poId, lineIndex, qty, binCode, txnId, lots, serials, createBin } = body;
+  const { poId, qty, binCode, txnId, lots, serials, createBin } = body;
   if ((state.txns || []).some(t => t?.id === txnId)) {
     return { result: { ok: true, duplicate: true } };
   }
-  // Stock may only be received into a real bin: not blank, not SAP's system bin, not a warehouse
-  // code. Checked before anything changes (a missing PO/line is reported by the step below).
-  const target = (state.pos || []).find(p => p.id === poId)?.items?.[lineIndex];
-  const chosen = classifyBin(binCode, target?.Warehouse);
-  if (target && !chosen.real) {
-    return { result: fail(`${chosen.reason}. Choose a real bin to receive into.`, 409, { code: 'NO_REAL_BIN' }) };
+  // Find the line first so every refusal (unknown line, key required) is reported before
+  // anything changes. Stock may only be received into a real bin: not blank, not SAP's system
+  // bin, not a warehouse code.
+  const poBefore = (state.pos || []).find(p => p.id === poId);
+  let target;
+  if (poBefore) {
+    const found = findLine(poBefore.items, body, 'PO');
+    if (found.error) return { result: found.error };
+    target = found.line;
+    const chosen = classifyBin(binCode, target.Warehouse);
+    if (!chosen.real) {
+      return { result: fail(`${chosen.reason}. Choose a real bin to receive into.`, 409, { code: 'NO_REAL_BIN' }) };
+    }
   }
   const priorBin = target?.BinCode;
   const hadRealBin = classifyBin(priorBin, target?.Warehouse).real;
-  const po = applyPoReceive(state.pos, { poId, lineIndex, qty, binCode, lots, serials });
+  const po = applyPoReceive(state.pos, { poId, lineKey: body.lineKey, lineIndex: body.lineIndex, qty, binCode, lots, serials });
   if (po.result.error) return { result: po.result };
-  const line = po.result.po.items[lineIndex];
+  const line = po.result.line;
   if (!hadRealBin) {
     // The line had no real bin (e.g. SAP's system bin); someone chose one now. Keep what SAP had.
     const original = String(priorBin ?? '').trim();
@@ -328,12 +441,15 @@ export function applyReceive(state, body, user) {
   const txn = {
     id: txnId,
     poNumber: po.result.po.poNumber,
+    lineKey: line.LineKey,
     itemCode: line.ItemCode,
     description: line.Description,
     qty,
     binCode,
+    warehouse: normalizeWarehouse(line.Warehouse),
     lots,
     serials,
+    user: user?.username || 'unknown',
     timestamp: new Date().toISOString(),
   };
   const txns = applyAppend(state.txns, { key: 'rf_receiving_txns', record: txn });
@@ -344,43 +460,123 @@ export function applyReceive(state, body, user) {
 }
 
 export function validatePickSo(body) {
-  const problem = validateSoPick(body);
+  const problem = validateLineRef(body, 'soId');
   if (problem) return problem;
+  const { qty, short, scannedCode } = body;
+  if (num(qty) === null || qty < 0) return fail('qty must be a number, zero or more');
+  if (short !== undefined) {
+    if (!isObject(short) || typeof short.reason !== 'string' || !short.reason.trim()) {
+      return fail('A short pick needs a reason', 400, { code: 'SHORT_REASON_REQUIRED' });
+    }
+  } else if (qty <= 0) {
+    return fail('qty must be a positive number');
+  }
+  if (typeof body.txnId !== 'string' || !body.txnId) return fail('txnId is required');
+  if (qty > 0 && (typeof scannedCode !== 'string' || !scannedCode.trim())) {
+    return fail('Scan the item to confirm the pick', 400, { code: 'SCAN_REQUIRED' });
+  }
+  if (body.acceptShortfall !== undefined && typeof body.acceptShortfall !== 'boolean') {
+    return fail('acceptShortfall must be true or false');
+  }
   if (body.binCode !== undefined && (typeof body.binCode !== 'string' || !body.binCode)) {
     return fail('binCode must be a non-empty string');
   }
   return null;
 }
 
-// One pick = sales-order line + stock taken out of the bin (never below zero; a
-// bin that does not exist is skipped, as the page always did).
-// state is { sos, bins }.
-export function applyPickSo(state, body) {
-  // The line's own bin decides where stock comes from (never a bin sent by the browser),
-  // and a line without a real bin cannot be picked: assign one first. Checked BEFORE
-  // anything is changed.
-  const target = (state.sos || []).find(s => s.id === body.soId)?.items?.[body.lineIndex];
-  if (target) {
-    const check = classifyBin(target.BinCode, target.Warehouse);
+// One pick = sales-order line + stock taken out of the line's bin + a pick log entry, together.
+//  - the line is named by its LineKey; a closed line, a line without a real bin, an unscanned or
+//    wrongly scanned item, and a pick past the open quantity are all refused with nothing changed;
+//  - taking more than the bin holds is refused unless the picker confirms it (acceptShortfall),
+//    in which case the bin goes to zero and the difference is written to the log;
+//  - a short pick (body.short = { reason }) takes what the picker found, records why, and leaves
+//    the rest open;
+//  - retrying the same txnId changes nothing.
+// state is { sos, bins, txns }.
+export function applyPickSo(state, body, user) {
+  if ((state.txns || []).some(t => t?.id === body.txnId)) {
+    return { result: { ok: true, duplicate: true } };
+  }
+  const { qty } = body;
+  const so = (state.sos || []).find(s => s.id === body.soId);
+  if (!so) return { result: fail('Sales order not found', 404) };
+  const found = findLine(so.items, body, 'Sales order');
+  if (found.error) return { result: found.error };
+  const { line } = found;
+  if (isClosed(line)) return { result: closedError(line) };
+
+  if (qty > 0) {
+    const check = classifyBin(line.BinCode, line.Warehouse);
     if (!check.real) {
       return { result: fail(`${check.reason}. Assign a real bin before picking this line.`, 409, { code: 'NO_REAL_BIN' }) };
     }
+    const scanned = String(body.scannedCode).trim();
+    if (scanned.toUpperCase() !== String(line.ItemCode ?? '').trim().toUpperCase()) {
+      return { result: fail(`Scanned ${scanned}, but this line is ${line.ItemCode}`, 409, { code: 'SCAN_MISMATCH', expected: line.ItemCode, scanned }) };
+    }
   }
-  const so = applySoPick(state.sos, body);
-  if (so.result.error) return { result: so.result };
-  const line = so.result.so.items[body.lineIndex];
+  const remaining = openQty({ OrderedQty: line.OrderedQty, ReceivedQty: line.DeliveredQty });
+  if (qty > remaining + QTY_EPSILON) {
+    return { result: fail(`Only ${remaining} left to pick on this line (asked for ${qty})`, 409, { code: 'OVER_PICK', remaining, requested: qty }) };
+  }
+  if (body.short && qty >= remaining - QTY_EPSILON) {
+    return { result: fail('A short pick must leave something open; pick the full quantity normally instead', 400, { code: 'NOT_SHORT' }) };
+  }
+
+  // Stock: the line's own bin decides where it comes from (never a bin sent by the browser).
   const binCode = line.BinCode;
-  let bins = state.bins;
-  let quantity = null;
-  if (binCode && (state.bins || []).some(b => b.BinCode === binCode)) {
-    const bin = applyBinAdjust(state.bins, {
-      binCode, itemCode: line.ItemCode, delta: -body.qty, clampAtZero: true,
-    });
-    if (bin.result.error) return { result: bin.result };
-    bins = bin.data;
-    quantity = bin.result.quantity;
+  const bins = state.bins || [];
+  const bin = qty > 0 ? bins.find(b => String(b.BinCode ?? '').trim().toUpperCase() === String(binCode).trim().toUpperCase()) : undefined;
+  let binQuantity = null;
+  let stockBefore;
+  let shortfall = 0;
+  let nextBins = state.bins;
+  if (bin) {
+    stockBefore = Number(bin.Items?.find(i => i.ItemCode === line.ItemCode)?.Quantity) || 0;
+    if (qty > stockBefore + QTY_EPSILON) {
+      if (body.acceptShortfall !== true) {
+        return { result: fail(`Bin ${bin.BinCode} holds ${stockBefore} of ${line.ItemCode}, not ${qty}`, 409,
+          { code: 'INSUFFICIENT_BIN_STOCK', available: stockBefore, requested: qty }) };
+      }
+      shortfall = roundQty(qty - stockBefore);
+    }
+    const take = roundQty(qty - shortfall);
+    if (take > 0) {
+      const adjusted = applyBinAdjust(state.bins, { binCode: bin.BinCode, itemCode: line.ItemCode, delta: -take });
+      if (adjusted.result.error) return { result: adjusted.result };
+      nextBins = adjusted.data;
+      binQuantity = adjusted.result.quantity;
+    } else {
+      binQuantity = stockBefore;
+    }
   }
-  return { data: { sos: so.data, bins }, result: { ok: true, so: so.result.so, binQuantity: quantity } };
+  // (A bin that is not in the system cannot be checked: the pick goes through and the log says
+  // stockTracked: false.)
+
+  const sos = state.sos;
+  recordPick(so, line, qty, user, body.short || null);
+
+  const txn = {
+    id: body.txnId,
+    soNumber: so.soNumber,
+    lineKey: line.LineKey,
+    itemCode: line.ItemCode,
+    qty,
+    binCode: bin ? bin.BinCode : binCode,
+    warehouse: normalizeWarehouse(line.Warehouse),
+    scannedCode: qty > 0 ? String(body.scannedCode).trim() : undefined,
+    stockTracked: Boolean(bin),
+    stockBefore,
+    shortfall: shortfall > 0 ? shortfall : undefined,
+    short: body.short ? { reason: body.short.reason.trim(), stillOpen: line.RemainingQty } : undefined,
+    user: user?.username || 'unknown',
+    timestamp: new Date().toISOString(),
+  };
+  const txns = applyAppend(state.txns, { key: 'rf_pick_txns', record: txn });
+  return {
+    data: { sos, bins: nextBins, txns: txns.data },
+    result: { ok: true, so, line, binQuantity, shortfall: shortfall > 0 ? shortfall : undefined, txn },
+  };
 }
 
 // --- Counting / inventory operations ---

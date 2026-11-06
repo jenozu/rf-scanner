@@ -125,7 +125,7 @@ describe("two devices, one server", () => {
   it("a pick on device B reduces the stock device A sees", async () => {
     const release = deviceA.retain("rf_bins");
     await deviceA.load("rf_bins");
-    await deviceB.mutate(() => api.pickSalesOrderLine({ soId: "so1", lineIndex: 0, qty: 4 }), { reload: ["rf_bins"] });
+    await deviceB.mutate(() => api.pickSalesOrderLine({ soId: "so1", lineIndex: 0, qty: 4, txnId: "PICK-B1", scannedCode: "A" }), { reload: ["rf_bins"] });
     await deviceA.refreshVisible();
     expect(bins(deviceA)[0].Items[0].Quantity).toBe(36);
     release();
