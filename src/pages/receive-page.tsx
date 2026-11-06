@@ -12,6 +12,8 @@ import { receiveStock, saveCollection, upsertManyRecords, deleteRecord } from ".
 import OrderDeleteButton from "../components/order-delete-button";
 import BinAssignPanel from "../components/bin-assign-panel";
 import { classifyBin } from "../../server/ops-logic.js";
+import { dataStore } from "../data/hooks";
+import { errorCode, errorDetail, findLine, lineRef, openQty, type LineRef } from "../data/line-ref";
 
 interface ReceivePageProps {
   setPage: (page: any) => void;
@@ -24,14 +26,17 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
   const { data: bins } = useCollection<BinLocation[]>("rf_bins", []);
   const [selectedPOId, setSelectedPOId] = useState<string | null>(null);
   const [importView, setImportView] = useState<ImportView | null>(null);
-  const [receivingIndex, setReceivingIndex] = useState<number | null>(null);
+  // The line being received is remembered by its line key (position only for orders from before keys),
+  // so a re-import that adds or re-orders lines can never make this form point at a different line.
+  const [receivingRef, setReceivingRef] = useState<LineRef | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   // Same attempt (same payload) keeps the same transaction id, so a retry after a
   // lost response cannot receive the stock twice.
   const attemptRef = useRef<{ key: string; id: string } | null>(null);
   const selectedPO = purchaseOrders.find((po) => po.id === selectedPOId) ?? null;
-  const receivingItem: POItem | null =
-    selectedPO && receivingIndex !== null ? selectedPO.items[receivingIndex] ?? null : null;
+  const receivingFound = selectedPO && receivingRef ? findLine(selectedPO.items, receivingRef) : undefined;
+  const receivingItem: POItem | null = receivingFound?.line ?? null;
+  const receivingIndex: number | null = receivingFound ? receivingFound.index : null;
   const [receivedQty, setReceivedQty] = useState<number>(0);
   const [selectedBin, setSelectedBin] = useState<string>("");
   const [newBinCode, setNewBinCode] = useState<string>("");
@@ -68,13 +73,13 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
   // Select PO
   const handleSelectPO = (po: PurchaseOrder) => {
     setSelectedPOId(po.id);
-    setReceivingIndex(null);
+    setReceivingRef(null);
   };
 
   // Start receiving an item
   const handleReceiveItem = (item: POItem, index: number) => {
-    setReceivingIndex(index);
-    setReceivedQty(item.OrderedQty - item.ReceivedQty); // Default to remaining qty
+    setReceivingRef(lineRef(item, index));
+    setReceivedQty(openQty(item)); // Default to remaining qty
     // Pre-fill with the PO line's bin only if it is a real bin. Otherwise (blank, SAP's system
     // bin, a warehouse code) nothing is assumed: the receiver must choose a bin.
     setSelectedBin(classifyBin(item.BinCode, item.Warehouse).real ? (item.BinCode as string) : "");
@@ -99,6 +104,14 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
       showToast("⚠️ Received quantity must be greater than 0", "error");
       return;
     }
+    if (receivingItem.SapClosed) {
+      showToast("⚠️ This line is closed in SAP and cannot be received", "error");
+      return;
+    }
+    if (receivedQty > openQty(receivingItem)) {
+      showToast(`⚠️ Only ${openQty(receivingItem)} left to receive on this line`, "error");
+      return;
+    }
 
     if (receivingItem.RequiresLotSerial) {
       if (lotMode === "lots" && (lots.length === 0 || lots.reduce((s, l) => s + (l.qty || 0), 0) !== receivedQty)) {
@@ -111,11 +124,11 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
       }
     }
 
-    if (isSaving || receivingIndex === null) return;
+    if (isSaving || receivingRef === null) return;
 
     const lotsToSend = lotMode === "lots" ? lots : undefined;
     const serialsToSend = lotMode === "serials" ? serials : undefined;
-    const attemptKey = JSON.stringify([selectedPO.id, receivingIndex, receivedQty, finalBin, lotsToSend, serialsToSend]);
+    const attemptKey = JSON.stringify([selectedPO.id, receivingRef, receivedQty, finalBin, lotsToSend, serialsToSend]);
     if (attemptRef.current?.key !== attemptKey) {
       attemptRef.current = {
         key: attemptKey,
@@ -128,7 +141,7 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
       // One request: PO line + bin quantity + receiving log, all or nothing.
       const result = await receiveStock({
         poId: selectedPO.id,
-        lineIndex: receivingIndex,
+        ...receivingRef,
         qty: receivedQty,
         binCode: finalBin,
         txnId: attemptRef.current.id,
@@ -138,7 +151,7 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
       });
       attemptRef.current = null;
 
-      setReceivingIndex(null);
+      setReceivingRef(null);
       setReceivedQty(0);
       setSelectedBin("");
       setLots([]);
@@ -152,7 +165,22 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
       );
     } catch (error: any) {
       // Nothing was saved (or the same attempt can be retried safely). Keep the form.
-      showToast(`❌ Not saved: ${error?.message || "server error"}. Try again.`, "error");
+      const code = errorCode(error);
+      if (code) dataStore.dismissSaveError(); // handled on this screen: no global banner
+      if (code === "OVER_RECEIPT") {
+        // Someone else received against this line since this screen loaded.
+        const left = errorDetail<number>(error, "remaining") ?? 0;
+        attemptRef.current = null;
+        setReceivedQty(left);
+        void dataStore.refreshVisible();
+        showToast(`⚠️ Only ${left} left to receive on this line (someone else received some). Quantity updated.`, "error");
+      } else if (code === "LINE_CLOSED" || code === "LINE_NOT_FOUND" || code === "LINE_KEY_REQUIRED") {
+        attemptRef.current = null;
+        void dataStore.refreshVisible();
+        showToast("⚠️ This line changed (a SAP import updated the order). Screen refreshed: check it and try again.", "error");
+      } else {
+        showToast(`❌ Not saved: ${error?.message || "server error"}. Try again.`, "error");
+      }
     } finally {
       setIsSaving(false);
     }
@@ -418,7 +446,7 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
   return (
     <div className="p-4 max-w-4xl mx-auto">
       <button
-        onClick={() => { setSelectedPOId(null); setReceivingIndex(null); }}
+        onClick={() => { setSelectedPOId(null); setReceivingRef(null); }}
         className="mb-4 text-blue-600 hover:underline"
       >
         ← Back to PO List
@@ -452,12 +480,12 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
       <div className="space-y-3">
         {selectedPO.items.map((item, index) => {
           const isReceiving = receivingIndex === index;
-          const remaining = item.OrderedQty - item.ReceivedQty;
-          const isComplete = remaining === 0;
+          const remaining = openQty(item);
+          const isComplete = remaining <= 0 || item.SapClosed === true;
 
           return (
             <div
-              key={`${item.LineNumber ?? index}-${item.ItemCode}`}
+              key={item.LineKey ?? `${item.LineNumber ?? index}-${item.ItemCode}`}
               className={`bg-white rounded-lg shadow p-4 ${
                 isComplete ? "opacity-60" : ""
               }`}
@@ -472,7 +500,9 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
                     {item.BinCode && ` → Bin: ${item.BinCode}`}
                   </p>
                 </div>
-                {isComplete ? (
+                {item.SapClosed ? (
+                  <span className="text-xs text-gray-500">Closed in SAP</span>
+                ) : isComplete ? (
                   <Check className="text-green-600" size={24} />
                 ) : (
                   <button
@@ -650,7 +680,7 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
                       {isSaving ? "Saving..." : !classifyBin(selectedBin, item.Warehouse).real ? "Choose a bin first" : `Confirm Receive to ${selectedBin}`}
                     </button>
                     <button
-                      onClick={() => setReceivingIndex(null)}
+                      onClick={() => setReceivingRef(null)}
                       disabled={isSaving}
                       className="px-4 bg-gray-200 text-gray-700 py-2 rounded-md hover:bg-gray-300"
                     >
@@ -703,7 +733,7 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
           value={receivedQty}
           onChange={(value) => setReceivedQty(value)}
           onClose={() => setShowNumpad(false)}
-          max={receivingItem.OrderedQty - receivingItem.ReceivedQty}
+          max={openQty(receivingItem)}
           label={`Enter Quantity for ${receivingItem.Description}`}
         />
       )}

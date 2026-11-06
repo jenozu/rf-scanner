@@ -1,5 +1,7 @@
 # Sales Order CSV Upload Guide
 
+> **Updated (Phase 3/4, 2026-11):** the importer now reads the real SAP export headers (e.g. `Document Number`, `Item No.`, `Remaining Open Quantity`), identifies lines by DocNum + LineNumber, and updates an order when the file is imported again. See `.taskmaster/docs/phase-3-4-notes.md` for the current rules; where this guide differs, that note wins.
+
 ## Overview
 The WMS now supports uploading CSV files containing multiple sales orders separated by blank lines. The parser automatically groups items by sales order number and makes them available for picking workflows.
 

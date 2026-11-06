@@ -5,6 +5,7 @@
 
 import { demoRequest, isDemoMode } from "../demo/demo-mode";
 import type { ImportBody, ImportResult } from "../../server/order-import.js";
+import type { LineRef } from "../data/line-ref";
 
 const API_BASE = import.meta.env.VITE_API_URL || "/api";
 
@@ -195,9 +196,8 @@ class ApiClient {
     return this.post<{ ok: true; bin: any; quantity: number; previous: number }>("/ops/bin-adjust", params);
   }
 
-  receivePoLine(params: {
+  receivePoLine(params: LineRef & {
     poId: string;
-    lineIndex: number;
     qty: number;
     binCode?: string;
     lots?: Array<{ lotCode: string; qty: number }>;
@@ -206,14 +206,13 @@ class ApiClient {
     return this.post<{ ok: true; po: any }>("/ops/po-receive", params);
   }
 
-  pickSoLine(params: { soId: string; lineIndex: number; qty: number }) {
+  pickSoLine(params: LineRef & { soId: string; qty: number }) {
     return this.post<{ ok: true; so: any }>("/ops/so-pick", params);
   }
 
   /** One receipt: PO line + bin quantity + receiving log in a single request. Safe to retry with the same txnId. */
-  receiveStock(params: {
+  receiveStock(params: LineRef & {
     poId: string;
-    lineIndex: number;
     qty: number;
     binCode: string;
     txnId: string;
@@ -226,13 +225,31 @@ class ApiClient {
   }
 
   /** Give a sales-order line a real, existing bin (SAP's original value is kept on the line). */
-  assignSoBin(params: { soId: string; lineIndex: number; binCode: string }) {
+  assignSoBin(params: LineRef & { soId: string; binCode: string }) {
     return this.post<{ ok: true; so: any; line: any }>("/ops/so-assign-bin", params);
   }
 
-  /** One pick: sales-order line + stock taken from the bin in a single request. */
-  pickSalesOrderLine(params: { soId: string; lineIndex: number; qty: number; binCode?: string }) {
-    return this.post<{ ok: true; so: any; binQuantity: number | null }>("/ops/pick-so", params);
+  /**
+   * One pick: sales-order line + stock taken from the bin + pick log, in a single request.
+   * scannedCode is the item code the picker scanned (required when qty > 0). short = the picker
+   * could not find the full quantity (qty may be 0). acceptShortfall = the bin shows less than
+   * qty and the picker confirms taking it anyway. Safe to retry with the same txnId.
+   */
+  pickSalesOrderLine(params: LineRef & {
+    soId: string;
+    qty: number;
+    txnId: string;
+    scannedCode?: string;
+    short?: { reason: string };
+    acceptShortfall?: boolean;
+  }) {
+    return this.post<{ ok: true; duplicate?: boolean; so?: any; line?: any; binQuantity?: number | null; shortfall?: number; txn?: any }>(
+      "/ops/pick-so", params);
+  }
+
+  /** Mark sales orders shipped (status, PIN and date only: a pick made a moment ago is never undone). */
+  shipOrders(shipments: Array<{ soId: string; shipmentPin: string }>) {
+    return this.post<{ ok: true; orders: any[] }>("/ops/so-ship", { shipments });
   }
 
   upsertRecord(key: string, record: { id: string }) {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Wave, Order, OrderItem, BinLocation, SalesOrder, SOItem } from "../types";
 import { useCollection } from "../data/hooks";
 import { adjustBin, assignSoBin, pickSalesOrderLine, upsertRecord, deleteRecord } from "../data/ops";
@@ -8,7 +8,11 @@ import StockNotice from "../components/stock-notice";
 import BinAssignPanel from "../components/bin-assign-panel";
 import WarehouseBadge from "../components/warehouse-badge";
 import { classifyBin } from "../../server/ops-logic.js";
+import { dataStore } from "../data/hooks";
+import { errorCode, errorDetail, findLine, lineRef, newTxnId, sameItemCode, type LineRef } from "../data/line-ref";
 import { Truck, Package, MapPin, Check, AlertTriangle, ShoppingCart } from "lucide-react";
+
+type SoPick = { so: SalesOrder; item: SOItem; lineIndex: number; ref: LineRef };
 
 interface PickPageProps {
   setPage: (page: any) => void;
@@ -26,9 +30,17 @@ export default function PickPage({ setPage }: PickPageProps) {
   const [waveOrders, setWaveOrders] = useState<Order[]>([]);
   const [currentPickIndex, setCurrentPickIndex] = useState(0);
   const [pickList, setPickList] = useState<{ order: Order; item: OrderItem; itemIndex: number }[]>([]);
-  // lineIndex = position of the line in the sales order; picks act on that exact line.
-  const [soPickList, setSoPickList] = useState<{ so: SalesOrder; item: SOItem; lineIndex: number }[]>([]);
+  // ref = the line's key (or its position for orders from before line keys): picks act on that exact line.
+  const [soPickList, setSoPickList] = useState<SoPick[]>([]);
   const [pickedQty, setPickedQty] = useState<number>(0);
+  // Confirming a pick: the item must be scanned; a quantity below what is open is a short pick
+  // and needs a reason; a bin that shows less stock than the pick needs a deliberate "take it anyway".
+  const [scanText, setScanText] = useState("");
+  const [scanTried, setScanTried] = useState(false);
+  const [shortReason, setShortReason] = useState("");
+  const [shortfallPrompt, setShortfallPrompt] = useState<{ available: number; requested: number } | null>(null);
+  const pickTxnId = useRef<string | null>(null); // kept across a retry of the same pick, so a lost reply cannot pick twice
+  const sessionHadShort = useRef(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
 
   // Toast auto-dismiss
@@ -48,10 +60,12 @@ export default function PickPage({ setPage }: PickPageProps) {
     setSelectedSalesOrder(so);
     
     // Build pick list from SO items that need picking
-    const picks: { so: SalesOrder; item: SOItem; lineIndex: number }[] = [];
+    const picks: SoPick[] = [];
     so.items.forEach((item, lineIndex) => {
-      if ((item.RemainingQty || 0) > 0) picks.push({ so, item, lineIndex });
+      // Lines SAP no longer lists are closed: they cannot be picked.
+      if ((item.RemainingQty || 0) > 0 && !item.SapClosed) picks.push({ so, item, lineIndex, ref: lineRef(item, lineIndex) });
     });
+    sessionHadShort.current = false;
 
     // Lines that need a bin come first (so they are handled up front), then by bin for efficient picking
     picks.sort((a, b) => {
@@ -69,59 +83,26 @@ export default function PickPage({ setPage }: PickPageProps) {
   };
 
   // The order line as the server has it now (its bin may have been assigned since the list was built).
-  const liveLine = (entry: { so: SalesOrder; item: SOItem; lineIndex: number }) =>
-    salesOrders.find((s) => s.id === entry.so.id)?.items[entry.lineIndex] ?? entry.item;
+  const liveLine = (entry: SoPick) =>
+    findLine(salesOrders.find((s) => s.id === entry.so.id)?.items, entry.ref)?.line ?? entry.item;
 
   // Remaining quantity for a pick line, from the latest server data (another
   // device may have picked from the same line since this list was built).
-  const liveRemaining = (entry: { so: SalesOrder; item: SOItem; lineIndex: number }) => {
-    const liveLine = salesOrders.find((s) => s.id === entry.so.id)?.items[entry.lineIndex];
-    return (liveLine ?? entry.item).RemainingQty || 0;
+  const liveRemaining = (entry: SoPick) => liveLine(entry).RemainingQty || 0;
+
+  const resetPickInputs = () => {
+    setScanText("");
+    setScanTried(false);
+    setShortReason("");
+    setShortfallPrompt(null);
+    pickTxnId.current = null;
   };
 
-  // Confirm pick for Sales Order
-  const handleConfirmSOPick = async () => {
-    if (currentPickIndex >= soPickList.length || !selectedSalesOrder || isSaving) return;
-
-    const currentPick = soPickList[currentPickIndex];
-    const { so, item, lineIndex } = currentPick;
-
-    if (pickedQty <= 0) {
-      showToast("⚠️ Picked quantity must be greater than 0", "error");
-      return;
-    }
-
-    const remainingQty = liveRemaining(currentPick);
-    if (pickedQty > remainingQty) {
-      showToast("⚠️ Picked quantity exceeds remaining quantity", "error");
-      return;
-    }
-
-    const line = liveLine(currentPick);
-    if (!classifyBin(line.BinCode, line.Warehouse).real) {
-      showToast("⚠️ Assign a real bin to this line before picking it", "error");
-      return;
-    }
-
-    setIsSaving(true);
-    try {
-      // One request: sales-order line + stock taken from the line's bin (the server picks the bin).
-      await pickSalesOrderLine({ soId: so.id, lineIndex, qty: pickedQty });
-    } catch (error: any) {
-      showToast(`❌ Pick not saved: ${error?.message || "server error"}. Try again.`, "error");
-      setIsSaving(false);
-      return;
-    }
-    setIsSaving(false);
-
-    showToast(`✅ Picked ${pickedQty} of ${item.Description}`, "success");
-
-    // Move to next pick
+  const advanceAfterPick = () => {
     const nextIndex = currentPickIndex + 1;
+    resetPickInputs();
     if (nextIndex >= soPickList.length) {
-      // SO complete
-      showToast("🎉 Sales Order picking completed!", "success");
-      
+      showToast(sessionHadShort.current ? "Picking finished: some lines are still open (short)" : "🎉 Sales Order picking completed!", "success");
       setTimeout(() => {
         setSelectedSalesOrder(null);
         setSoPickList([]);
@@ -130,6 +111,104 @@ export default function PickPage({ setPage }: PickPageProps) {
     } else {
       setCurrentPickIndex(nextIndex);
       setPickedQty(liveRemaining(soPickList[nextIndex]));
+    }
+  };
+
+  // Confirm pick for Sales Order
+  const handleConfirmSOPick = async (acceptShortfall = false) => {
+    if (currentPickIndex >= soPickList.length || !selectedSalesOrder || isSaving) return;
+
+    const currentPick = soPickList[currentPickIndex];
+    const { so, item } = currentPick;
+    const line = liveLine(currentPick);
+    const remainingQty = liveRemaining(currentPick);
+
+    if (line.SapClosed) {
+      showToast("⚠️ This line is closed in SAP and cannot be picked", "error");
+      return;
+    }
+    if (remainingQty <= 0) {
+      showToast("This line was already fully picked (another picker finished it)", "info");
+      advanceAfterPick();
+      return;
+    }
+    if (!(pickedQty >= 0)) {
+      showToast("⚠️ Enter the quantity you picked", "error");
+      return;
+    }
+    if (pickedQty > remainingQty) {
+      showToast(`⚠️ Only ${remainingQty} left to pick on this line`, "error");
+      return;
+    }
+    const isShort = pickedQty < remainingQty;
+    if (pickedQty === 0 && !isShort) return;
+    if (isShort && !shortReason.trim()) {
+      setScanTried(true);
+      showToast("⚠️ Picking less than is open: say why (short pick)", "error");
+      return;
+    }
+    if (pickedQty > 0 && !sameItemCode(scanText, item.ItemCode)) {
+      setScanTried(true);
+      showToast(`⚠️ Scan ${item.ItemCode} to confirm the item`, "error");
+      return;
+    }
+    if (pickedQty > 0 && !classifyBin(line.BinCode, line.Warehouse).real) {
+      showToast("⚠️ Assign a real bin to this line before picking it", "error");
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      pickTxnId.current ??= newTxnId("PICK");
+      // One request: the exact line + stock from its bin + pick log. The server re-checks everything.
+      const result = await pickSalesOrderLine({
+        soId: so.id,
+        ...currentPick.ref,
+        qty: pickedQty,
+        txnId: pickTxnId.current,
+        scannedCode: pickedQty > 0 ? scanText.trim() : undefined,
+        short: isShort ? { reason: shortReason.trim() } : undefined,
+        acceptShortfall: acceptShortfall || undefined,
+      });
+      setIsSaving(false);
+      if (isShort) sessionHadShort.current = true;
+      const extra = result.shortfall ? ` (bin showed ${result.shortfall} fewer: logged)` : "";
+      showToast(
+        pickedQty === 0
+          ? `Reported short: ${item.Description}`
+          : `✅ Picked ${pickedQty} of ${item.Description}${isShort ? " (short)" : ""}${extra}`,
+        "success"
+      );
+      advanceAfterPick();
+    } catch (error: any) {
+      setIsSaving(false);
+      const code = errorCode(error);
+      // These refusals are handled right here on the screen, so the global "Not saved" banner is just noise.
+      if (code) dataStore.dismissSaveError();
+      if (code === "INSUFFICIENT_BIN_STOCK") {
+        // Nothing was changed. Ask the picker to confirm taking more than the bin shows.
+        setShortfallPrompt({
+          available: errorDetail<number>(error, "available") ?? 0,
+          requested: errorDetail<number>(error, "requested") ?? pickedQty,
+        });
+        return;
+      }
+      pickTxnId.current = null; // the server refused it, so this attempt is over
+      if (code === "OVER_PICK") {
+        const left = errorDetail<number>(error, "remaining") ?? 0;
+        showToast(`⚠️ Only ${left} left on this line: someone else picked it. Quantity updated.`, "error");
+        setPickedQty(left);
+        void dataStore.refreshVisible();
+      } else if (code === "SCAN_MISMATCH") {
+        setScanText("");
+        setScanTried(true);
+        showToast(`❌ Wrong item scanned: this line is ${item.ItemCode}`, "error");
+      } else if (code === "LINE_CLOSED") {
+        showToast("⚠️ This line was closed by a SAP import. Skipping it.", "error");
+        void dataStore.refreshVisible();
+      } else {
+        showToast(`❌ Pick not saved: ${error?.message || "server error"}. Try again.`, "error");
+      }
     }
   };
 
@@ -264,6 +343,11 @@ export default function PickPage({ setPage }: PickPageProps) {
     }
   };
 
+  useEffect(() => {
+    resetPickInputs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPickIndex, selectedSalesOrder?.id]);
+
   // Initialize picked qty when pick changes
   useEffect(() => {
     if (soPickList.length > 0 && currentPickIndex < soPickList.length) {
@@ -370,7 +454,7 @@ export default function PickPage({ setPage }: PickPageProps) {
                 warehouse={current.Warehouse}
                 bins={bins}
                 onAssign={async (binCode) => {
-                  await assignSoBin({ soId: so.id, lineIndex: currentPick.lineIndex, binCode });
+                  await assignSoBin({ soId: so.id, ...currentPick.ref, binCode });
                   showToast(`✅ Bin ${binCode} assigned`, "success");
                 }}
               />
@@ -380,13 +464,39 @@ export default function PickPage({ setPage }: PickPageProps) {
 
             <div className="bg-blue-50 rounded-lg p-4 mb-4">
               <p className="text-center text-3xl font-bold text-blue-600">
-                {item.RemainingQty || 0}
+                {current.RemainingQty || 0}
               </p>
               <p className="text-center text-sm text-gray-600">Remaining Quantity</p>
               <p className="text-center text-xs text-gray-500 mt-1">
-                {item.DeliveredQty} of {item.OrderedQty} already delivered
+                {current.DeliveredQty || 0} of {current.OrderedQty} already delivered
               </p>
             </div>
+
+            {!needsBin && (
+              <div className="mb-4">
+                <label className="block text-sm font-medium mb-2" htmlFor="so-scan">
+                  Scan the item ({item.ItemCode})
+                </label>
+                <input
+                  id="so-scan"
+                  autoFocus
+                  autoComplete="off"
+                  value={scanText}
+                  onChange={(e) => setScanText(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") setScanTried(true); }}
+                  placeholder="Scan or type the item code"
+                  className={`w-full border rounded-md px-4 py-3 text-lg ${
+                    scanText && sameItemCode(scanText, item.ItemCode) ? "border-green-500 bg-green-50" : "border-gray-300"
+                  }`}
+                />
+                {scanText && sameItemCode(scanText, item.ItemCode) && (
+                  <p className="text-sm text-green-700 mt-1">✓ Right item</p>
+                )}
+                {scanTried && scanText && !sameItemCode(scanText, item.ItemCode) && (
+                  <p className="text-sm text-red-600 mt-1">That is not {item.ItemCode}. Scan the item on this line.</p>
+                )}
+              </div>
+            )}
 
             <div>
               <label className="block text-sm font-medium mb-2">
@@ -396,19 +506,55 @@ export default function PickPage({ setPage }: PickPageProps) {
                 type="number"
                 value={pickedQty}
                 onChange={(e) => setPickedQty(Number(e.target.value))}
-                max={item.RemainingQty || 0}
+                min={0}
+                max={current.RemainingQty || 0}
                 className="w-full border border-gray-300 rounded-md px-4 py-3 text-lg"
               />
             </div>
+
+            {pickedQty < (current.RemainingQty || 0) && (
+              <div className="mt-3 bg-amber-50 border border-amber-300 rounded-md p-3">
+                <p className="text-sm font-medium text-amber-900">
+                  Short pick: {(current.RemainingQty || 0) - pickedQty} will stay open on this line.
+                </p>
+                <input
+                  value={shortReason}
+                  onChange={(e) => setShortReason(e.target.value)}
+                  placeholder="Why? (e.g. only 3 on the shelf, not found)"
+                  className="w-full border border-amber-300 rounded-md px-3 py-2 mt-2"
+                />
+              </div>
+            )}
+
+            {shortfallPrompt && (
+              <div className="mt-3 bg-red-50 border border-red-300 rounded-md p-3">
+                <p className="text-sm text-red-900">
+                  The bin shows only {shortfallPrompt.available} of {item.ItemCode}, but you are taking {shortfallPrompt.requested}.
+                  If you take it anyway the bin goes to 0 and the difference ({shortfallPrompt.requested - shortfallPrompt.available}) is logged.
+                </p>
+                <div className="flex gap-2 mt-2">
+                  <button
+                    onClick={() => void handleConfirmSOPick(true)}
+                    disabled={isSaving}
+                    className="px-4 py-2 bg-red-600 text-white rounded-md disabled:bg-gray-400"
+                  >
+                    Take it anyway
+                  </button>
+                  <button onClick={() => setShortfallPrompt(null)} className="px-4 py-2 bg-gray-200 rounded-md">
+                    Change quantity
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="flex gap-2">
             <button
-              onClick={handleConfirmSOPick}
+              onClick={() => void handleConfirmSOPick()}
               disabled={isSaving || needsBin}
               className="flex-1 bg-green-600 text-white py-3 rounded-md hover:bg-green-700 font-medium text-lg disabled:bg-gray-400"
             >
-              {isSaving ? "Saving..." : needsBin ? "Assign a bin first" : "Confirm Pick"}
+              {isSaving ? "Saving..." : needsBin ? "Assign a bin first" : pickedQty === 0 ? "Report short" : pickedQty < (current.RemainingQty || 0) ? "Confirm Short Pick" : "Confirm Pick"}
             </button>
             <button
               onClick={() => {

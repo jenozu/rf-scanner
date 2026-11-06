@@ -239,7 +239,7 @@
       {
         "title": "Phase 3: SAP import fidelity",
         "description": "Stable line identity (DocNum+LineNum), Warehouse vs Bin, Excel dates, number parsing, validation report, re-import updates.",
-        "status": "in-progress",
+        "status": "done",
         "priority": "high",
         "dependencies": [
           10
@@ -335,7 +335,7 @@
           {
             "title": "Sales order parser and merge, same rules",
             "description": "Apply tasks 2-7 to sales orders: so-<DocNum> ids, line identity, validation report, merge that keeps DeliveredQty and pick history, Warehouse vs bin kept apart. Setup page SO import switched to the same endpoint.",
-            "status": "pending",
+            "status": "done",
             "dependencies": [
               4,
               6
@@ -348,7 +348,7 @@
           {
             "title": "Docs and file-format guide updated to match",
             "description": "Update PO_FILE_FORMAT.md and SO_UPLOAD_GUIDE.md (or FILE_FORMAT_GUIDE.md) for the column list, date and quantity rules, line identity, re-import behaviour and the report. Remove statements the code no longer makes true.",
-            "status": "pending",
+            "status": "done",
             "dependencies": [
               7,
               8
@@ -361,7 +361,7 @@
           {
             "title": "Phase 3 verification and merge",
             "description": "Run tsc, vitest, server tests and vite build on the phase branch. Push, then merge to main as the owner asked. Phase summary to the owner.",
-            "status": "pending",
+            "status": "done",
             "dependencies": [
               9
             ],
@@ -375,7 +375,7 @@
       {
         "title": "Phase 4: Receiving and picking correctness",
         "description": "Act on line identity, cap over-receipt, scan confirmation for picks, short-pick handling, per-bin stock changes.",
-        "status": "pending",
+        "status": "done",
         "priority": "high",
         "dependencies": [
           11
@@ -422,12 +422,12 @@
           {
             "title": "Receive and pick pages: act on LineKey, cap quantities, scan confirmation, short-pick, shortfall prompt",
             "description": "UI wiring only after server ops are proven",
-            "status": "pending",
+            "status": "done",
             "dependencies": [
               2,
               3
             ],
-            "details": "",
+            "details": "[2026-11-06T10:24:33-05:00] receive/pick UI: line refs, live lookup by key, caps, item scan, short-pick reason, shortfall confirm, closed lines; shipping uses so-ship; verified in Chrome (demo mode) + real-file e2e",
             "testStrategy": "tsc, vitest, vite build; local logic tests for line refs",
             "complexity": 6,
             "id": 4
@@ -577,7 +577,7 @@
     ],
     "metadata": {
       "created": "2026-10-29T19:42:01-04:00",
-      "updated": "2026-11-06T10:08:42-05:00"
+      "updated": "2026-11-06T10:24:33-05:00"
     }
   }
 }

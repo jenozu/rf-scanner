@@ -23,12 +23,12 @@ export function adjustBin(params: ApiParams<"adjustBin">[0]) {
   return dataStore.mutate(() => api.adjustBin(params), { reload: ["rf_bins"] });
 }
 
-/** Receive quantity against exactly one PO line, identified by its position. */
+/** Receive quantity against exactly one PO line, identified by its line key. */
 export function receivePoLine(params: ApiParams<"receivePoLine">[0]) {
   return dataStore.mutate(() => api.receivePoLine(params), { reload: ["rf_purchase_orders"] });
 }
 
-/** Pick quantity against exactly one sales-order line, identified by its position. */
+/** Pick quantity against exactly one sales-order line, identified by its line key. */
 export function pickSoLine(params: ApiParams<"pickSoLine">[0]) {
   return dataStore.mutate(() => api.pickSoLine(params), { reload: ["rf_sales_orders"] });
 }
@@ -54,6 +54,11 @@ export function pickSalesOrderLine(params: ApiParams<"pickSalesOrderLine">[0]) {
   return dataStore.mutate(() => api.pickSalesOrderLine(params), {
     reload: ["rf_sales_orders", "rf_bins"],
   });
+}
+
+/** Mark orders shipped; only the shipping fields change, so a pick made a moment ago survives. */
+export function shipOrders(shipments: Array<{ soId: string; shipmentPin: string }>) {
+  return dataStore.mutate(() => api.shipOrders(shipments), { reload: ["rf_sales_orders"] });
 }
 
 /** Import parsed SAP purchase orders or sales orders; the server adds new ones and updates existing ones. */

@@ -15,7 +15,7 @@ import { importPurchaseOrderFile, importSalesOrderFile } from "./sap-import";
 import { startTestServer } from "../../server/testing/helpers.js";
 
 // bcryptjs is a dependency of the server, not of the app: load it from the server's own node_modules.
-const bcrypt = createRequire(path.join(process.cwd(), "server", "package.json"))("bcryptjs") as typeof import("bcryptjs");
+const bcrypt = createRequire(path.join(process.cwd(), "server", "package.json"))("bcryptjs") as { hash(value: string, rounds: number): Promise<string> };
 
 const poPath = process.env.RF_REAL_PO_XLSX;
 const soPath = process.env.RF_REAL_SO_XLSX;
@@ -82,5 +82,74 @@ describe.skipIf(!poPath || !soPath)("real SAP exports through the real API", () 
     expect(res.body).toMatchObject({ added: 0, updated: 0, unchanged: 154 });
     const after = read("rf_sales_orders").find((s: any) => s.id === target.id);
     expect(after.items[1].DeliveredQty).toBe(1);
+  });
+
+  // ---- Phase 4 on the real orders: lines are addressed by key, quantities are capped, pickers don't collide ----
+
+  const duplicates = (orders: any[]) => {
+    for (const order of orders) {
+      const byItem = new Map<string, any[]>();
+      for (const line of order.items) byItem.set(line.ItemCode, [...(byItem.get(line.ItemCode) ?? []), line]);
+      const lines = [...byItem.values()].find((group) => group.length > 1 && group.every((l) => !l.SapClosed && l.OrderedQty >= 2));
+      if (lines) return { order, lines };
+    }
+    return undefined;
+  };
+
+  // (The real PO export has no order with the same ItemCode on two lines, so that case is covered by
+  // the synthetic tests in server/test/line-ops.test.js; here the real lines show caps and addressing.)
+  it("receiving a real PO line touches only that line, and the cap holds", async () => {
+    const pos = read("rf_purchase_orders");
+    const order = pos.find((p: any) => p.items.length > 2 && p.items.some((l: any) => l.OrderedQty >= 2 && !l.SapClosed));
+    expect(order).toBeDefined();
+    const target = order.items.find((l: any) => l.OrderedQty >= 2 && !l.SapClosed);
+    const ok = await post("/api/ops/receive", { poId: order.id, lineKey: target.LineKey, qty: 1, binCode: "E2E-BIN-1", txnId: "E2E-R1" });
+    expect(ok.status).toBe(200);
+    const after = read("rf_purchase_orders").find((p: any) => p.id === order.id);
+    for (const line of after.items) {
+      const before = order.items.find((l: any) => l.LineKey === line.LineKey);
+      expect(line.ReceivedQty).toBe((before.ReceivedQty || 0) + (line.LineKey === target.LineKey ? 1 : 0));
+    }
+    const over = await post("/api/ops/receive", { poId: order.id, lineKey: target.LineKey, qty: target.OrderedQty, binCode: "E2E-BIN-1", txnId: "E2E-R2" });
+    expect(over.status).toBe(409);
+    expect(over.body.code).toBe("OVER_RECEIPT");
+  });
+
+  it("picking real SO lines: same-item lines are separate, over-pick is refused, two pickers both land", async () => {
+    const found = duplicates(read("rf_sales_orders"));
+    expect(found, "the real SO file has an order with the same ItemCode on two lines").toBeDefined();
+    const { order, lines } = found!;
+    const [first, second] = lines;
+    fs.writeFileSync(path.join(srv.dataDir, "rf_bins.json"), JSON.stringify([
+      { BinCode: "E2E-BIN-1", Zone: "Z", Capacity: 100000, Status: "active", Items: [{ ItemCode: first.ItemCode, Description: "x", Quantity: 100000 }] },
+    ]));
+    for (const line of [first, second]) {
+      const assigned = await post("/api/ops/so-assign-bin", { soId: order.id, lineKey: line.LineKey, binCode: "E2E-BIN-1" });
+      expect(assigned.status).toBe(200);
+    }
+    const pickBody = (line: any, qty: number, txnId: string) =>
+      ({ soId: order.id, lineKey: line.LineKey, qty, txnId, scannedCode: line.ItemCode });
+
+    const wrong = await post("/api/ops/pick-so", { ...pickBody(first, 1, "E2E-P0"), scannedCode: "NOT-THE-ITEM" });
+    expect(wrong.body.code).toBe("SCAN_MISMATCH");
+    const over = await post("/api/ops/pick-so", pickBody(first, first.OrderedQty + 1, "E2E-P1"));
+    expect(over.status).toBe(409);
+    expect(over.body.code).toBe("OVER_PICK");
+
+    const [a, b] = await Promise.all([
+      post("/api/ops/pick-so", pickBody(first, 1, "E2E-P2")),
+      post("/api/ops/pick-so", pickBody(second, 1, "E2E-P3")),
+    ]);
+    expect([a.status, b.status]).toEqual([200, 200]);
+    const after = read("rf_sales_orders").find((s: any) => s.id === order.id);
+    expect(after.items.find((l: any) => l.LineKey === first.LineKey).DeliveredQty).toBe((first.DeliveredQty || 0) + 1);
+    expect(after.items.find((l: any) => l.LineKey === second.LineKey).DeliveredQty).toBe((second.DeliveredQty || 0) + 1);
+    expect(read("rf_pick_txns").length).toBe(2);
+
+    // Re-importing the real file afterwards keeps both picks.
+    const { orders } = await importSalesOrderFile(file(soPath!, "so.xlsx"));
+    await post("/api/imports/orders", { kind: "so", orders });
+    const again = read("rf_sales_orders").find((s: any) => s.id === order.id);
+    expect(again.items.find((l: any) => l.LineKey === first.LineKey).DeliveredQty).toBe((first.DeliveredQty || 0) + 1);
   });
 });
