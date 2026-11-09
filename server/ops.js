@@ -146,6 +146,12 @@ export function registerOps(app, { authenticateToken, requireWriter, dataDir }) 
     apply: logic.applyAssignBin,
   }));
 
+  app.post('/api/ops/item-assign-bin', ...guard, composite('item-assign-bin', {
+    validate: logic.validateAssignItemBin,
+    files: { master: 'rf_master', active: 'rf_active' },
+    apply: logic.applyAssignItemBin,
+  }));
+
   app.post('/api/ops/pick-so', ...guard, composite('pick-so', {
     validate: logic.validatePickSo,
     files: { sos: 'rf_sales_orders', bins: 'rf_bins', txns: 'rf_pick_txns' },

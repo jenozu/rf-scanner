@@ -229,6 +229,11 @@ class ApiClient {
     return this.post<{ ok: true; so: any; line: any }>("/ops/so-assign-bin", params);
   }
 
+  /** Make a real bin the item's default bin (updates the item in the master list and the active list). */
+  assignItemBin(params: { itemCode: string; binCode: string; warehouse?: string }) {
+    return this.post<{ ok: true; itemCode: string; binCode: string; updated: number }>("/ops/item-assign-bin", params);
+  }
+
   /**
    * One pick: sales-order line + stock taken from the bin + pick log, in a single request.
    * scannedCode is the item code the picker scanned (required when qty > 0). short = the picker

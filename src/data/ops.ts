@@ -49,6 +49,11 @@ export function assignSoBin(params: ApiParams<"assignSoBin">[0]) {
   return dataStore.mutate(() => api.assignSoBin(params), { reload: ["rf_sales_orders"] });
 }
 
+/** Make a real bin the item's default bin. Returns how many item rows were updated (0 = item not in the lists). */
+export function assignItemBin(params: ApiParams<"assignItemBin">[0]) {
+  return dataStore.mutate(() => api.assignItemBin(params), { reload: ["rf_master", "rf_active"] });
+}
+
 /** Pick against one sales-order line and take the stock from its bin. */
 export function pickSalesOrderLine(params: ApiParams<"pickSalesOrderLine">[0]) {
   return dataStore.mutate(() => api.pickSalesOrderLine(params), {
