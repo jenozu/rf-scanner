@@ -6,7 +6,9 @@ import { displayBinCode, fullBinCode, isSameBin, normalizeBinInput } from "../ut
 import { smartSearch } from "../utils/search-utils";
 import { mergeScanBins, mergeScanItems } from "../utils/scan-inventory";
 import { useCollection } from "../data/hooks";
-import { saveBinChanges } from "../data/ops";
+import { saveBinChanges, assignItemBin } from "../data/ops";
+import BinAssignPanel from "../components/bin-assign-panel";
+import { classifyBin } from "../../server/ops-logic.js";
 
 interface ScanPageProps {
   setPage: (page: any) => void;
@@ -59,6 +61,7 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem, onStartCount
   const [showNewBinModal, setShowNewBinModal] = useState(false);
   const [newBinCode, setNewBinCode] = useState<string>("");
   const [newBinZone, setNewBinZone] = useState<string>("");
+  const [showItemAssign, setShowItemAssign] = useState(false);
   const [toast, setToast] = useState<Toast | null>(null);
   const [keyboardMode, setKeyboardMode] = useState<"numeric" | "text">("numeric"); // Default to numpad
   const videoRef = useRef<HTMLDivElement>(null);
@@ -156,6 +159,7 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem, onStartCount
   const handleScan = (code: string) => {
     console.log("Scanned:", code);
     setScannedCode(code);
+    setShowItemAssign(false);
 
     // Never report "not found" before the inventory has actually arrived
     if (inventoryLoading) {
@@ -463,6 +467,45 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem, onStartCount
                   <p className="font-medium">Location</p>
                 </div>
                 <p className="text-lg">{displayBinCode(scanResult.item.BinCode)}</p>
+
+                {!classifyBin(scanResult.item.BinCode, scanResult.item.Warehouse).real && (
+                  showItemAssign ? (
+                    <div className="mt-3">
+                      <BinAssignPanel
+                        itemCode={scanResult.item.ItemCode}
+                        currentBin={scanResult.item.BinCode}
+                        warehouse={scanResult.item.Warehouse}
+                        bins={bins}
+                        heading="This part has no bin"
+                        explain={`${classifyBin(scanResult.item.BinCode, scanResult.item.Warehouse).reason}. Choose where this part is kept. It becomes the part's bin in this app.`}
+                        actionLabel="Save bin"
+                        footer="This sets the part's bin in this app. Also set its Default Bin Location in SAP so future receipts go to the right place."
+                        onAssign={async (code) => {
+                          const current = scanResult.item!;
+                          const check = classifyBin(code, current.Warehouse);
+                          if (!check.real) throw new Error(`${check.reason}. Choose a real bin.`);
+                          const res = await assignItemBin({ itemCode: current.ItemCode, binCode: code, warehouse: current.Warehouse });
+                          setScanResult({ type: "item", item: { ...current, BinCode: code } });
+                          setShowItemAssign(false);
+                          showToast(
+                            res.updated > 0
+                              ? `✅ ${current.ItemCode} is now in bin ${code}`
+                              : `⚠️ ${current.ItemCode} is not in the item list, so the bin was not saved to the part`,
+                            res.updated > 0 ? "success" : "info"
+                          );
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setShowItemAssign(true)}
+                      className="mt-3 text-sm font-semibold text-blue-700 border border-blue-300 rounded-md px-3 py-1.5 hover:bg-blue-50"
+                    >
+                      + Assign bin
+                    </button>
+                  )
+                )}
               </div>
 
               {scanResult.item.Variance !== undefined && (

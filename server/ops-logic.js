@@ -382,6 +382,38 @@ export function applyAssignBin(state, body, user) {
   return { data: { sos: state.sos, bins: state.bins }, result: { ok: true, so, line } };
 }
 
+export function validateAssignItemBin(body) {
+  const { itemCode, binCode } = body || {};
+  if (typeof itemCode !== 'string' || !itemCode.trim()) return fail('itemCode is required');
+  if (typeof binCode !== 'string' || !binCode.trim()) return fail('binCode is required');
+  return null;
+}
+
+// Make a real bin the item's default bin (the BinCode on every master and active row for
+// that ItemCode). state is { master, active }; a list that is not stored yet is left alone.
+// An item that is in neither list changes nothing and reports updated: 0.
+export function applyAssignItemBin(state, body, user) {
+  const itemCode = String(body.itemCode).trim().toUpperCase();
+  const code = String(body.binCode).trim().toUpperCase();
+  const check = classifyBin(code, body.warehouse);
+  if (!check.real) return { result: fail(`${check.reason}. Choose a real bin.`, 400, { code: 'NOT_A_REAL_BIN' }) };
+
+  const who = user?.username || 'unknown';
+  const at = new Date().toISOString();
+  let updated = 0;
+  const stamp = (list) => (list || []).map((row) => {
+    if (String(row.ItemCode ?? '').trim().toUpperCase() !== itemCode) return row;
+    updated++;
+    return { ...row, BinCode: code, BinAssignedBy: who, BinAssignedAt: at };
+  });
+  const master = state.master ? stamp(state.master) : undefined;
+  const active = state.active ? stamp(state.active) : undefined;
+  return {
+    data: { master, active },
+    result: { ok: true, itemCode, binCode: code, updated },
+  };
+}
+
 // --- Composite operations (several collections changed together) ---
 
 export function validateReceive(body) {

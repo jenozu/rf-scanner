@@ -10,6 +10,7 @@ export interface Item {
   ExpectedQty: number;
   CountedQty?: number; // Optional until counted
   Variance?: number;   // Optional until counted
+  Warehouse?: string;  // Set on master rows; needed to tell a warehouse code from a bin
 }
 
 /**

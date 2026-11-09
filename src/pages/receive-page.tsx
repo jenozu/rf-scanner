@@ -8,7 +8,7 @@ import { summarizeImport } from "../data/import-summary";
 import ImportReportPanel, { type ImportView } from "../components/import-report-panel";
 import QuantityNumpad from "../components/quantity-numpad";
 import { useCollection } from "../data/hooks";
-import { receiveStock, saveCollection, upsertManyRecords, deleteRecord } from "../data/ops";
+import { receiveStock, saveCollection, upsertManyRecords, deleteRecord, assignItemBin } from "../data/ops";
 import OrderDeleteButton from "../components/order-delete-button";
 import BinAssignPanel from "../components/bin-assign-panel";
 import { classifyBin } from "../../server/ops-logic.js";
@@ -39,6 +39,7 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
   const receivingIndex: number | null = receivingFound ? receivingFound.index : null;
   const [receivedQty, setReceivedQty] = useState<number>(0);
   const [selectedBin, setSelectedBin] = useState<string>("");
+  const [saveBinToItem, setSaveBinToItem] = useState<boolean>(true);
   const [newBinCode, setNewBinCode] = useState<string>("");
   const [showNewBinModal, setShowNewBinModal] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
@@ -551,22 +552,36 @@ export default function ReceivePage({ setPage }: ReceivePageProps) {
                       ? [{ binCode: staging, label: `Staging area (${staging})` }]
                       : [];
                     return needsBin ? (
-                      <BinAssignPanel
-                        itemCode={item.ItemCode}
-                        currentBin={item.BinCode}
-                        warehouse={item.Warehouse}
-                        bins={bins}
-                        heading="✕ Choose a bin to receive into"
-                        explain={`${classifyBin(item.BinCode, item.Warehouse).reason}. In SAP this would land in the system bin. Choose where it is going before receiving.`}
-                        actionLabel="Use this bin"
-                        extraOptions={stagingOption}
-                        footer="Set this item's Default Bin Location in SAP before you post the goods receipt there, so SAP bins it correctly too."
-                        onAssign={async (code) => {
-                          const check = classifyBin(code, item.Warehouse);
-                          if (!check.real) throw new Error(`${check.reason}. Choose a real bin.`);
-                          setSelectedBin(code);
-                        }}
-                      />
+                      <div>
+                        <BinAssignPanel
+                          itemCode={item.ItemCode}
+                          currentBin={item.BinCode}
+                          warehouse={item.Warehouse}
+                          bins={bins}
+                          heading="✕ Choose a bin to receive into"
+                          explain={`${classifyBin(item.BinCode, item.Warehouse).reason}. In SAP this would land in the system bin. Choose where it is going before receiving.`}
+                          actionLabel="Use this bin"
+                          extraOptions={stagingOption}
+                          footer="Set this item's Default Bin Location in SAP before you post the goods receipt there, so SAP bins it correctly too."
+                          onAssign={async (code) => {
+                            const check = classifyBin(code, item.Warehouse);
+                            if (!check.real) throw new Error(`${check.reason}. Choose a real bin.`);
+                            // The staging area is a temporary place, so it never becomes the part's default bin.
+                            if (saveBinToItem && code !== staging) {
+                              await assignItemBin({ itemCode: item.ItemCode, binCode: code, warehouse: item.Warehouse });
+                            }
+                            setSelectedBin(code);
+                          }}
+                        />
+                        <label className="mt-2 flex items-center gap-2 text-sm text-gray-700">
+                          <input
+                            type="checkbox"
+                            checked={saveBinToItem}
+                            onChange={(e) => setSaveBinToItem(e.target.checked)}
+                          />
+                          Save this bin as the part's default bin (not the staging area)
+                        </label>
+                      </div>
                     ) : (
                       <div>
                         <label className="block text-xs font-medium mb-1 text-gray-600">

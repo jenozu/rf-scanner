@@ -33,6 +33,8 @@ export function classifyBin(code: string | null | undefined, warehouse?: string 
 export function isRealBin(code: string | null | undefined, warehouse?: string | null): boolean;
 export function validateAssignBin(body: any): OpFailure | null;
 export function applyAssignBin(state: { sos: any[] | null; bins: any[] | null }, body: any, user?: { username?: string } | null): OpOutcome;
+export function validateAssignItemBin(body: any): OpFailure | null;
+export function applyAssignItemBin(state: { master: any[] | null; active: any[] | null }, body: any, user?: { username?: string } | null): OpOutcome;
 export const WAREHOUSE_NAMES: Record<string, string>;
 export const CUSTOMER_WAREHOUSE: string;
 export function normalizeWarehouse(value: unknown): string;
