@@ -3,6 +3,7 @@ import Quagga from "@ericblade/quagga2";
 import { Item, BinLocation } from "../types";
 import { Package, MapPin, Plus, Search, ClipboardCheck, Tag } from "lucide-react";
 import { displayBinCode, fullBinCode, isSameBin, normalizeBinInput } from "../utils/bin-utils";
+import { parseBinList, lookupBinList, BinListResult } from "../utils/bin-list";
 import { smartSearch } from "../utils/search-utils";
 import { mergeScanBins, mergeScanItems } from "../utils/scan-inventory";
 import { useCollection } from "../data/hooks";
@@ -64,6 +65,9 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem, onStartCount
   const [showItemAssign, setShowItemAssign] = useState(false);
   const [toast, setToast] = useState<Toast | null>(null);
   const [keyboardMode, setKeyboardMode] = useState<"numeric" | "text">("numeric"); // Default to numpad
+  // Check several bins at once: type or paste bin codes, see what each bin should hold.
+  const [binListText, setBinListText] = useState<string>("");
+  const [binListResult, setBinListResult] = useState<BinListResult | null>(null);
   const videoRef = useRef<HTMLDivElement>(null);
 
   // Toast auto-dismiss
@@ -251,6 +255,20 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem, onStartCount
     setScanResult({ type: "bin", bin: newBin });
   };
 
+  // Check a list of bins (typed or pasted) against the bins on this device
+  const handleCheckBinList = () => {
+    if (inventoryLoading) {
+      showToast("⏳ Inventory is still loading. Try again in a moment.", "info");
+      return;
+    }
+    const codes = parseBinList(binListText);
+    if (codes.length === 0) {
+      showToast("⚠️ Enter at least one bin code", "error");
+      return;
+    }
+    setBinListResult(lookupBinList(codes, bins));
+  };
+
   // Clear scan result
   const handleClearScan = () => {
     setScanResult(null);
@@ -285,6 +303,75 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem, onStartCount
         ref={videoRef}
         className="w-full max-w-sm aspect-video bg-black rounded-md overflow-hidden mx-auto mb-4"
       ></div>
+
+      {/* Check several bins at once */}
+      <div className="mb-6 bg-white rounded-lg shadow p-4">
+        <label className="block text-sm font-medium mb-2">Check several bins</label>
+        <textarea
+          value={binListText}
+          onChange={(e) => setBinListText(e.target.value)}
+          placeholder="Type or paste bin codes, e.g. 0002, 0003, 0528"
+          rows={3}
+          className="w-full border border-gray-300 rounded-md px-3 py-2 mb-2"
+        />
+        <div className="flex gap-2">
+          <button
+            onClick={handleCheckBinList}
+            className="flex-1 bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700"
+          >
+            Check bins
+          </button>
+          <button
+            onClick={() => {
+              setBinListText("");
+              setBinListResult(null);
+            }}
+            className="px-4 bg-gray-200 text-gray-700 py-2 rounded-md hover:bg-gray-300"
+          >
+            Clear
+          </button>
+        </div>
+
+        {binListResult && (
+          <div className="mt-4 space-y-3">
+            <p className="text-sm text-gray-700">
+              {binListResult.found.length} bin(s) found · {binListResult.totalQty} units total
+            </p>
+            {binListResult.found.map((f) => (
+              <div key={f.code} className="border border-gray-200 rounded-md p-3">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="font-semibold flex items-center gap-1">
+                    <MapPin size={16} className="text-blue-600" /> {f.code}
+                  </span>
+                  <span className="text-sm font-bold text-blue-600">Total {f.totalQty}</span>
+                </div>
+                {f.bin.Items.length === 0 ? (
+                  <p className="text-sm text-gray-500">Empty bin</p>
+                ) : (
+                  <ul className="text-sm space-y-1">
+                    {f.bin.Items.map((item) => (
+                      <li key={item.ItemCode} className="flex justify-between gap-2">
+                        <span>
+                          <span className="font-medium">{item.ItemCode}</span>
+                          {item.Description && (
+                            <span className="text-gray-600"> · {item.Description}</span>
+                          )}
+                        </span>
+                        <span className="font-semibold whitespace-nowrap">Qty {item.Quantity}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ))}
+            {binListResult.notFound.length > 0 && (
+              <p className="text-sm text-red-700">
+                Not found: {binListResult.notFound.join(", ")}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Manual Lookup */}
       <div className="mb-6 bg-white rounded-lg shadow p-4">
