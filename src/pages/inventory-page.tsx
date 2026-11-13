@@ -3,9 +3,10 @@ import { CycleCount, BinLocation, CycleCountTransaction, BinItem, InventorySessi
 import { ClipboardCheck, Camera, AlertCircle, CheckCircle2, Plus, FolderOpen, MapPin, X, Save, Play, ChevronRight, ChevronLeft, ArrowLeft, SkipForward, Download, List, Upload } from "lucide-react";
 import Quagga from "@ericblade/quagga2";
 import { compareBinCodes, isBinInRange } from "../utils/bin-order";
+import { VarianceApprovals } from "../components/variance-approvals";
 import { parseCSV } from "../data/csv-utils";
 import { useCollection } from "../data/hooks";
-import { appendRecords, saveBinChanges, saveRecordChanges } from "../data/ops";
+import { appendRecords, saveBinChanges, saveRecordChanges, submitCounts } from "../data/ops";
 
 // The signed-in user's name (saved at login); used for count logs and bin locks.
 const currentUsername = () => sessionStorage.getItem("rf_current_username") || "Unknown";
@@ -845,20 +846,16 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     const updatedLogs = [...sessionCountLogs, logEntry];
     setSessionCountLogs(updatedLogs);
 
-    // Update bin inventory
-    const updatedBins = bins.map((bin) => {
-      if (bin.BinCode === currentItem.binCode) {
-        const updatedItems = bin.Items.map((item) => {
-          if (item.ItemCode === currentItem.itemCode) {
-            return { ...item, Quantity: qty };
-          }
-          return item;
-        });
-        return { ...bin, Items: updatedItems };
-      }
-      return bin;
-    });
-    setBins(updatedBins);
+    // Counts never change stock here: a match is logged, a difference waits for admin approval.
+    submitCounts([{
+      binCode: currentItem.binCode,
+      itemCode: currentItem.itemCode,
+      description: currentItem.description,
+      countedQty: qty,
+      expectedQty: currentItem.expectedQty,
+      sessionId: currentSession.id,
+      sessionName: currentSession.name,
+    }]).catch(saveFailed("Count"));
 
     // Write to cycle count transaction log (for compatibility)
     const txn: CycleCountTransaction = {
@@ -876,7 +873,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     if (variance === 0) {
       showToast("✅ Count accurate!", "success");
     } else {
-      showToast(`⚠️ Variance: ${variance > 0 ? "+" : ""}${variance}`, "info");
+      showToast(`⚠️ Variance ${variance > 0 ? "+" : ""}${variance} sent for admin approval`, "info");
     }
 
     // Move to next item
@@ -1073,42 +1070,11 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     setCurrentSession(updatedSession);
     setSessions(updatedSessions);
 
-    // 3. Update the bin inventory with the counted quantities
-    let updatedBins = [...bins];
+    // 3. Counted quantities go to admin approval (see submitCounts); bins change only on approval.
     const txns: CycleCountTransaction[] = [];
 
     newCounts.forEach(newCount => {
       const variance = newCount.CountedQty! - newCount.ExpectedQty;
-      
-      // Find and update the bin
-      const binIndex = updatedBins.findIndex(b => b.BinCode === newCount.BinCode);
-      if (binIndex !== -1) {
-        const itemIndex = updatedBins[binIndex].Items.findIndex(i => i.ItemCode === newCount.ItemCode);
-        if (itemIndex !== -1) {
-          // Update the quantity in the bin
-          updatedBins[binIndex].Items[itemIndex].Quantity = newCount.CountedQty!;
-        } else {
-          // Item not found in bin, add it (this shouldn't happen if master data is correct, but for robustness)
-          updatedBins[binIndex].Items.push({
-            ItemCode: newCount.ItemCode,
-            Description: newCount.ItemCode, // Fallback description
-            Quantity: newCount.CountedQty!,
-          });
-        }
-      } else {
-        // Bin not found, create a new bin (unlikely for full count, but for robustness)
-        updatedBins.push({
-          BinCode: newCount.BinCode,
-          Zone: "FULL_COUNT",
-          Capacity: 1000,
-          Status: "active",
-          Items: [{
-            ItemCode: newCount.ItemCode,
-            Description: newCount.ItemCode,
-            Quantity: newCount.CountedQty!,
-          }],
-        });
-      }
 
       // Create a transaction log
       txns.push({
@@ -1123,7 +1089,15 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
       });
     });
 
-    setBins(updatedBins);
+    submitCounts(newCounts.map((c) => ({
+      binCode: c.BinCode,
+      itemCode: c.ItemCode,
+      description: c.ItemCode,
+      countedQty: c.CountedQty!,
+      expectedQty: c.ExpectedQty,
+      sessionId: currentSession.id,
+      sessionName: currentSession.name,
+    }))).catch(saveFailed("Full count"));
 
     // 4. Save transactions
     saveCountTxns(txns);
@@ -1375,26 +1349,10 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
       setCurrentSession(updatedSession);
     }
 
-    // Update bin inventory (always update, even if variance is 0 for accuracy)
+    // The count is logged below; stock changes only when an admin approves a variance.
     const bin = bins.find((b) => b.BinCode === selectedCount.BinCode);
     const binItem = bin?.Items.find((i) => i.ItemCode === selectedCount.ItemCode);
     
-    const updatedBins = bins.map((bin) => {
-      if (bin.BinCode === selectedCount.BinCode) {
-        const updatedItems = bin.Items.map((item) => {
-          if (item.ItemCode === selectedCount.ItemCode) {
-            return {
-              ...item,
-              Quantity: countedQty,
-            };
-          }
-          return item;
-        });
-        return { ...bin, Items: updatedItems };
-      }
-      return bin;
-    });
-
     // Write CycleCountTransaction
     const txn: CycleCountTransaction = {
       id: `CC-${Date.now()}`,
@@ -1412,12 +1370,20 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
 
     // Update state
     setCycleCounts(updatedCounts);
-    setBins(updatedBins);
+    submitCounts([{
+      binCode: selectedCount.BinCode,
+      itemCode: selectedCount.ItemCode,
+      description: binItem?.Description || selectedCount.ItemCode,
+      countedQty: countedQty,
+      expectedQty: selectedCount.ExpectedQty,
+      sessionId: currentSession?.id,
+      sessionName: currentSession?.name,
+    }]).catch(saveFailed("Count"));
 
     if (variance === 0) {
       showToast("✅ Count accurate!", "success");
     } else {
-      showToast(`⚠️ Variance detected: ${variance > 0 ? "+" : ""}${variance}`, "info");
+      showToast(`⚠️ Variance ${variance > 0 ? "+" : ""}${variance} sent for admin approval`, "info");
     }
 
     // Reset
@@ -2568,6 +2534,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
 
   return (
     <div className="p-4 max-w-4xl mx-auto">
+      <VarianceApprovals />
       <button
         onClick={() => {
           setSelectedCount(null);

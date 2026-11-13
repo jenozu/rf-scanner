@@ -463,6 +463,7 @@ const VALID_DATA_KEYS = [
   'rf_orders', 'rf_waves', 'rf_bins', 'rf_cycle_counts', 'rf_activity_logs',
   'rf_bin_locks', 'rf_inventory_sessions', 'rf_session_count_logs',
   'rf_receiving_txns', 'rf_pick_txns', 'rf_cycle_count_txns', 'rf_temporary_locations',
+  'rf_count_variances',
 ];
 // Keys whose value is an object rather than a list (empty default is {}).
 const OBJECT_DATA_KEYS = ['rf_master_meta'];

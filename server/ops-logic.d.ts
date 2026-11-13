@@ -28,6 +28,10 @@ export function validateRecordChanges(body: any): OpFailure | null;
 export function applyRecordChanges(current: any[] | null, body: any): OpOutcome;
 export function validateBinsSet(body: any): OpFailure | null;
 export function applyBinsSet(current: any[] | null, body: any): OpOutcome;
+export function validateCountSubmit(body: any): OpFailure | null;
+export function applyCountSubmit(state: { bins?: any[] | null; variances?: any[] | null }, body: any, user?: { username?: string } | null): OpOutcome;
+export function validateVarianceDecision(body: any): OpFailure | null;
+export function applyVarianceDecision(state: { bins?: any[] | null; variances?: any[] | null }, body: any, user?: { username?: string; role?: string } | null): OpOutcome;
 export interface BinClass { kind: 'real' | 'blank' | 'system' | 'placeholder' | 'warehouse-only'; real: boolean; reason: string }
 export function classifyBin(code: string | null | undefined, warehouse?: string | null): BinClass;
 export function isRealBin(code: string | null | undefined, warehouse?: string | null): boolean;

@@ -119,6 +119,16 @@ export async function saveRecordChanges<T extends { id: string }>(key: RecordKey
   await dataStore.mutate(() => api.applyRecordChanges(key, changes), { reload: [key] });
 }
 
+/** Submit counts. Stock changes only for approved variances; the bins reload from the server. */
+export function submitCounts(counts: Parameters<typeof api.submitCounts>[0]) {
+  return dataStore.mutate(() => api.submitCounts(counts), { reload: ["rf_bins", "rf_count_variances"] });
+}
+
+/** Admin only: approve or reject a pending count variance. */
+export function decideVariance(id: string, decision: "approve" | "reject") {
+  return dataStore.mutate(() => api.decideVariance(id, decision), { reload: ["rf_bins", "rf_count_variances"] });
+}
+
 /** Save the bin/quantity changes between two versions of the bin list (absolute quantities). */
 export async function saveBinChanges(before: BinLocation[], after: BinLocation[]) {
   const changes = diffBins(before, after);
