@@ -124,6 +124,16 @@ export function submitCounts(counts: Parameters<typeof api.submitCounts>[0]) {
   return dataStore.mutate(() => api.submitCounts(counts), { reload: ["rf_bins", "rf_count_variances"] });
 }
 
+/** Admin only: group sales orders into a pick wave. */
+export function createWave(soIds: string[]) {
+  return dataStore.mutate(() => api.createWave(soIds), { reload: ["rf_pick_waves"] });
+}
+
+/** Admin only: delete a pick wave that has no picks yet. */
+export function deleteWave(id: string) {
+  return dataStore.mutate(() => api.deleteWave(id), { reload: ["rf_pick_waves"] });
+}
+
 /** Admin only: approve or reject a pending count variance. */
 export function decideVariance(id: string, decision: "approve" | "reject") {
   return dataStore.mutate(() => api.decideVariance(id, decision), { reload: ["rf_bins", "rf_count_variances"] });

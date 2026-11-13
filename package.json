@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "check": "tsc --noEmit",
     "test": "vitest run",
-    "smoke:counting": "node e2e/counting-smoke.mjs"
+    "smoke:counting": "node e2e/counting-smoke.mjs",
+    "smoke:waves": "node e2e/wave-smoke.mjs"
   },
   "dependencies": {
     "@ericblade/quagga2": "^1.8.4",

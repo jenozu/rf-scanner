@@ -39,3 +39,6 @@ jobs:
 
       - name: Run counting smoke test
         run: npm run smoke:counting
+
+      - name: Run wave smoke test
+        run: npm run smoke:waves

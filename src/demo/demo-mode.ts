@@ -227,6 +227,7 @@ const demoData: Record<string, unknown> = {
   rf_inventory_sessions: demoSessions,
   rf_temporary_locations: demoTemporaryLocations,
   rf_session_count_logs: [],
+  rf_pick_waves: [],
   rf_master_meta: {
     updatedAt: "2026-10-16T11:45:00.000Z",
     updatedBy: "preview",
@@ -399,6 +400,20 @@ function demoOperation(endpoint: string, method: string, body: any): unknown {
       { bins: "rf_bins", variances: "rf_count_variances" },
       ops.validateVarianceDecision(body),
       (state) => ops.applyVarianceDecision(state, body, demoUser)
+    );
+  }
+  if (method === "POST" && endpoint === "/waves/create") {
+    return demoApplyMany(
+      { sos: "rf_sales_orders", waves: "rf_pick_waves" },
+      ops.validateWaveCreate(body),
+      (state) => ops.applyWaveCreate(state, body, demoUser)
+    );
+  }
+  if (method === "POST" && endpoint === "/waves/delete") {
+    return demoApplyMany(
+      { sos: "rf_sales_orders", waves: "rf_pick_waves" },
+      ops.validateWaveDelete(body),
+      (state) => ops.applyWaveDelete(state, body, demoUser)
     );
   }
   if (method === "POST" && endpoint === "/ops/pick-so") {

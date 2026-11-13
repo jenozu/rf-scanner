@@ -309,6 +309,19 @@ class ApiClient {
     }>("/dashboard");
   }
 
+  /** Admin only: group sales orders into a pick wave. The server refuses orders already in an open wave. */
+  createWave(soIds: string[]) {
+    return this.post<{ ok: true; wave: { id: string; waveNumber: string; soIds: string[] } }>(
+      "/waves/create",
+      { soIds }
+    );
+  }
+
+  /** Admin only: delete a wave. Refused once any of its lines has been picked. */
+  deleteWave(id: string) {
+    return this.post<{ ok: true }>("/waves/delete", { id });
+  }
+
   /** Admin only: approve (applies the counted quantity) or reject a pending variance. */
   decideVariance(id: string, decision: "approve" | "reject") {
     return this.post<{ ok: true; status: string; changedSinceCount?: boolean; previousQty?: number; newQty?: number }>(

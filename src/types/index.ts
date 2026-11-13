@@ -138,6 +138,18 @@ export interface Wave {
 }
 
 /**
+ * Pick wave: a set of sales orders picked together, line by line, by bin.
+ * Only the order ids are stored; progress is worked out from the sales orders.
+ */
+export interface PickWave {
+  id: string;
+  waveNumber: string;
+  soIds: string[];
+  createdBy: string;
+  createdAt: string;
+}
+
+/**
  * Bin Location for warehouse management
  */
 export interface BinLocation {
