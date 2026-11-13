@@ -28,7 +28,8 @@ export function VarianceApprovals() {
   const [message, setMessage] = useState<string | null>(null);
 
   const pending = (data || []).filter((v) => v.status === "pending");
-  if (isLoading || (pending.length === 0 && !error)) return null;
+  // Stay visible after the last approval so the confirmation message can be read.
+  if (isLoading || (pending.length === 0 && !error && !message)) return null;
 
   const decide = async (v: CountVariance, decision: "approve" | "reject") => {
     setBusy(v.id);
