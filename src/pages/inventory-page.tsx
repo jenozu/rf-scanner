@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { CycleCount, BinLocation, CycleCountTransaction, BinItem, InventorySession, TemporaryLocation, TemporaryLocationItem, SessionItem } from "../types";
 import { ClipboardCheck, Camera, AlertCircle, CheckCircle2, Plus, FolderOpen, MapPin, X, Save, Play, ChevronRight, ChevronLeft, ArrowLeft, SkipForward, Download, List, Upload } from "lucide-react";
 import Quagga from "@ericblade/quagga2";
+import { compareBinCodes, isBinInRange } from "../utils/bin-order";
 import { parseCSV } from "../data/csv-utils";
 import { useCollection } from "../data/hooks";
 import { appendRecords, saveBinChanges, saveRecordChanges } from "../data/ops";
@@ -310,9 +311,9 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
       setEndBinFilter(endBin);
       
       // Rebuild sequential items from bins
-      const sortedBins = [...bins].sort((a, b) => a.BinCode.localeCompare(b.BinCode));
+      const sortedBins = [...bins].sort((a, b) => compareBinCodes(a.BinCode, b.BinCode));
       const filteredBins = sortedBins.filter((bin) => {
-        return bin.BinCode >= startBin && bin.BinCode <= endBin;
+        return isBinInRange(bin.BinCode, startBin, endBin);
       });
       
       const items: SequentialCountItem[] = [];
@@ -671,7 +672,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     let filteredBins: BinLocation[] = [];
 
     // Sort bins alphabetically first
-    const sortedBins = [...bins].sort((a, b) => a.BinCode.localeCompare(b.BinCode));
+    const sortedBins = [...bins].sort((a, b) => compareBinCodes(a.BinCode, b.BinCode));
 
     if (filterMode === "aisle") {
       // Aisle prefix filter
@@ -712,7 +713,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
 
       // Filter bins within range (inclusive)
       filteredBins = sortedBins.filter((bin) => {
-        return bin.BinCode >= startBin && bin.BinCode <= endBin;
+        return isBinInRange(bin.BinCode, startBin, endBin);
       });
 
       if (filteredBins.length === 0) {
@@ -796,7 +797,17 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
       console.log("Sequential count started successfully");
     } catch (error: any) {
       console.error("Error starting sequential count:", error);
-      showToast(`❌ Error: ${error.message || "Failed to start counting"}`, "error");
+      // 409 from /api/bins/lock: another session locked an overlapping range
+      // between our availability check and the lock. Say who holds it.
+      const conflict = Array.isArray(error?.details?.conflicts) ? error.details.conflicts[0] : undefined;
+      if (error?.status === 409 && conflict) {
+        showToast(
+          `❌ Bins ${conflict.startBin} to ${conflict.endBin} are being counted by ${conflict.username} (${conflict.sessionName})`,
+          "error"
+        );
+      } else {
+        showToast(`❌ Error: ${error.message || "Failed to start counting"}`, "error");
+      }
     }
   };
 

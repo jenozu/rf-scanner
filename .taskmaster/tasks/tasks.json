@@ -470,7 +470,7 @@
         "dependencies": [
           10
         ],
-        "details": "",
+        "details": "\n\n[2026-11-13T10:35:56-05:00] Slice 1 done on phase-7/bin-locks-numeric-ranges: (a) /api/bins/lock re-checks conflicts and writes in one locked step; a clash returns 409 and writes nothing (closes 10.1); (b) numeric-aware bin ordering and range checks on the server (server/bin-range.js) and in the inventory page (src/utils/bin-order.ts), which previously selected bins with text comparison and dropped bins from ranges like 2-10. Still open for task 15: split inventory-page.tsx and remove the dead duplicate sequential-count block (task 18 note), variance approval, server-driven dashboard.",
         "testStrategy": "Bin-range lock tests cover numeric ordering; dashboard shows the same numbers on two devices",
         "complexity": 8,
         "id": 15,
