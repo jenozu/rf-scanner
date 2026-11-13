@@ -10,18 +10,8 @@ import {
   TrendingUp,
   Truck,
 } from "lucide-react";
-import { useCollection } from "../data/hooks";
-import {
-  BinLocation,
-  CycleCount,
-  CycleCountTransaction,
-  Order,
-  PageType,
-  PurchaseOrder,
-  ReceivingTransaction,
-  SalesOrder,
-  Wave,
-} from "../types";
+import { PageType } from "../types";
+import { api } from "../services/api";
 
 interface HomePageProps {
   setPage: (page: PageType) => void;
@@ -38,6 +28,7 @@ type Stats = {
   accuracy: number;
   readyToShip: number;
   shipped: number;
+  pendingApprovals: number;
 };
 
 type TimelineEntry = {
@@ -59,6 +50,7 @@ const emptyStats: Stats = {
   accuracy: 0,
   readyToShip: 0,
   shipped: 0,
+  pendingApprovals: 0,
 };
 
 function timeLabel(value: string) {
@@ -71,78 +63,33 @@ export default function HomePage({ setPage }: HomePageProps) {
   const [stats, setStats] = useState<Stats>(emptyStats);
   const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
 
-  // Everything comes from the server and refreshes on focus and every 30 s, so the
-  // dashboard shows the whole warehouse, not just this device's work.
-  const { data: pos } = useCollection<PurchaseOrder[]>("rf_purchase_orders", []);
-  const { data: orders } = useCollection<Order[]>("rf_orders", []);
-  const { data: salesOrders } = useCollection<SalesOrder[]>("rf_sales_orders", []);
-  const { data: waves } = useCollection<Wave[]>("rf_waves", []);
-  const { data: counts } = useCollection<CycleCount[]>("rf_cycle_counts", []);
-  const { data: bins } = useCollection<BinLocation[]>("rf_bins", []);
-  const { data: receiving } = useCollection<ReceivingTransaction[]>("rf_receiving_txns", []);
-  const { data: countTxns } = useCollection<CycleCountTransaction[]>("rf_cycle_count_txns", []);
-
+  // The server computes these from the shared warehouse data, so every device sees the same
+  // numbers. Reloads on focus and every 30 s.
+  const [loadError, setLoadError] = useState<string | null>(null);
   useEffect(() => {
-    const completedCounts = counts.filter((count) => count.Status === "completed");
-    const accurateCounts = completedCounts.filter((count) => count.Variance === 0).length;
-    const accuracy =
-      completedCounts.length > 0
-        ? Math.round((accurateCounts / completedCounts.length) * 100)
-        : 0;
-
-    setStats({
-      pendingPOs: pos.filter((po) => po.status === "pending").length,
-      receivingPOs: pos.filter((po) => po.status === "receiving").length,
-      pendingOrders:
-        orders.filter((order) => order.status === "pending" || order.status === "picking").length +
-        salesOrders.filter((order) => order.status === "pending" || order.status === "picking").length,
-      activeWaves: waves.filter((wave) => wave.status === "active" || wave.status === "pending").length,
-      pendingCounts: counts.filter((count) => count.Status === "pending").length,
-      completedCounts: completedCounts.length,
-      totalBins: bins.length,
-      accuracy,
-      readyToShip: salesOrders.filter((order) => order.status === "picked").length,
-      shipped: salesOrders.filter((order) => order.status === "shipped").length,
-    });
-
-    const entries: Array<TimelineEntry & { stamp: number }> = [
-      ...receiving.slice(0, 4).map((txn) => ({
-        id: txn.id,
-        title: "Receiving posted",
-        detail: `${txn.poNumber} · ${txn.qty} × ${txn.itemCode} → ${txn.binCode}`,
-        time: timeLabel(txn.timestamp),
-        tone: "good" as const,
-        stamp: new Date(txn.timestamp).getTime(),
-      })),
-      ...countTxns.slice(0, 4).map((txn) => ({
-        id: txn.id,
-        title: txn.variance === 0 ? "Count verified" : "Variance detected",
-        detail: `${txn.binCode} · ${txn.itemCode} · ${txn.variance > 0 ? "+" : ""}${txn.variance}`,
-        time: timeLabel(txn.timestamp),
-        tone: txn.variance === 0 ? ("good" as const) : ("warn" as const),
-        stamp: new Date(txn.timestamp).getTime(),
-      })),
-      ...salesOrders
-        .filter((order) => order.status === "shipped" && order.shippedDate)
-        .slice(0, 3)
-        .map((order) => ({
-          id: `ship-${order.id}`,
-          title: "Shipment confirmed",
-          detail: `${order.soNumber} · ${order.customer}${order.shipmentPin ? ` · ${order.shipmentPin}` : ""}`,
-          time: timeLabel(order.shippedDate || ""),
-          tone: "good" as const,
-          stamp: new Date(order.shippedDate || "").getTime(),
-        })),
-    ];
-
-    setTimeline(
-      entries
-        .filter((entry) => Number.isFinite(entry.stamp))
-        .sort((a, b) => b.stamp - a.stamp)
-        .slice(0, 6)
-        .map(({ stamp: _stamp, ...entry }) => entry)
-    );
-  }, [pos, orders, salesOrders, waves, counts, bins, receiving, countTxns]);
+    let cancelled = false;
+    const load = () => {
+      api
+        .dashboard()
+        .then((d) => {
+          if (cancelled) return;
+          setStats({ ...emptyStats, ...d.stats });
+          setTimeline(d.timeline.map(({ timestamp, ...entry }) => ({ ...entry, time: timeLabel(timestamp) })));
+          setLoadError(null);
+        })
+        .catch((error: any) => {
+          if (!cancelled) setLoadError(error?.message || "Could not load the dashboard");
+        });
+    };
+    load();
+    const timer = window.setInterval(load, 30_000);
+    window.addEventListener("focus", load);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", load);
+    };
+  }, []);
 
   const workload = useMemo(
     () => [
@@ -168,6 +115,9 @@ export default function HomePage({ setPage }: HomePageProps) {
 
   return (
     <div className="ops-dashboard">
+      {loadError && (
+        <p role="alert" className="ops-kicker">Could not refresh the dashboard: {loadError}</p>
+      )}
       <section className="ops-hero">
         <div className="ops-hero-copy">
           <span className="ops-kicker">WAREHOUSE PULSE · {today.toUpperCase()}</span>
