@@ -36,3 +36,10 @@ Ideas that are not part of the current plan. Review at the end of each phase: pr
 - Short pick has no follow-up workflow (no replenishment task or supervisor list); open short lines are just visible on the line. Phase 7 candidate: "short picks" report.
 - UI verified in demo mode in Chrome only; no React component tests (see 10.6 note).
 
+
+## Owner decisions 2026-11-06
+- DECIDED, xlsx: vendor SheetJS's fixed release (published only from cdn.sheetjs.com) into the repo, so the code behaves the same. NOT DONE YET: the build workspace cannot reach cdn.sheetjs.com (403 from the network allowlist), and npm only has 0.18.5 (the vulnerable one). Needs the release tarball supplied or the host allowed. Then: re-run `src/data/real-files-e2e.test.ts` with `RF_REAL_PO_XLSX` / `RF_REAL_SO_XLSX` before and after the swap and compare the results; record the version and update steps in `.taskmaster/docs`. Tracked as task 23. Until then the 0.18.5 advisory stays open (mitigation: uploads are by logged-in staff only).
+- DECIDED, no supervisor override for over-receipt / over-pick. Over-receipt and over-pick stay hard refusals (`OVER_RECEIPT`, `OVER_PICK`). Not planned.
+- DECIDED, lines missing from a re-import stay `SapClosed`, never deleted, and there is no automatic cleanup or auto-close of old orders. Supersedes the "decide whether to auto-close/clean" item above.
+- DECIDED, leave the older whole-collection writer `POST /api/data/:key` as it is for now (only one person picks today). It can still write rf_purchase_orders/rf_sales_orders in full and viewer-role users can write there. Revisit with item 10.2 before a second picker is added.
+- STILL ASSUMED, not confirmed against the files in this session: a blank LineNumber is SAP line 0 (see task 23 log).
