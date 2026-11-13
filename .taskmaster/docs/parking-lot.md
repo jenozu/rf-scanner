@@ -43,3 +43,8 @@ Ideas that are not part of the current plan. Review at the end of each phase: pr
 - DECIDED, lines missing from a re-import stay `SapClosed`, never deleted, and there is no automatic cleanup or auto-close of old orders. Supersedes the "decide whether to auto-close/clean" item above.
 - DECIDED, leave the older whole-collection writer `POST /api/data/:key` as it is for now (only one person picks today). It can still write rf_purchase_orders/rf_sales_orders in full and viewer-role users can write there. Revisit with item 10.2 before a second picker is added.
 - STILL ASSUMED, not confirmed against the files in this session: a blank LineNumber is SAP line 0 (see task 23 log).
+
+## Resolved 2026-11-13 (task 15, slice 1)
+- (10.1) Bin lock check-then-lock race: /api/bins/lock now checks and writes in one locked step and returns 409 on conflict. Tested with 8 concurrent lock attempts (exactly one wins).
+- Lock range comparison was text-based (10 sorted before 2). Fixed on the server and in the inventory page's range filter and sort. The range filter previously dropped bins, e.g. 3 to 9 inside 2 to 10.
+- (10.6) Count-log username "Unknown": verified fixed. Login stores the username in sessionStorage (useAuth) and the count log reads it there. The localStorage rf_users note above is out of date.

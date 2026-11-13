@@ -12,6 +12,7 @@ import { createLoginLimiter } from './login-limiter.js';
 import { store, ConflictError } from './store.js';
 import { registerOps } from './ops.js';
 import { registerMigration } from './migrate.js';
+import { findBinLockConflicts, isLockFresh } from './bin-range.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -521,42 +522,20 @@ registerMigration(app, { authenticateToken, requireAdmin, dataDir: DATA_DIR });
 // BIN LOCKING ENDPOINTS
 // ============================================
 
-// Check if bin range is available (not locked by another session)
+// Check if bin range is available (not locked by another session).
+// Advisory only: the lock endpoint re-checks under the file lock, so a stale
+// answer here cannot let two sessions both lock the same range.
 app.post('/api/bins/check-availability', authenticateToken, async (req, res) => {
   try {
     const { startBin, endBin, sessionId } = req.body;
-    
+
     if (!startBin || !endBin || !sessionId) {
       return res.status(400).json({ error: 'startBin, endBin, and sessionId are required' });
     }
 
-    const locks = await readJSONFile(BIN_LOCKS_FILE) || [];
-    
-    // Clean up expired locks (older than 24 hours)
-    const now = new Date().getTime();
-    const validLocks = locks.filter(lock => {
-      const lockTime = new Date(lock.lockedAt).getTime();
-      return (now - lockTime) < (24 * 60 * 60 * 1000); // 24 hours
-    });
-    
-    // Check for conflicts with other sessions
-    const conflicts = validLocks.filter(lock => {
-      if (lock.sessionId === sessionId) return false; // Same session, no conflict
-      
-      // Check if ranges overlap
-      const lockStart = lock.startBin;
-      const lockEnd = lock.endBin;
-      
-      // Range overlap logic
-      const overlap = (
-        (startBin >= lockStart && startBin <= lockEnd) ||
-        (endBin >= lockStart && endBin <= lockEnd) ||
-        (startBin <= lockStart && endBin >= lockEnd)
-      );
-      
-      return overlap;
-    });
-    
+    const locks = await store.readJSON(BIN_LOCKS_FILE) || [];
+    const conflicts = findBinLockConflicts(locks, { startBin, endBin, sessionId });
+
     if (conflicts.length > 0) {
       return res.json({
         available: false,
@@ -569,14 +548,7 @@ app.post('/api/bins/check-availability', authenticateToken, async (req, res) => 
         }))
       });
     }
-    
-    // Save cleaned locks (re-filtered from the fresh file under the lock)
-    if (validLocks.length !== locks.length) {
-      await store.update(BIN_LOCKS_FILE, (current) => ({
-        data: (current || []).filter(lock => (now - new Date(lock.lockedAt).getTime()) < (24 * 60 * 60 * 1000)),
-      }));
-    }
-    
+
     res.json({ available: true, conflicts: [] });
   } catch (error) {
     console.error('Error checking bin availability:', error);
@@ -584,29 +556,50 @@ app.post('/api/bins/check-availability', authenticateToken, async (req, res) => 
   }
 });
 
-// Lock bin range for a session
+// Lock bin range for a session.
+// The overlap check and the write happen in one locked step, so two sessions
+// cannot both pass the check. A conflict returns 409 and changes nothing.
 app.post('/api/bins/lock', authenticateToken, requireWriter, async (req, res) => {
   try {
     const { startBin, endBin, sessionId, sessionName, username } = req.body;
-    
+
     if (!startBin || !endBin || !sessionId || !sessionName || !username) {
       return res.status(400).json({ error: 'All fields are required' });
     }
 
-    await store.update(BIN_LOCKS_FILE, (current) => {
-      // Remove any existing lock for this session, then add the new one
-      const filteredLocks = (current || []).filter(lock => lock.sessionId !== sessionId);
-      filteredLocks.push({
+    const outcome = await store.update(BIN_LOCKS_FILE, (current) => {
+      const now = Date.now();
+      const locks = current || [];
+      const conflicts = findBinLockConflicts(locks, { startBin, endBin, sessionId, now });
+      if (conflicts.length > 0) {
+        return { result: { conflicts } };
+      }
+      // Replace this session's own lock and drop expired ones.
+      const kept = locks.filter(lock => lock.sessionId !== sessionId && isLockFresh(lock, now));
+      kept.push({
         sessionId,
         sessionName,
         username,
         startBin,
         endBin,
-        lockedAt: new Date().toISOString()
+        lockedAt: new Date(now).toISOString()
       });
-      return { data: filteredLocks };
+      return { data: kept, result: { conflicts: [] } };
     });
-    
+
+    if (outcome.conflicts.length > 0) {
+      return res.status(409).json({
+        error: 'Bins are already being counted by another session',
+        conflicts: outcome.conflicts.map(c => ({
+          sessionName: c.sessionName,
+          username: c.username,
+          startBin: c.startBin,
+          endBin: c.endBin,
+          lockedAt: c.lockedAt
+        }))
+      });
+    }
+
     res.json({ message: 'Bins locked successfully' });
   } catch (error) {
     console.error('Error locking bins:', error);
