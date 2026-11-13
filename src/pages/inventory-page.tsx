@@ -1,8 +1,14 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { CycleCount, BinLocation, CycleCountTransaction, BinItem, InventorySession, TemporaryLocation, TemporaryLocationItem, SessionItem } from "../types";
-import { ClipboardCheck, Camera, AlertCircle, CheckCircle2, Plus, FolderOpen, MapPin, X, Save, Play, ChevronRight, ChevronLeft, ArrowLeft, SkipForward, Download, List, Upload } from "lucide-react";
-import Quagga from "@ericblade/quagga2";
-import { compareBinCodes, isBinInRange } from "../utils/bin-order";
+import { ClipboardCheck, Camera, AlertCircle, CheckCircle2, Plus, FolderOpen, MapPin, X, Save, Play, Download, List } from "lucide-react";
+import { useBarcodeScanner } from "../hooks/useBarcodeScanner";
+import { buildSequentialItems, countLogsToCsv, selectBinsForCount, uploadedRowsToCounts } from "./inventory/counting-logic";
+import type { SequentialCountItem, SessionCountLog, ToastState } from "./inventory/types";
+import { ToastBanner } from "./inventory/toast-banner";
+import { SequentialCountScreen } from "./inventory/sequential-count-screen";
+import { FullCountScreen } from "./inventory/full-count-screen";
+import { BinRangeModal } from "./inventory/bin-range-modal";
+import { BinInfoModal } from "./inventory/bin-info-modal";
 import { VarianceApprovals } from "../components/variance-approvals";
 import { parseCSV } from "../data/csv-utils";
 import { useCollection } from "../data/hooks";
@@ -13,30 +19,6 @@ const currentUsername = () => sessionStorage.getItem("rf_current_username") || "
 
 interface InventoryPageProps {
   setPage: (page: any) => void;
-}
-
-// Sequential count item for bin range counting
-interface SequentialCountItem {
-  binCode: string;
-  zone: string;
-  itemCode: string;
-  description: string;
-  expectedQty: number;
-}
-
-// Enhanced session count log entry
-interface SessionCountLog {
-  id?: string;
-  sessionId: string;
-  sessionName: string;
-  username: string;
-  timestamp: string;
-  binCode: string;
-  itemCode: string;
-  description: string;
-  expectedQty: number;
-  countedQty: number;
-  variance: number;
 }
 
 export default function InventoryPage({ setPage }: InventoryPageProps) {
@@ -63,7 +45,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
   const [countedQty, setCountedQty] = useState<number>(0);
   const [scanMode, setScanMode] = useState<boolean>(false);
   const [scannedCode, setScannedCode] = useState<string>("");
-  const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
+  const [toast, setToast] = useState<ToastState>(null);
   const [showAddItemModal, setShowAddItemModal] = useState(false);
   const [newItemCode, setNewItemCode] = useState<string>("");
   const [newItemDescription, setNewItemDescription] = useState<string>("");
@@ -287,8 +269,6 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
   };
 
   const resumeSession = async (session: InventorySession) => {
-    console.log("Resuming session:", session);
-    
     const updatedSession: InventorySession = {
       ...session,
       status: "active",
@@ -303,48 +283,40 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
 
     // Restore sequential counting state if it was in sequential mode
     if (session.countingMode === "sequential" && session.binRangeStart && session.binRangeEnd) {
-      console.log("Restoring sequential mode:", session.binRangeStart, "to", session.binRangeEnd);
-      
       const startBin = session.binRangeStart;
       const endBin = session.binRangeEnd;
       
       setStartBinFilter(startBin);
       setEndBinFilter(endBin);
       
-      // Rebuild sequential items from bins
-      const sortedBins = [...bins].sort((a, b) => compareBinCodes(a.BinCode, b.BinCode));
-      const filteredBins = sortedBins.filter((bin) => {
-        return isBinInRange(bin.BinCode, startBin, endBin);
-      });
-      
-      const items: SequentialCountItem[] = [];
-      filteredBins.forEach((bin) => {
-        bin.Items.forEach((item) => {
-          items.push({
-            binCode: bin.BinCode,
-            zone: bin.Zone,
-            itemCode: item.ItemCode,
-            description: item.Description,
-            expectedQty: item.Quantity,
-          });
-        });
-      });
-      
-      console.log("Rebuilt items:", items.length, "Current index:", session.currentItemIndex || 0);
-      
+      // Rebuild the list from the bins as they are now.
+      const selection = selectBinsForCount(bins, { mode: "range", startBin, endBin });
+      const items = selection.ok ? buildSequentialItems(selection.bins) : [];
+
       if (items.length > 0) {
         const itemIndex = Math.min(session.currentItemIndex || 0, items.length - 1);
         
         // Re-lock the bins
+        let relockWarning = "";
         try {
           const { api } = await import("../services/api");
           const username = currentUsername();
           
           await api.lockBins(startBin, endBin, session.id, session.name, username);
-          console.log("Bins re-locked successfully");
-        } catch (error) {
+        } catch (error: any) {
+          // Someone else locked these bins while this session was paused: do not count over them.
+          const conflict = Array.isArray(error?.details?.conflicts) ? error.details.conflicts[0] : undefined;
+          if (error?.status === 409 && conflict) {
+            showToast(
+              `❌ Bins ${conflict.startBin} to ${conflict.endBin} are being counted by ${conflict.username} (${conflict.sessionName})`,
+              "error"
+            );
+            setCountingMode("cycle");
+            setShowSessionModal(false);
+            return;
+          }
           console.error("Error re-locking bins:", error);
-          // Continue anyway, non-critical
+          relockWarning = " (could not re-lock the bins: server unreachable)";
         }
         
         // Set all state in correct order
@@ -354,12 +326,11 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
         setNumpadValue("");
         
         // IMPORTANT: Force switch to sequential mode
-        console.log("Setting countingMode to sequential");
         setCountingMode("sequential");
         
         setShowSessionModal(false);
         
-        showToast(`✅ Resumed: ${session.name} - Item ${itemIndex + 1} of ${items.length}`, "success");
+        showToast(`✅ Resumed: ${session.name} - Item ${itemIndex + 1} of ${items.length}${relockWarning}`, relockWarning ? "info" : "success");
       } else {
         showToast(`⚠️ No items found in bin range ${startBin} to ${endBin}`, "error");
         setCountingMode("cycle");
@@ -662,69 +633,19 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
       return;
     }
 
-    // Debug: Log bins array
-    console.log("Total bins available:", bins.length);
-    if (bins.length > 0) {
-      console.log("Sample bin codes:", bins.slice(0, 5).map(b => b.BinCode));
+    const selection = selectBinsForCount(bins, {
+      mode: filterMode,
+      aisle: aisleFilter,
+      startBin: startBinFilter,
+      endBin: endBinFilter,
+    });
+    if (!selection.ok) {
+      showToast(selection.message, "error");
+      return;
     }
-
-    let startBin = "";
-    let endBin = "";
-    let filteredBins: BinLocation[] = [];
-
-    // Sort bins alphabetically first
-    const sortedBins = [...bins].sort((a, b) => compareBinCodes(a.BinCode, b.BinCode));
-
-    if (filterMode === "aisle") {
-      // Aisle prefix filter
-      if (!aisleFilter.trim()) {
-        showToast("⚠️ Please enter an aisle code", "error");
-        return;
-      }
-
-      const aislePrefix = aisleFilter.trim().toUpperCase();
-      console.log("Filtering by aisle prefix:", aislePrefix);
-      
-      filteredBins = sortedBins.filter((bin) => bin.BinCode.startsWith(aislePrefix));
-      
-      console.log("Filtered bins count:", filteredBins.length);
-      if (filteredBins.length > 0) {
-        console.log("First 5 filtered bins:", filteredBins.slice(0, 5).map(b => b.BinCode));
-      }
-
-      if (filteredBins.length === 0) {
-        showToast(`⚠️ No bins found starting with "${aislePrefix}". Check your bin codes format.`, "error");
-        return;
-      }
-
-      // Set start/end for locking purposes
-      startBin = filteredBins[0].BinCode;
-      endBin = filteredBins[filteredBins.length - 1].BinCode;
-      console.log("Range for aisle:", startBin, "to", endBin);
-
-    } else {
-      // Range filter
-      if (!startBinFilter.trim() || !endBinFilter.trim()) {
-        showToast("⚠️ Please enter both start and end bin codes", "error");
-        return;
-      }
-
-      startBin = startBinFilter.trim().toUpperCase();
-      endBin = endBinFilter.trim().toUpperCase();
-
-      // Filter bins within range (inclusive)
-      filteredBins = sortedBins.filter((bin) => {
-        return isBinInRange(bin.BinCode, startBin, endBin);
-      });
-
-      if (filteredBins.length === 0) {
-        showToast("⚠️ No bins found in the specified range", "error");
-        return;
-      }
-    }
+    const { bins: filteredBins, startBin, endBin } = selection;
 
     try {
-      console.log("Checking bin availability...");
       // Check if bins are available (not locked by another user)
       const { api } = await import("../services/api");
       const availability = await api.checkBinAvailability(startBin, endBin, currentSession.id);
@@ -738,21 +659,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
         return;
       }
 
-      // Build sequential items list
-      const items: SequentialCountItem[] = [];
-      filteredBins.forEach((bin) => {
-        bin.Items.forEach((item) => {
-          items.push({
-            binCode: bin.BinCode,
-            zone: bin.Zone,
-            itemCode: item.ItemCode,
-            description: item.Description,
-            expectedQty: item.Quantity,
-          });
-        });
-      });
-
-      console.log("Total items to count:", items.length);
+      const items = buildSequentialItems(filteredBins);
 
       if (items.length === 0) {
         showToast("⚠️ No items found in the selected bins", "error");
@@ -762,10 +669,8 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
       // Get username for locking
       const username = currentUsername();
 
-      console.log("Locking bins...");
       // Lock the bin range
       await api.lockBins(startBin, endBin, currentSession.id, currentSession.name, username);
-      console.log("Bins locked successfully");
 
       // Update session with bin range info
       const updatedSession: InventorySession = {
@@ -789,13 +694,11 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
       setStartBinFilter(startBin);
       setEndBinFilter(endBin);
       
-      console.log("Setting counting mode to sequential");
       setCountingMode("sequential");
       setShowBinRangeModal(false);
       
       const aisleInfo = filterMode === "aisle" ? ` (Aisle: ${aisleFilter})` : "";
       showToast(`✅ Loaded ${items.length} items from ${filteredBins.length} bins${aisleInfo}`, "success");
-      console.log("Sequential count started successfully");
     } catch (error: any) {
       console.error("Error starting sequential count:", error);
       // 409 from /api/bins/lock: another session locked an overlapping range
@@ -932,22 +835,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
       return;
     }
 
-    // Build CSV content
-    const headers = ["Session ID", "Session Name", "Username", "Timestamp", "Bin Code", "Item Code", "Description", "Expected Qty", "Counted Qty", "Variance"];
-    const rows = sessionLogs.map((log) => [
-      log.sessionId,
-      log.sessionName,
-      log.username,
-      log.timestamp,
-      log.binCode,
-      log.itemCode,
-      log.description,
-      log.expectedQty.toString(),
-      log.countedQty.toString(),
-      log.variance.toString(),
-    ]);
-
-    const csvContent = [headers, ...rows].map((row) => row.join(",")).join("\n");
+    const csvContent = countLogsToCsv(sessionLogs);
 
     // Download CSV
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
@@ -1022,17 +910,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
       // Use the existing parseCSV which returns Item[]
       const parsedItems = await parseCSV(file);
       
-      // Convert Item[] to CycleCount[]
-      const newCycleCounts: CycleCount[] = parsedItems.map((item, index) => ({
-        id: `full-count-${Date.now()}-${index}`,
-        BinCode: item.BinCode,
-        ItemCode: item.ItemCode,
-        ExpectedQty: item.ExpectedQty,
-        // The uploaded file contains the counted quantity
-        CountedQty: item.CountedQty ?? 0, 
-        Variance: item.Variance ?? 0,
-        Status: item.CountedQty !== undefined ? "counted" : "pending", // Mark as counted if Qty is present
-      }));
+      const newCycleCounts = uploadedRowsToCounts(parsedItems);
 
       setFullCountItems(newCycleCounts);
       setFullCountStatus(`✅ Loaded ${newCycleCounts.length} items from ${fileType} file. Ready to process.`);
@@ -1110,171 +988,24 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     setCountingMode("cycle"); // Switch back to cycle view
   };
 
-  // Initialize scanner when scan mode is enabled
-  useEffect(() => {
-    if (scanMode && videoRef.current) {
-      Quagga.init(
-        {
-          inputStream: {
-            type: "LiveStream",
-            target: videoRef.current,
-            constraints: {
-              facingMode: "environment",
-            },
-          },
-          decoder: {
-            readers: ["code_128_reader", "ean_reader", "upc_reader"],
-          },
-        },
-        (err) => {
-          if (err) {
-            console.error("Quagga init error:", err);
-            showToast("Failed to start camera", "error");
-            return;
-          }
-          Quagga.start();
-        }
-      );
-
-      Quagga.onDetected((result) => {
-        const code = result.codeResult.code;
-        if (code && code !== scannedCode) {
-          handleScan(code);
-        }
-      });
-
-      return () => {
-        Quagga.stop();
-        Quagga.offDetected(() => {});
-      };
-    }
-  }, [scanMode]);
-
-  // Initialize scanner for session tracking form
-  useEffect(() => {
-    if (sessionTrackingScanMode && sessionTrackingVideoRef.current) {
-      Quagga.init(
-        {
-          inputStream: {
-            type: "LiveStream",
-            target: sessionTrackingVideoRef.current,
-            constraints: {
-              facingMode: "environment",
-            },
-          },
-          decoder: {
-            readers: ["code_128_reader", "ean_reader", "upc_reader"],
-          },
-        },
-        (err) => {
-          if (err) {
-            console.error("Quagga init error:", err);
-            showToast("Failed to start camera", "error");
-            return;
-          }
-          Quagga.start();
-        }
-      );
-
-      Quagga.onDetected((result) => {
-        const code = result.codeResult.code;
-        if (code) {
-          setSessionTrackingItemCode(code);
-          setSessionTrackingScanMode(false);
-          showToast(`✅ Scanned: ${code}`, "success");
-        }
-      });
-
-      return () => {
-        Quagga.stop();
-        Quagga.offDetected(() => {});
-      };
-    }
-  }, [sessionTrackingScanMode]);
-
-  // Initialize scanner for temp location tracking form
-  useEffect(() => {
-    if (tempTrackingScanMode && tempTrackingVideoRef.current) {
-      Quagga.init(
-        {
-          inputStream: {
-            type: "LiveStream",
-            target: tempTrackingVideoRef.current,
-            constraints: {
-              facingMode: "environment",
-            },
-          },
-          decoder: {
-            readers: ["code_128_reader", "ean_reader", "upc_reader"],
-          },
-        },
-        (err) => {
-          if (err) {
-            console.error("Quagga init error:", err);
-            showToast("Failed to start camera", "error");
-            return;
-          }
-          Quagga.start();
-        }
-      );
-
-      Quagga.onDetected((result) => {
-        const code = result.codeResult.code;
-        if (code) {
-          setTempTrackingItemCode(code);
-          setTempTrackingScanMode(false);
-          showToast(`✅ Scanned: ${code}`, "success");
-        }
-      });
-
-      return () => {
-        Quagga.stop();
-        Quagga.offDetected(() => {});
-      };
-    }
-  }, [tempTrackingScanMode]);
-
-  // Initialize scanner for detail view
-  useEffect(() => {
-    if (detailViewScanMode && detailViewVideoRef.current) {
-      Quagga.init(
-        {
-          inputStream: {
-            type: "LiveStream",
-            target: detailViewVideoRef.current,
-            constraints: {
-              facingMode: "environment",
-            },
-          },
-          decoder: {
-            readers: ["code_128_reader", "ean_reader", "upc_reader"],
-          },
-        },
-        (err) => {
-          if (err) {
-            console.error("Quagga init error:", err);
-            showToast("Failed to start camera", "error");
-            return;
-          }
-          Quagga.start();
-        }
-      );
-
-      Quagga.onDetected((result) => {
-        const code = result.codeResult.code;
-        if (code) {
-          setDetailViewItemCode(code);
-          setDetailViewScanMode(false);
-          showToast(`✅ Scanned: ${code}`, "success");
-        }
-      });
-
-      return () => {
-        Quagga.stop();
-        Quagga.offDetected(() => {});
-      };
-    }
-  }, [detailViewScanMode]);
+  // Camera scanners. Only one is open at a time; each closes itself once it reads a code.
+  const cameraFailed = () => showToast("Failed to start camera", "error");
+  useBarcodeScanner(scanMode, videoRef, (code) => handleScan(code), cameraFailed);
+  useBarcodeScanner(sessionTrackingScanMode, sessionTrackingVideoRef, (code) => {
+    setSessionTrackingItemCode(code);
+    setSessionTrackingScanMode(false);
+    showToast(`✅ Scanned: ${code}`, "success");
+  }, cameraFailed);
+  useBarcodeScanner(tempTrackingScanMode, tempTrackingVideoRef, (code) => {
+    setTempTrackingItemCode(code);
+    setTempTrackingScanMode(false);
+    showToast(`✅ Scanned: ${code}`, "success");
+  }, cameraFailed);
+  useBarcodeScanner(detailViewScanMode, detailViewVideoRef, (code) => {
+    setDetailViewItemCode(code);
+    setDetailViewScanMode(false);
+    showToast(`✅ Scanned: ${code}`, "success");
+  }, cameraFailed);
 
   // Handle barcode scan
   const handleScan = (code: string) => {
@@ -1395,166 +1126,25 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
   // IMPORTANT: Check sequential mode FIRST (before cycle mode)
   // This ensures "Continue Counting" navigates to sequential UI immediately
   if (countingMode === "sequential" && sequentialItems.length > 0) {
-    const currentItem = sequentialItems[currentItemIndex];
-    const progress = ((currentItemIndex + 1) / sequentialItems.length) * 100;
-
     return (
-      <div className="p-4 max-w-4xl mx-auto">
-        <div className="flex justify-between items-center mb-4">
-          <button
-            onClick={exitSequentialMode}
-            className="text-gray-600 hover:text-gray-800"
-          >
-            <ArrowLeft size={24} />
-          </button>
-          <h1 className="text-xl font-bold flex items-center gap-2">
-            <ClipboardCheck className="text-green-600" />
-            Counting: {currentSession?.name}
-          </h1>
-          <button
-            onClick={() => {
-              if (confirm("Export current session logs?")) {
-                exportSessionLogsToCSV();
-              }
-            }}
-            className="text-blue-600 hover:text-blue-800"
-          >
-            <Download size={20} />
-          </button>
-        </div>
-
-        {/* Toast (this screen had none, so count results and warnings were invisible) */}
-        {toast && (
-          <div
-            className={`fixed top-20 left-1/2 transform -translate-x-1/2 z-50 px-6 py-3 rounded-lg shadow-lg ${
-              toast.type === "success"
-                ? "bg-green-500 text-white"
-                : toast.type === "error"
-                ? "bg-red-500 text-white"
-                : "bg-blue-500 text-white"
-            }`}
-          >
-            {toast.message}
-          </div>
-        )}
-
-        {/* Progress Bar */}
-        <div className="mb-6">
-          <div className="flex justify-between text-sm text-gray-600 mb-2">
-            <span>Item {currentItemIndex + 1} of {sequentialItems.length}</span>
-            <span>{Math.round(progress)}% Complete</span>
-          </div>
-          <div className="w-full bg-gray-200 rounded-full h-3">
-            <div
-              className="bg-green-600 h-3 rounded-full transition-all duration-300"
-              style={{ width: `${progress}%` }}
-            />
-          </div>
-        </div>
-
-        {/* Current Item Card */}
-        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
-          <div className="grid grid-cols-2 gap-4 mb-6">
-            <div>
-              <label className="text-sm text-gray-600">Bin Location</label>
-              <div className="text-2xl font-bold text-blue-600">{currentItem.binCode}</div>
-            </div>
-            <div>
-              <label className="text-sm text-gray-600">Zone</label>
-              <div className="text-2xl font-bold text-gray-800">{currentItem.zone}</div>
-            </div>
-          </div>
-
-          <div className="mb-6">
-            <label className="text-sm text-gray-600">Item Code</label>
-            <div className="text-xl font-bold text-gray-900">{currentItem.itemCode}</div>
-          </div>
-
-          <div className="mb-6">
-            <label className="text-sm text-gray-600">Description</label>
-            <div className="text-gray-800">{currentItem.description}</div>
-          </div>
-
-          <div className="mb-6 p-4 bg-blue-50 rounded-md">
-            <label className="text-sm text-gray-600">Expected Quantity</label>
-            <div className="text-3xl font-bold text-blue-600">{currentItem.expectedQty}</div>
-          </div>
-
-          {/* Quantity Input */}
-          <div className="mb-6">
-            <label className="block text-sm font-medium mb-2">Counted Quantity</label>
-            <input
-              type="number"
-              value={numpadValue || countedQty}
-              onChange={(e) => {
-                const val = parseInt(e.target.value) || 0;
-                setCountedQty(val);
-                setNumpadValue(e.target.value);
-              }}
-              className="w-full text-3xl font-bold text-center border-2 border-gray-300 rounded-md p-4"
-              autoFocus
-            />
-          </div>
-
-          {/* Numpad */}
-          <div className="grid grid-cols-3 gap-2 mb-6">
-            {[1, 2, 3, 4, 5, 6, 7, 8, 9, "C", 0, "OK"].map((btn) => (
-              <button
-                key={btn}
-                onClick={() => handleNumpadClick(String(btn))}
-                className={`py-4 text-2xl font-bold rounded-md ${
-                  btn === "OK"
-                    ? "bg-green-600 text-white hover:bg-green-700"
-                    : btn === "C"
-                    ? "bg-red-600 text-white hover:bg-red-700"
-                    : "bg-gray-200 text-gray-800 hover:bg-gray-300"
-                }`}
-              >
-                {btn === "OK" ? "✓" : btn}
-              </button>
-            ))}
-          </div>
-
-          {/* Action Buttons */}
-          <div className="grid grid-cols-2 gap-3">
-            <button
-              onClick={goToPreviousItem}
-              disabled={currentItemIndex === 0}
-              className="py-3 px-4 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-            >
-              <ChevronLeft size={20} />
-              Previous
-            </button>
-            <button
-              onClick={skipCurrentItem}
-              disabled={currentItemIndex >= sequentialItems.length - 1}
-              className="py-3 px-4 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-            >
-              Skip
-              <ChevronRight size={20} />
-            </button>
-          </div>
-        </div>
-
-        {/* Session Stats */}
-        {currentSession && (
-          <div className="bg-gray-50 rounded-lg p-4">
-            <h3 className="font-semibold mb-2">Session Statistics</h3>
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div>
-                <span className="text-gray-600">Items Counted:</span>
-                <span className="ml-2 font-bold">
-                  {sessionCountLogs.filter((log) => log.sessionId === currentSession.id).length}
-                </span>
-              </div>
-              <div>
-                <span className="text-gray-600">Remaining:</span>
-                <span className="ml-2 font-bold">{Math.max(0, sequentialItems.length - currentItemIndex)}</span>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
+      <SequentialCountScreen
+        sessionName={currentSession?.name}
+        items={sequentialItems}
+        index={currentItemIndex}
+        numpadValue={numpadValue}
+        countedQty={countedQty}
+        countedInSession={currentSession ? sessionCountLogs.filter((log) => log.sessionId === currentSession.id).length : 0}
+        toast={toast}
+        onExit={exitSequentialMode}
+        onExport={exportSessionLogsToCSV}
+        onNumpad={handleNumpadClick}
+        onTyped={(qty, raw) => {
+          setCountedQty(qty);
+          setNumpadValue(raw);
+        }}
+        onPrevious={goToPreviousItem}
+        onSkip={skipCurrentItem}
+      />
     );
   }
 
@@ -1659,19 +1249,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
         </div>
 
         {/* Toast */}
-        {toast && (
-          <div
-            className={`fixed top-20 left-1/2 transform -translate-x-1/2 z-50 px-6 py-3 rounded-lg shadow-lg ${
-              toast.type === "success"
-                ? "bg-green-500 text-white"
-                : toast.type === "error"
-                ? "bg-red-500 text-white"
-                : "bg-blue-500 text-white"
-            }`}
-          >
-            {toast.message}
-          </div>
-        )}
+        <ToastBanner toast={toast} />
 
         {/* Scan Mode */}
         {scanMode ? (
@@ -1929,187 +1507,34 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
 
         {/* Bin Range Filter Modal */}
         {showBinRangeModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-xl font-bold">Select Bins to Count</h3>
-                <button
-                  onClick={() => {
-                    setShowBinRangeModal(false);
-                    setStartBinFilter("");
-                    setEndBinFilter("");
-                    setAisleFilter("");
-                  }}
-                  className="text-gray-500 hover:text-gray-700"
-                >
-                  <X size={20} />
-                </button>
-              </div>
-
-              {/* Filter Mode Toggle */}
-              <div className="mb-4">
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    onClick={() => setFilterMode("aisle")}
-                    className={`py-2 px-4 rounded-md font-medium ${
-                      filterMode === "aisle"
-                        ? "bg-green-600 text-white"
-                        : "bg-gray-200 text-gray-700 hover:bg-gray-300"
-                    }`}
-                  >
-                    By Aisle
-                  </button>
-                  <button
-                    onClick={() => setFilterMode("range")}
-                    className={`py-2 px-4 rounded-md font-medium ${
-                      filterMode === "range"
-                        ? "bg-green-600 text-white"
-                        : "bg-gray-200 text-gray-700 hover:bg-gray-300"
-                    }`}
-                  >
-                    By Range
-                  </button>
-                </div>
-              </div>
-
-              {/* Aisle Filter */}
-              {filterMode === "aisle" && (
-                <div>
-                  <p className="text-sm text-gray-600 mb-4">
-                    Enter an aisle code to count all bins in that aisle (e.g., "01-1" for all bins starting with 01-1).
-                  </p>
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Aisle Code</label>
-                      <input
-                        type="text"
-                        value={aisleFilter}
-                        onChange={(e) => setAisleFilter(e.target.value.toUpperCase())}
-                        placeholder="e.g., 01-1"
-                        className="w-full border border-gray-300 rounded-md px-3 py-2 text-lg"
-                        autoFocus
-                      />
-                      <p className="text-xs text-gray-500 mt-1">
-                        This will select all bins like: 01-1001, 01-1002, 01-1003, etc.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Range Filter */}
-              {filterMode === "range" && (
-                <div>
-                  <p className="text-sm text-gray-600 mb-4">
-                    Enter the start and end bin codes to count all items within that range (inclusive).
-                  </p>
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Start Bin Code</label>
-                      <input
-                        type="text"
-                        value={startBinFilter}
-                        onChange={(e) => setStartBinFilter(e.target.value.toUpperCase())}
-                        placeholder="e.g., 01-0001"
-                        className="w-full border border-gray-300 rounded-md px-3 py-2"
-                        autoFocus
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">End Bin Code</label>
-                      <input
-                        type="text"
-                        value={endBinFilter}
-                        onChange={(e) => setEndBinFilter(e.target.value.toUpperCase())}
-                        placeholder="e.g., 01-0100"
-                        className="w-full border border-gray-300 rounded-md px-3 py-2"
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              <div className="mt-6 flex gap-2">
-                <button
-                  onClick={startSequentialCount}
-                  className="flex-1 bg-green-600 text-white py-3 rounded-md hover:bg-green-700 font-medium text-lg"
-                >
-                  Start Counting
-                </button>
-                <button
-                  onClick={() => {
-                    setShowBinRangeModal(false);
-                    setStartBinFilter("");
-                    setEndBinFilter("");
-                    setAisleFilter("");
-                  }}
-                  className="px-4 bg-gray-200 text-gray-700 py-3 rounded-md hover:bg-gray-300"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          </div>
+          <BinRangeModal
+            filterMode={filterMode}
+            aisle={aisleFilter}
+            startBin={startBinFilter}
+            endBin={endBinFilter}
+            onFilterMode={setFilterMode}
+            onAisle={setAisleFilter}
+            onStartBin={setStartBinFilter}
+            onEndBin={setEndBinFilter}
+            onStart={startSequentialCount}
+            onClose={() => {
+              setShowBinRangeModal(false);
+              setStartBinFilter("");
+              setEndBinFilter("");
+              setAisleFilter("");
+            }}
+          />
         )}
 
         {/* Bin Info Modal */}
         {showBinInfoModal && scannedBinInfo && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 max-h-[80vh] overflow-y-auto">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-xl font-bold">Bin: {scannedBinInfo.BinCode}</h3>
-                <button
-                  onClick={() => {
-                    setShowBinInfoModal(false);
-                    setScannedBinInfo(null);
-                  }}
-                  className="text-gray-500 hover:text-gray-700"
-                >
-                  <X size={20} />
-                </button>
-              </div>
-
-              <div className="mb-4 p-3 bg-blue-50 rounded-md">
-                <div className="text-sm text-gray-600 mb-1">Zone</div>
-                <div className="text-lg font-bold text-blue-900">{scannedBinInfo.Zone}</div>
-              </div>
-
-              <div className="mb-2">
-                <h4 className="font-semibold text-gray-700 mb-2">Items in This Bin:</h4>
-              </div>
-
-              {scannedBinInfo.Items && scannedBinInfo.Items.length > 0 ? (
-                <div className="space-y-3">
-                  {scannedBinInfo.Items.map((item, index) => (
-                    <div key={index} className="border border-gray-300 rounded-md p-3 bg-gray-50">
-                      <div className="font-medium text-gray-900">{item.ItemCode}</div>
-                      <div className="text-sm text-gray-600 mt-1">{item.Description}</div>
-                      <div className="mt-2 flex justify-between items-center">
-                        <span className="text-sm text-gray-600">Expected Qty:</span>
-                        <span className="font-bold text-lg text-green-600">{item.Quantity}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center text-gray-500 py-4">
-                  No items in this bin
-                </div>
-              )}
-
-              <div className="mt-6">
-                <button
-                  onClick={() => {
-                    setShowBinInfoModal(false);
-                    setScannedBinInfo(null);
-                  }}
-                  className="w-full bg-blue-600 text-white py-3 rounded-md hover:bg-blue-700 font-medium"
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-          </div>
+          <BinInfoModal
+            bin={scannedBinInfo}
+            onClose={() => {
+              setShowBinInfoModal(false);
+              setScannedBinInfo(null);
+            }}
+          />
         )}
 
         {/* Temporary Locations Modal */}
@@ -2231,91 +1656,15 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
   // Render full count UI
   if (countingMode === "full") {
     return (
-      <div className="p-4 max-w-4xl mx-auto">
-        <div className="flex justify-between items-center mb-4">
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Upload className="text-yellow-600" />
-            Full Inventory Count (Upload)
-          </h1>
-          <button
-            onClick={() => setCountingMode("cycle")}
-            className="bg-gray-200 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-300 text-sm flex items-center gap-2"
-          >
-            <X size={16} />
-            Cancel
-          </button>
-        </div>
-
-        <div className="bg-white rounded-lg shadow p-6 mb-6">
-          <h2 className="text-xl font-semibold mb-4">1. Upload Count File</h2>
-          <p className="text-gray-600 mb-4">
-            Upload a CSV or Excel file containing your full inventory count. The file must contain the following columns: 
-            <code className="font-mono bg-gray-100 p-1 rounded-md">BinCode</code>, 
-            <code className="font-mono bg-gray-100 p-1 rounded-md">ItemCode</code>, 
-            <code className="font-mono bg-gray-100 p-1 rounded-md">ExpectedQty</code>, and 
-            <code className="font-mono bg-gray-100 p-1 rounded-md">CountedQty</code>.
-          </p>
-          
-          <label className="block">
-            <span className="sr-only">Choose file</span>
-            <input
-              type="file"
-              accept=".csv, .xlsx, .xls"
-              onChange={handleFullCountFileUpload}
-              className="block w-full text-sm text-gray-500
-                file:mr-4 file:py-2 file:px-4
-                file:rounded-full file:border-0
-                file:text-sm file:font-semibold
-                file:bg-yellow-50 file:text-yellow-700
-                hover:file:bg-yellow-100"
-            />
-          </label>
-          <p className="mt-3 text-sm text-gray-500">{fullCountStatus}</p>
-        </div>
-
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-xl font-semibold mb-4">2. Process Count</h2>
-          <p className="text-gray-600 mb-4">
-            Once the file is uploaded and parsed, click the button below to apply the counted quantities to your inventory and log the cycle count transactions in the current session: 
-            <span className="font-medium text-blue-600">{currentSession?.name}</span>.
-          </p>
-          
-          <button
-            onClick={processFullCount}
-            disabled={fullCountItems.length === 0}
-            className={`w-full py-3 rounded-md font-medium flex items-center justify-center gap-2 transition-colors ${
-              fullCountItems.length > 0
-                ? "bg-green-600 text-white hover:bg-green-700"
-                : "bg-gray-300 text-gray-500 cursor-not-allowed"
-            }`}
-          >
-            <CheckCircle2 size={20} />
-            Process {fullCountItems.length} Counted Items
-          </button>
-          
-          {fullCountItems.length > 0 && (
-            <div className="mt-4 text-sm text-gray-500">
-              <p>Items loaded: {fullCountItems.length}</p>
-              <p>Items marked as counted: {fullCountItems.filter(c => c.Status === "counted").length}</p>
-            </div>
-          )}
-        </div>
-
-        {/* Toast */}
-        {toast && (
-          <div
-            className={`fixed top-20 left-1/2 transform -translate-x-1/2 z-50 px-6 py-3 rounded-lg shadow-lg ${
-              toast.type === "success"
-                ? "bg-green-500 text-white"
-                : toast.type === "error"
-                ? "bg-red-500 text-white"
-                : "bg-blue-500 text-white"
-            }`}
-          >
-            {toast.message}
-          </div>
-        )}
-      </div>
+      <FullCountScreen
+        sessionName={currentSession?.name}
+        items={fullCountItems}
+        status={fullCountStatus}
+        toast={toast}
+        onCancel={() => setCountingMode("cycle")}
+        onFile={handleFullCountFileUpload}
+        onProcess={processFullCount}
+      />
     );
   }
 
@@ -2341,19 +1690,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
       </button>
 
       {/* Toast */}
-      {toast && (
-        <div
-          className={`fixed top-20 left-1/2 transform -translate-x-1/2 z-50 px-6 py-3 rounded-lg shadow-lg ${
-            toast.type === "success"
-              ? "bg-green-500 text-white"
-              : toast.type === "error"
-              ? "bg-red-500 text-white"
-              : "bg-blue-500 text-white"
-          }`}
-        >
-          {toast.message}
-        </div>
-      )}
+      <ToastBanner toast={toast} />
 
       <div className="bg-white rounded-lg shadow p-6">
         <h2 className="text-2xl font-bold mb-2">{selectedCount.BinCode}</h2>

@@ -5,7 +5,7 @@ export interface DashboardStats {
 }
 export interface DashboardTimelineEntry { id: string; title: string; detail: string; tone: 'good' | 'warn' | 'neutral'; timestamp: string }
 export interface DashboardInput {
-  purchaseOrders?: any[] | null; salesOrders?: any[] | null; orders?: any[] | null; waves?: any[] | null;
+  purchaseOrders?: any[] | null; salesOrders?: any[] | null; pickWaves?: any[] | null;
   cycleCounts?: any[] | null; bins?: any[] | null; receivingTxns?: any[] | null; countTxns?: any[] | null;
   countVariances?: any[] | null; now?: Date;
 }

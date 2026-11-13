@@ -453,8 +453,7 @@ export async function demoRequest<T>(endpoint: string, options: RequestInit = {}
     return computeDashboard({
       purchaseOrders: demoRead("rf_purchase_orders"),
       salesOrders: demoRead("rf_sales_orders"),
-      orders: demoRead("rf_orders"),
-      waves: demoRead("rf_waves"),
+      pickWaves: demoRead("rf_pick_waves"),
       cycleCounts: demoRead("rf_cycle_counts"),
       bins: demoRead("rf_bins"),
       receivingTxns: demoRead("rf_receiving_txns"),
