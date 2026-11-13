@@ -48,3 +48,7 @@ Ideas that are not part of the current plan. Review at the end of each phase: pr
 - (10.1) Bin lock check-then-lock race: /api/bins/lock now checks and writes in one locked step and returns 409 on conflict. Tested with 8 concurrent lock attempts (exactly one wins).
 - Lock range comparison was text-based (10 sorted before 2). Fixed on the server and in the inventory page's range filter and sort. The range filter previously dropped bins, e.g. 3 to 9 inside 2 to 10.
 - (10.6) Count-log username "Unknown": verified fixed. Login stores the username in sessionStorage (useAuth) and the count log reads it there. The localStorage rf_users note above is out of date.
+
+## Found 2026-11-13 (task 15, slice 3)
+- The pick page still creates and updates legacy waves (rf_waves) and orders (rf_orders). The earlier note that these exist only in sample data is out of date. The dashboard's "pending orders" and "active waves" include them. Decide whether to retire the wave flow or keep it and show it separately.
+

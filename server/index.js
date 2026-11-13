@@ -13,6 +13,7 @@ import { store, ConflictError } from './store.js';
 import { registerOps } from './ops.js';
 import { registerMigration } from './migrate.js';
 import { findBinLockConflicts, isLockFresh } from './bin-range.js';
+import { computeDashboard } from './dashboard.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -626,6 +627,29 @@ app.post('/api/bins/unlock', authenticateToken, requireWriter, async (req, res) 
   } catch (error) {
     console.error('Error unlocking bins:', error);
     res.status(500).json({ error: 'Failed to unlock bins' });
+  }
+});
+
+// ============================================
+// DASHBOARD
+// ============================================
+
+// Whole-warehouse numbers from the shared files. Any signed-in user can read them.
+app.get('/api/dashboard', authenticateToken, async (req, res) => {
+  try {
+    const read = (key) => store.readJSON(path.join(DATA_DIR, `${key}.json`));
+    const [purchaseOrders, salesOrders, orders, waves, cycleCounts, bins, receivingTxns, countTxns, countVariances] =
+      await Promise.all([
+        'rf_purchase_orders', 'rf_sales_orders', 'rf_orders', 'rf_waves', 'rf_cycle_counts', 'rf_bins',
+        'rf_receiving_txns', 'rf_cycle_count_txns', 'rf_count_variances',
+      ].map(read));
+    res.json(computeDashboard({
+      purchaseOrders, salesOrders, orders, waves, cycleCounts, bins,
+      receivingTxns, countTxns, countVariances,
+    }));
+  } catch (error) {
+    console.error('Error building dashboard:', error);
+    res.status(500).json({ error: 'Failed to load dashboard' });
   }
 });
 

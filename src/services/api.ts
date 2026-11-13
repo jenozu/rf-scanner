@@ -296,6 +296,19 @@ class ApiClient {
     );
   }
 
+  /** Whole-warehouse dashboard numbers, computed on the server. */
+  async dashboard() {
+    return this.request<{
+      generatedAt: string;
+      stats: {
+        pendingPOs: number; receivingPOs: number; pendingOrders: number; activeWaves: number;
+        pendingCounts: number; completedCounts: number; totalBins: number; accuracy: number;
+        readyToShip: number; shipped: number; pendingApprovals: number;
+      };
+      timeline: Array<{ id: string; title: string; detail: string; tone: "good" | "warn" | "neutral"; timestamp: string }>;
+    }>("/dashboard");
+  }
+
   /** Admin only: approve (applies the counted quantity) or reject a pending variance. */
   decideVariance(id: string, decision: "approve" | "reject") {
     return this.post<{ ok: true; status: string; changedSinceCount?: boolean; previousQty?: number; newQty?: number }>(
