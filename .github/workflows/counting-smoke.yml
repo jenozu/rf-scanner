@@ -1,0 +1,41 @@
+name: Counting smoke test
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  counting-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium for the smoke test
+        run: npx playwright-core install --with-deps chromium
+
+      - name: Start the demo build
+        run: |
+          VITE_DEMO_MODE=true npx vite --host 127.0.0.1 --port 4173 --strictPort > /tmp/vite.log 2>&1 &
+          for attempt in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:4173 > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/vite.log
+          exit 1
+
+      - name: Run counting smoke test
+        run: npm run smoke:counting
