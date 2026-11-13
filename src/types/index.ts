@@ -138,6 +138,20 @@ export interface Wave {
 }
 
 /**
+ * Pick wave: a set of sales orders picked together, line by line, by bin.
+ * Open lines are worked out from the sales orders; `picked` lists only the wave's own picks.
+ */
+export interface PickWave {
+  id: string;
+  waveNumber: string;
+  soIds: string[];
+  /** Lines picked or reported short since the wave was made ("<soId>|<LineKey>"). Earlier deliveries are not listed. */
+  picked?: string[];
+  createdBy: string;
+  createdAt: string;
+}
+
+/**
  * Bin Location for warehouse management
  */
 export interface BinLocation {

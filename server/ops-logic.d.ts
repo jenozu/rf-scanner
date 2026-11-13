@@ -43,3 +43,7 @@ export const WAREHOUSE_NAMES: Record<string, string>;
 export const CUSTOMER_WAREHOUSE: string;
 export function normalizeWarehouse(value: unknown): string;
 export function isCustomerWarehouse(warehouse: unknown): boolean;
+export function validateWaveCreate(body: any): OpFailure | null;
+export function applyWaveCreate(state: { waves?: any[] | null; sos?: any[] | null }, body: any, user?: { username?: string; role?: string } | null): OpOutcome;
+export function validateWaveDelete(body: any): OpFailure | null;
+export function applyWaveDelete(state: { waves?: any[] | null; sos?: any[] | null }, body: any, user?: { username?: string; role?: string } | null): OpOutcome;

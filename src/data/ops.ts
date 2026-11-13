@@ -57,7 +57,7 @@ export function assignItemBin(params: ApiParams<"assignItemBin">[0]) {
 /** Pick against one sales-order line and take the stock from its bin. */
 export function pickSalesOrderLine(params: ApiParams<"pickSalesOrderLine">[0]) {
   return dataStore.mutate(() => api.pickSalesOrderLine(params), {
-    reload: ["rf_sales_orders", "rf_bins"],
+    reload: ["rf_sales_orders", "rf_bins", "rf_pick_waves"],
   });
 }
 
@@ -122,6 +122,16 @@ export async function saveRecordChanges<T extends { id: string }>(key: RecordKey
 /** Submit counts. Stock changes only for approved variances; the bins reload from the server. */
 export function submitCounts(counts: Parameters<typeof api.submitCounts>[0]) {
   return dataStore.mutate(() => api.submitCounts(counts), { reload: ["rf_bins", "rf_count_variances"] });
+}
+
+/** Admin only: group sales orders into a pick wave. */
+export function createWave(soIds: string[]) {
+  return dataStore.mutate(() => api.createWave(soIds), { reload: ["rf_pick_waves"] });
+}
+
+/** Admin only: delete a pick wave that has no picks yet. */
+export function deleteWave(id: string) {
+  return dataStore.mutate(() => api.deleteWave(id), { reload: ["rf_pick_waves"] });
 }
 
 /** Admin only: approve or reject a pending count variance. */

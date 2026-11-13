@@ -1,37 +1,65 @@
-import React, { useState, useEffect, useRef } from "react";
-import { Wave, Order, OrderItem, BinLocation, SalesOrder, SOItem } from "../types";
-import { useCollection } from "../data/hooks";
-import { adjustBin, assignSoBin, pickSalesOrderLine, upsertRecord, deleteRecord } from "../data/ops";
+import React, { useState, useEffect, useRef, useMemo } from "react";
+import { BinLocation, PickWave, SalesOrder, SOItem } from "../types";
+import { useCollection, dataStore } from "../data/hooks";
+import { assignSoBin, pickSalesOrderLine, deleteRecord, createWave, deleteWave } from "../data/ops";
 import OrderDeleteButton from "../components/order-delete-button";
 import { checkStock, summarizeStock } from "../data/stock-check";
 import StockNotice from "../components/stock-notice";
 import BinAssignPanel from "../components/bin-assign-panel";
 import WarehouseBadge from "../components/warehouse-badge";
 import { classifyBin } from "../../server/ops-logic.js";
-import { dataStore } from "../data/hooks";
+import { hasOpenLines, ordersInOpenWaves, waveMembers, waveProgress } from "../../server/waves.js";
+import { compareBinCodes } from "../utils/bin-order";
+import { useAuth } from "../hooks/useAuth";
 import { errorCode, errorDetail, findLine, lineRef, newTxnId, sameItemCode, type LineRef } from "../data/line-ref";
-import { Truck, Package, MapPin, Check, AlertTriangle, ShoppingCart } from "lucide-react";
+import { Truck, Package, MapPin, Check, ShoppingCart } from "lucide-react";
 
 type SoPick = { so: SalesOrder; item: SOItem; lineIndex: number; ref: LineRef };
+
+// What the picker is working on: one sales order, or a wave of several.
+type ActivePick = { title: string; subtitle: string };
 
 interface PickPageProps {
   setPage: (page: any) => void;
 }
 
+// Real bins first, then bin order (numeric-aware, so "10" comes after "2").
+function sortForPicking(picks: SoPick[]): SoPick[] {
+  return picks.sort((a, b) => {
+    const realA = classifyBin(a.item.BinCode, a.item.Warehouse).real;
+    const realB = classifyBin(b.item.BinCode, b.item.Warehouse).real;
+    if (realA !== realB) return realA ? 1 : -1;
+    return compareBinCodes(a.item.BinCode || "", b.item.BinCode || "");
+  });
+}
+
+// Lines of one order that still have something to pick.
+function openPicks(so: SalesOrder): SoPick[] {
+  const picks: SoPick[] = [];
+  so.items.forEach((item, lineIndex) => {
+    // Lines SAP no longer lists are closed: they cannot be picked.
+    if ((item.RemainingQty || 0) > 0 && !item.SapClosed) picks.push({ so, item, lineIndex, ref: lineRef(item, lineIndex) });
+  });
+  return picks;
+}
+
 export default function PickPage({ setPage }: PickPageProps) {
   // Shared server data (the same on every device); refreshes on focus and every 30 s.
-  const { data: waves } = useCollection<Wave[]>("rf_waves", []);
-  const { data: orders } = useCollection<Order[]>("rf_orders", []);
+  const { data: waves } = useCollection<PickWave[]>("rf_pick_waves", []);
   const { data: salesOrders } = useCollection<SalesOrder[]>("rf_sales_orders", []);
   const { data: bins } = useCollection<BinLocation[]>("rf_bins", []);
+  const { currentUser } = useAuth();
+  const isAdmin = currentUser?.role === "admin";
+
   const [isSaving, setIsSaving] = useState(false);
-  const [selectedWave, setSelectedWave] = useState<Wave | null>(null);
-  const [selectedSalesOrder, setSelectedSalesOrder] = useState<SalesOrder | null>(null);
-  const [waveOrders, setWaveOrders] = useState<Order[]>([]);
-  const [currentPickIndex, setCurrentPickIndex] = useState(0);
-  const [pickList, setPickList] = useState<{ order: Order; item: OrderItem; itemIndex: number }[]>([]);
+  // Sales orders ticked for the next wave (admin only).
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [creatingWave, setCreatingWave] = useState(false);
+  // Set while a sales order or a wave is being picked; null on the list screens.
+  const [activePick, setActivePick] = useState<ActivePick | null>(null);
   // ref = the line's key (or its position for orders from before line keys): picks act on that exact line.
   const [soPickList, setSoPickList] = useState<SoPick[]>([]);
+  const [currentPickIndex, setCurrentPickIndex] = useState(0);
   const [pickedQty, setPickedQty] = useState<number>(0);
   // Confirming a pick: the item must be scanned; a quantity below what is open is a short pick
   // and needs a reason; a bin that shows less stock than the pick needs a deliberate "take it anyway".
@@ -55,31 +83,42 @@ export default function PickPage({ setPage }: PickPageProps) {
     setToast({ message, type });
   };
 
-  // Select Sales Order and build pick list
-  const handleSelectSalesOrder = (so: SalesOrder) => {
-    setSelectedSalesOrder(so);
-    
-    // Build pick list from SO items that need picking
-    const picks: SoPick[] = [];
-    so.items.forEach((item, lineIndex) => {
-      // Lines SAP no longer lists are closed: they cannot be picked.
-      if ((item.RemainingQty || 0) > 0 && !item.SapClosed) picks.push({ so, item, lineIndex, ref: lineRef(item, lineIndex) });
-    });
-    sessionHadShort.current = false;
+  // Wave bookkeeping, all worked out from the sales orders on the server.
+  const sosById = useMemo(() => Object.fromEntries(salesOrders.map((s) => [s.id, s])), [salesOrders]);
+  const orderIdsInOpenWaves = useMemo(() => ordersInOpenWaves(waves, sosById), [waves, sosById]);
+  const openWaveOf = (soId: string) =>
+    waves.find((w) => w.soIds.includes(soId) && waveProgress(w, sosById).status !== "completed");
+  const isPickable = (so: SalesOrder) =>
+    (so.status === "pending" || so.status === "picking") && hasOpenLines(so);
+  const canAddToWave = (so: SalesOrder) => isPickable(so) && !orderIdsInOpenWaves.has(so.id);
+  const activeWaves = waves.filter((w) => waveProgress(w, sosById).status !== "completed");
 
-    // Lines that need a bin come first (so they are handled up front), then by bin for efficient picking
-    picks.sort((a, b) => {
-      const realA = classifyBin(a.item.BinCode, a.item.Warehouse).real;
-      const realB = classifyBin(b.item.BinCode, b.item.Warehouse).real;
-      if (realA !== realB) return realA ? 1 : -1;
-      const binA = a.item.BinCode || "";
-      const binB = b.item.BinCode || "";
-      return binA.localeCompare(binB);
-    });
-    
-    setSoPickList(picks);
+  const startPicks = (picks: SoPick[], pick: ActivePick) => {
+    sessionHadShort.current = false;
+    setSoPickList(sortForPicking(picks));
     setCurrentPickIndex(0);
+    setActivePick(pick);
     // The order becomes "picking" on the server with the first confirmed pick.
+  };
+
+  const handleSelectSalesOrder = (so: SalesOrder) => {
+    startPicks(openPicks(so), { title: `SO #${so.soNumber}`, subtitle: so.customer });
+  };
+
+  // A wave's pick list is every open line of every order in it, sorted by bin.
+  const handleStartWave = (wave: PickWave) => {
+    const members = waveMembers(wave, sosById) as SalesOrder[];
+    const picks = members.flatMap((so) => openPicks(so));
+    startPicks(picks, {
+      title: `Wave ${wave.waveNumber}`,
+      subtitle: `${members.length} ${members.length === 1 ? "order" : "orders"}`,
+    });
+  };
+
+  const exitPicks = () => {
+    setActivePick(null);
+    setSoPickList([]);
+    setCurrentPickIndex(0);
   };
 
   // The order line as the server has it now (its bin may have been assigned since the list was built).
@@ -102,21 +141,17 @@ export default function PickPage({ setPage }: PickPageProps) {
     const nextIndex = currentPickIndex + 1;
     resetPickInputs();
     if (nextIndex >= soPickList.length) {
-      showToast(sessionHadShort.current ? "Picking finished: some lines are still open (short)" : "🎉 Sales Order picking completed!", "success");
-      setTimeout(() => {
-        setSelectedSalesOrder(null);
-        setSoPickList([]);
-        setCurrentPickIndex(0);
-      }, 2000);
+      showToast(sessionHadShort.current ? "Picking finished: some lines are still open (short)" : "🎉 Picking completed!", "success");
+      setTimeout(() => exitPicks(), 2000);
     } else {
       setCurrentPickIndex(nextIndex);
       setPickedQty(liveRemaining(soPickList[nextIndex]));
     }
   };
 
-  // Confirm pick for Sales Order
+  // Confirm pick
   const handleConfirmSOPick = async (acceptShortfall = false) => {
-    if (currentPickIndex >= soPickList.length || !selectedSalesOrder || isSaving) return;
+    if (currentPickIndex >= soPickList.length || !activePick || isSaving) return;
 
     const currentPick = soPickList[currentPickIndex];
     const { so, item } = currentPick;
@@ -212,158 +247,74 @@ export default function PickPage({ setPage }: PickPageProps) {
     }
   };
 
-  // Select wave and build pick list
-  const handleSelectWave = (wave: Wave) => {
-    setSelectedWave(wave);
-    
-    // Get orders for this wave
-    const ordersInWave = orders.filter((order) => wave.orders.includes(order.id));
-    setWaveOrders(ordersInWave);
+  const toggleSelected = (soId: string) => {
+    setSelectedIds((ids) => (ids.includes(soId) ? ids.filter((id) => id !== soId) : [...ids, soId]));
+  };
 
-    // Build consolidated pick list (group by bin)
-    const picks: { order: Order; item: OrderItem; itemIndex: number }[] = [];
-    ordersInWave.forEach((order) => {
-      order.items.forEach((item, itemIndex) => {
-        picks.push({ order, item, itemIndex });
-      });
+  const handleCreateWave = async () => {
+    // Only orders that can still go in a wave; anything that changed since it was ticked is dropped.
+    const soIds = selectedIds.filter((id) => {
+      const so = sosById[id];
+      return so && canAddToWave(so);
     });
-
-    // Sort by bin location for efficient picking
-    picks.sort((a, b) => a.item.BinCode.localeCompare(b.item.BinCode));
-    setPickList(picks);
-    setCurrentPickIndex(0);
-
-    // Mark wave as active
-    saveWaveStatus({ ...wave, status: "active" as const });
-  };
-
-  // Wave status changes are saved to the server; a failure is shown, not hidden.
-  const saveWaveStatus = (wave: Wave) => {
-    upsertRecord("rf_waves", wave).catch((error: any) =>
-      showToast(`❌ Wave status not saved: ${error?.message || "server error"}`, "error")
-    );
-  };
-
-  // Confirm pick
-  const handleConfirmPick = async () => {
-    if (currentPickIndex >= pickList.length || isSaving) return;
-
-    const currentPick = pickList[currentPickIndex];
-    const { order, item, itemIndex } = currentPick;
-
-    if (pickedQty <= 0) {
-      showToast("⚠️ Picked quantity must be greater than 0", "error");
+    if (soIds.length === 0) {
+      showToast("Tick at least one sales order that is not already in a wave", "error");
       return;
     }
-
-    if (pickedQty > item.OrderedQty) {
-      showToast("⚠️ Picked quantity exceeds ordered quantity", "error");
-      return;
-    }
-
-    // Update the order from its latest server copy, changing only the picked line.
-    const liveOrder = orders.find((o) => o.id === order.id) ?? order;
-    const updatedItems = liveOrder.items.map((i, idx) =>
-      idx === itemIndex ? { ...i, PickedQty: pickedQty } : i
-    );
-    const allPicked = updatedItems.every((i) => i.PickedQty >= i.OrderedQty);
-    const updatedOrder: Order = {
-      ...liveOrder,
-      items: updatedItems,
-      status: allPicked ? ("picked" as const) : ("picking" as const),
-    };
-
-    setIsSaving(true);
+    setCreatingWave(true);
     try {
-      await upsertRecord("rf_orders", updatedOrder);
+      const { wave } = await createWave(soIds);
+      setSelectedIds([]);
+      showToast(`✅ Wave ${wave.waveNumber} created with ${soIds.length} ${soIds.length === 1 ? "order" : "orders"}`, "success");
     } catch (error: any) {
-      showToast(`❌ Pick not saved: ${error?.message || "server error"}. Try again.`, "error");
-      setIsSaving(false);
-      return;
+      showToast(`❌ Wave not created: ${error?.message || "server error"}`, "error");
+    } finally {
+      setCreatingWave(false);
     }
+  };
+
+  const handleDeleteWave = async (wave: PickWave) => {
     try {
-      // Take the stock out of the bin (never below zero; unknown bins are skipped).
-      if (bins.some((b) => b.BinCode === item.BinCode)) {
-        await adjustBin({ binCode: item.BinCode, itemCode: item.ItemCode, delta: -pickedQty, clampAtZero: true });
-      }
+      await deleteWave(wave.id);
+      showToast(`Wave ${wave.waveNumber} deleted`, "info");
     } catch (error: any) {
-      showToast(`⚠️ Pick recorded but the bin stock was not reduced (${error?.message || "server error"}). Tell a supervisor.`, "error");
-    }
-    setIsSaving(false);
-
-    showToast(`✅ Picked ${pickedQty} of ${item.Description}`, "success");
-
-    // Move to next pick
-    const nextIndex = currentPickIndex + 1;
-    if (nextIndex >= pickList.length) {
-      // Wave complete
-      if (selectedWave) {
-        saveWaveStatus({ ...selectedWave, status: "completed" as const, completedDate: new Date().toISOString() });
-      }
-      showToast("🎉 Wave picking completed!", "success");
-      
-      // Return to wave list after brief delay
-      setTimeout(() => {
-        setSelectedWave(null);
-        setWaveOrders([]);
-        setPickList([]);
-        setCurrentPickIndex(0);
-      }, 2000);
-    } else {
-      setCurrentPickIndex(nextIndex);
-      setPickedQty(pickList[nextIndex].item.OrderedQty); // Default to ordered qty
+      showToast(`❌ Wave not deleted: ${error?.message || "server error"}`, "error");
     }
   };
 
-  // Skip item (record short pick)
-  const handleSkipPick = () => {
-    if (currentPickIndex >= pickList.length) return;
-
-    const currentPick = pickList[currentPickIndex];
-    showToast(`⚠️ Skipped pick for ${currentPick.item.Description}`, "info");
-
-    // Move to next pick
-    const nextIndex = currentPickIndex + 1;
-    if (nextIndex >= pickList.length) {
-      // Wave complete (with short picks)
-      if (selectedWave) {
-        saveWaveStatus({ ...selectedWave, status: "completed" as const, completedDate: new Date().toISOString() });
-      }
-      showToast("⚠️ Wave completed with short picks", "info");
-      
-      setTimeout(() => {
-        setSelectedWave(null);
-        setWaveOrders([]);
-        setPickList([]);
-        setCurrentPickIndex(0);
-      }, 2000);
-    } else {
-      setCurrentPickIndex(nextIndex);
-      setPickedQty(pickList[nextIndex].item.OrderedQty);
-    }
-  };
-
+  // Confirm/skip/start effects keep the picking inputs in step with the current line.
   useEffect(() => {
     resetPickInputs();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPickIndex, selectedSalesOrder?.id]);
+  }, [currentPickIndex, activePick]);
 
   // Initialize picked qty when pick changes
   useEffect(() => {
     if (soPickList.length > 0 && currentPickIndex < soPickList.length) {
       setPickedQty(liveRemaining(soPickList[currentPickIndex]));
-    } else if (pickList.length > 0 && currentPickIndex < pickList.length) {
-      setPickedQty(pickList[currentPickIndex].item.OrderedQty);
     }
-  }, [currentPickIndex, pickList, soPickList]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPickIndex, soPickList]);
 
   // Filter Sales Orders that need picking
-  const pendingSalesOrders = salesOrders.filter(so => 
-    so.status === "pending" || so.status === "picking"
+  const pendingSalesOrders = salesOrders.filter((so) => so.status === "pending" || so.status === "picking");
+
+  const toastBanner = toast && (
+    <div
+      className={`fixed top-20 left-1/2 transform -translate-x-1/2 z-50 px-6 py-3 rounded-lg shadow-lg ${
+        toast.type === "success"
+          ? "bg-green-500 text-white"
+          : toast.type === "error"
+          ? "bg-red-500 text-white"
+          : "bg-blue-500 text-white"
+      }`}
+    >
+      {toast.message}
+    </div>
   );
 
-  // Render Sales Order picking workflow
-  if (selectedSalesOrder && currentPickIndex < soPickList.length) {
+  // Render picking workflow (one sales order or one wave)
+  if (activePick && currentPickIndex < soPickList.length) {
     const currentPick = soPickList[currentPickIndex];
     const { so, item } = currentPick;
     const progress = ((currentPickIndex / soPickList.length) * 100).toFixed(0);
@@ -383,36 +334,18 @@ export default function PickPage({ setPage }: PickPageProps) {
 
     return (
       <div className="p-4 max-w-4xl mx-auto">
-        <button
-          onClick={() => {
-            setSelectedSalesOrder(null);
-            setSoPickList([]);
-            setCurrentPickIndex(0);
-          }}
-          className="mb-4 text-blue-600 hover:underline"
-        >
+        <button onClick={exitPicks} className="mb-4 text-blue-600 hover:underline">
           ← Back to Sales Orders
         </button>
 
-        {/* Toast */}
-        {toast && (
-          <div
-            className={`fixed top-20 left-1/2 transform -translate-x-1/2 z-50 px-6 py-3 rounded-lg shadow-lg ${
-              toast.type === "success"
-                ? "bg-green-500 text-white"
-                : toast.type === "error"
-                ? "bg-red-500 text-white"
-                : "bg-blue-500 text-white"
-            }`}
-          >
-            {toast.message}
-          </div>
-        )}
+        {toastBanner}
 
         {/* Progress Bar */}
         <div className="bg-white rounded-lg shadow p-4 mb-6">
           <div className="flex justify-between items-center mb-2">
-            <h2 className="text-lg font-bold">SO #{so.soNumber}</h2>
+            <h2 className="text-lg font-bold">
+              {activePick.title} <span className="text-sm font-normal text-gray-500">{activePick.subtitle}</span>
+            </h2>
             <span className="text-sm text-gray-600">
               {currentPickIndex + 1} / {soPickList.length}
             </span>
@@ -560,9 +493,7 @@ export default function PickPage({ setPage }: PickPageProps) {
               onClick={() => {
                 const nextIndex = currentPickIndex + 1;
                 if (nextIndex >= soPickList.length) {
-                  setSelectedSalesOrder(null);
-                  setSoPickList([]);
-                  setCurrentPickIndex(0);
+                  exitPicks();
                 } else {
                   setCurrentPickIndex(nextIndex);
                   setPickedQty(liveRemaining(soPickList[nextIndex]));
@@ -578,19 +509,15 @@ export default function PickPage({ setPage }: PickPageProps) {
     );
   }
 
-  // Render SO complete
-  if (selectedSalesOrder && currentPickIndex >= soPickList.length) {
+  // Render pick complete
+  if (activePick && currentPickIndex >= soPickList.length) {
     return (
       <div className="p-4 max-w-4xl mx-auto text-center py-12">
         <Check className="mx-auto mb-4 text-green-600" size={64} />
-        <h2 className="text-2xl font-bold mb-2">Sales Order Complete!</h2>
+        <h2 className="text-2xl font-bold mb-2">{activePick.title} complete</h2>
         <p className="text-gray-600">All items have been picked.</p>
         <button
-          onClick={() => {
-            setSelectedSalesOrder(null);
-            setSoPickList([]);
-            setCurrentPickIndex(0);
-          }}
+          onClick={exitPicks}
           className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700"
         >
           Back to Sales Orders
@@ -599,55 +526,129 @@ export default function PickPage({ setPage }: PickPageProps) {
     );
   }
 
-  // Render Sales Orders list or Wave list
-  if (!selectedWave && !selectedSalesOrder) {
-    return (
-      <div className="p-4 max-w-4xl mx-auto">
-        <h1 className="text-2xl font-bold mb-4 flex items-center gap-2">
-          <ShoppingCart className="text-blue-600" />
-          Sales Order Picking
-        </h1>
+  // List screen: waves, then sales orders (with tick boxes for admins building a wave)
+  const selectableCount = selectedIds.filter((id) => sosById[id] && canAddToWave(sosById[id])).length;
 
-        {/* Toast */}
-        {toast && (
-          <div
-            className={`fixed top-20 left-1/2 transform -translate-x-1/2 z-50 px-6 py-3 rounded-lg shadow-lg ${
-              toast.type === "success"
-                ? "bg-green-500 text-white"
-                : toast.type === "error"
-                ? "bg-red-500 text-white"
-                : "bg-blue-500 text-white"
-            }`}
-          >
-            {toast.message}
-          </div>
-        )}
+  return (
+    <div className="p-4 max-w-4xl mx-auto">
+      <h1 className="text-2xl font-bold mb-4 flex items-center gap-2">
+        <ShoppingCart className="text-blue-600" />
+        Sales Order Picking
+      </h1>
 
-        {/* Show Sales Orders if available */}
-        {pendingSalesOrders.length > 0 ? (
+      {toastBanner}
+
+      {/* Waves */}
+      {activeWaves.length > 0 && (
+        <section className="mb-8">
+          <h2 className="text-xl font-bold mb-3 flex items-center gap-2">
+            <Truck className="text-purple-600" />
+            Waves
+          </h2>
           <div className="space-y-3">
-            {pendingSalesOrders.map((so) => {
-              const itemsToPick = so.items.filter(item => (item.RemainingQty || 0) > 0);
-              const totalRemaining = so.items.reduce((sum, item) => sum + (item.RemainingQty || 0), 0);
-              // Warn before the picker starts: lines whose bin holds too little (or nothing).
-              const stockSummary = summarizeStock(
-                checkStock(
-                  itemsToPick.map((line) => ({
-                    binCode: line.BinCode,
-                    warehouse: line.Warehouse,
-                    itemCode: line.ItemCode,
-                    needed: line.RemainingQty || 0,
-                  })),
-                  bins
-                )
-              );
-              
+            {activeWaves.map((wave) => {
+              const progress = waveProgress(wave, sosById);
+              const members = waveMembers(wave, sosById) as SalesOrder[];
+              const statusStyle =
+                progress.status === "picking" ? "bg-yellow-100 text-yellow-800" : "bg-gray-100 text-gray-800";
               return (
-                <div
-                  key={so.id}
-                  className="bg-white rounded-lg shadow p-4 border-l-4 border-green-500 hover:shadow-md transition-shadow"
-                >
-                  <div className="flex justify-between items-start mb-3">
+                <div key={wave.id} className="bg-white rounded-lg shadow p-4 border-l-4 border-purple-500">
+                  <div className="flex justify-between items-start gap-3">
+                    <div className="flex-1">
+                      <h3 className="font-semibold text-lg flex items-center gap-2">
+                        Wave {wave.waveNumber}
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusStyle}`}>
+                          {progress.status.toUpperCase()}
+                        </span>
+                      </h3>
+                      <p className="text-sm text-gray-600 mt-1">
+                        {progress.orderCount} {progress.orderCount === 1 ? "order" : "orders"}:{" "}
+                        {members.map((so) => so.soNumber).join(", ") || "none left"}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {progress.pickedLines} of {progress.totalLines} lines picked, {progress.openLines} still open
+                      </p>
+                    </div>
+                    {isAdmin && (
+                      <button
+                        onClick={() => void handleDeleteWave(wave)}
+                        disabled={progress.pickedLines > 0}
+                        title={progress.pickedLines > 0 ? "A wave with picks cannot be deleted" : "Delete this wave"}
+                        className="text-sm text-red-700 px-3 py-1 rounded-md border border-red-200 hover:bg-red-50 disabled:text-gray-400 disabled:border-gray-200 disabled:hover:bg-white"
+                      >
+                        Delete
+                      </button>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => handleStartWave(wave)}
+                    disabled={progress.openLines === 0}
+                    className="mt-3 w-full bg-purple-600 text-white py-2 rounded-md hover:bg-purple-700 font-medium disabled:bg-gray-400"
+                  >
+                    {progress.openLines === 0 ? "Nothing left to pick" : "Pick wave"}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* Wave builder (admin) */}
+      {isAdmin && pendingSalesOrders.length > 0 && (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 bg-purple-50 border border-purple-200 rounded-md px-4 py-3">
+          <p className="text-sm text-purple-900">
+            Tick sales orders to group them into a wave. {selectableCount} selected.
+          </p>
+          <button
+            onClick={() => void handleCreateWave()}
+            disabled={creatingWave || selectableCount === 0}
+            className="bg-purple-600 text-white px-4 py-2 rounded-md hover:bg-purple-700 font-medium disabled:bg-gray-400"
+          >
+            {creatingWave ? "Creating..." : "Create wave"}
+          </button>
+        </div>
+      )}
+
+      {/* Sales orders */}
+      {pendingSalesOrders.length > 0 ? (
+        <div className="space-y-3">
+          {pendingSalesOrders.map((so) => {
+            const itemsToPick = so.items.filter((item) => (item.RemainingQty || 0) > 0);
+            const totalRemaining = so.items.reduce((sum, item) => sum + (item.RemainingQty || 0), 0);
+            const wave = openWaveOf(so.id);
+            // Warn before the picker starts: lines whose bin holds too little (or nothing).
+            const stockSummary = summarizeStock(
+              checkStock(
+                itemsToPick.map((line) => ({
+                  binCode: line.BinCode,
+                  warehouse: line.Warehouse,
+                  itemCode: line.ItemCode,
+                  needed: line.RemainingQty || 0,
+                })),
+                bins
+              )
+            );
+            const ticked = selectedIds.includes(so.id);
+            const tickable = canAddToWave(so);
+
+            return (
+              <div
+                key={so.id}
+                className="bg-white rounded-lg shadow p-4 border-l-4 border-green-500 hover:shadow-md transition-shadow"
+              >
+                <div className="flex justify-between items-start mb-3">
+                  <div className="flex items-start gap-3 flex-1">
+                    {isAdmin && (
+                      <input
+                        type="checkbox"
+                        aria-label={`Add SO ${so.soNumber} to a wave`}
+                        className="mt-2 h-5 w-5"
+                        checked={ticked}
+                        disabled={!tickable && !ticked}
+                        onChange={() => toggleSelected(so.id)}
+                      />
+                    )}
                     <div className="flex-1">
                       <h3 className="font-semibold text-lg flex items-center gap-2">
                         SO #{so.soNumber}
@@ -660,6 +661,11 @@ export default function PickPage({ setPage }: PickPageProps) {
                         >
                           {so.status.toUpperCase()}
                         </span>
+                        {wave && (
+                          <span className="px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                            In wave {wave.waveNumber}
+                          </span>
+                        )}
                       </h3>
                       <p className="text-sm text-gray-600 mt-1">
                         {so.customer} {so.cardCode && `(${so.cardCode})`}
@@ -687,7 +693,8 @@ export default function PickPage({ setPage }: PickPageProps) {
                         </div>
                       )}
                     </div>
-                    <div className="flex items-start gap-2">
+                  </div>
+                  <div className="flex items-start gap-2">
                     <div className="text-right">
                       <p className="text-sm text-gray-600">
                         {itemsToPick.length} items to pick
@@ -704,236 +711,38 @@ export default function PickPage({ setPage }: PickPageProps) {
                       onDelete={() => deleteRecord("rf_sales_orders", so.id).then(() => undefined)}
                       onMessage={showToast}
                     />
-                    </div>
                   </div>
-
-                  <button
-                    onClick={() => handleSelectSalesOrder(so)}
-                    className="w-full bg-green-600 text-white py-2 rounded-md hover:bg-green-700 font-medium"
-                  >
-                    Start Picking
-                  </button>
                 </div>
-              );
-            })}
-          </div>
-        ) : salesOrders.length === 0 ? (
-          <div className="text-center py-12 text-gray-500">
-            <ShoppingCart size={48} className="mx-auto mb-4 opacity-50" />
-            <p>No sales orders available</p>
-            <p className="text-sm mt-2">Upload sales orders from the Setup page</p>
-            <button
-              onClick={() => setPage("setup")}
-              className="mt-4 text-blue-600 underline"
-            >
-              Go to Setup
-            </button>
-          </div>
-        ) : (
-          <div className="text-center py-12 text-gray-500">
-            <Check className="mx-auto mb-4 text-green-600" size={48} />
-            <p>All sales orders have been picked!</p>
-            <p className="text-sm mt-2">All {salesOrders.length} sales orders are complete.</p>
-          </div>
-        )}
 
-
-        {/* Legacy Wave Picking Section (if waves exist) */}
-        {waves.length > 0 && (
-          <>
-            <div className="my-8 border-t pt-8">
-              <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-                <Truck className="text-purple-600" />
-                Wave Picking (Legacy)
-              </h2>
-            </div>
-            <div className="space-y-3">
-              {waves.map((wave) => {
-                const waveOrderList = orders.filter((o) => wave.orders.includes(o.id));
-                const totalItems = waveOrderList.reduce(
-                  (sum, order) => sum + order.items.length,
-                  0
-                );
-
-                return (
-                  <div
-                    key={wave.id}
-                    onClick={() => wave.status === "pending" && handleSelectWave(wave)}
-                    className={`bg-white rounded-lg shadow p-4 border-l-4 border-blue-500 ${
-                      wave.status === "pending"
-                        ? "cursor-pointer hover:shadow-md transition-shadow"
-                        : "opacity-60"
-                    }`}
-                  >
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <h3 className="font-semibold text-lg flex items-center gap-2">
-                          {wave.waveNumber}
-                          {waveOrderList.some((o) => o.priority === "urgent") && (
-                            <AlertTriangle className="text-red-500" size={20} />
-                          )}
-                        </h3>
-                        <p className="text-sm text-gray-600">
-                          {wave.orders.length} orders • {totalItems} items
-                        </p>
-                        <p className="text-xs text-gray-500 mt-1">
-                          Created: {new Date(wave.createdDate).toLocaleString()}
-                        </p>
-                      </div>
-                      <span
-                        className={`px-3 py-1 rounded-full text-xs font-medium ${
-                          wave.status === "completed"
-                            ? "bg-green-100 text-green-800"
-                            : wave.status === "active"
-                            ? "bg-yellow-100 text-yellow-800"
-                            : "bg-gray-100 text-gray-800"
-                        }`}
-                      >
-                        {wave.status.toUpperCase()}
-                      </span>
-                    </div>
-                    {wave.status === "pending" && (
-                      <button
-                        onClick={() => handleSelectWave(wave)}
-                        className="mt-3 w-full bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700"
-                      >
-                        Start Picking
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </>
-        )}
-      </div>
-    );
-  }
-
-  // Render picking workflow
-  if (currentPickIndex >= pickList.length) {
-    return (
-      <div className="p-4 max-w-4xl mx-auto text-center py-12">
-        <Check className="mx-auto mb-4 text-green-600" size={64} />
-        <h2 className="text-2xl font-bold mb-2">Wave Complete!</h2>
-        <p className="text-gray-600">All items have been picked.</p>
-      </div>
-    );
-  }
-
-  const currentPick = pickList[currentPickIndex];
-  const { order, item } = currentPick;
-  const progress = ((currentPickIndex / pickList.length) * 100).toFixed(0);
-
-  return (
-    <div className="p-4 max-w-4xl mx-auto">
-      <button
-        onClick={() => {
-          setSelectedWave(null);
-          setWaveOrders([]);
-          setPickList([]);
-          setCurrentPickIndex(0);
-        }}
-        className="mb-4 text-blue-600 hover:underline"
-      >
-        ← Back to Wave List
-      </button>
-
-      {/* Toast */}
-      {toast && (
-        <div
-          className={`fixed top-20 left-1/2 transform -translate-x-1/2 z-50 px-6 py-3 rounded-lg shadow-lg ${
-            toast.type === "success"
-              ? "bg-green-500 text-white"
-              : toast.type === "error"
-              ? "bg-red-500 text-white"
-              : "bg-blue-500 text-white"
-          }`}
-        >
-          {toast.message}
+                <button
+                  onClick={() => handleSelectSalesOrder(so)}
+                  className="w-full bg-green-600 text-white py-2 rounded-md hover:bg-green-700 font-medium"
+                >
+                  Start Picking
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      ) : salesOrders.length === 0 ? (
+        <div className="text-center py-12 text-gray-500">
+          <ShoppingCart size={48} className="mx-auto mb-4 opacity-50" />
+          <p>No sales orders available</p>
+          <p className="text-sm mt-2">Upload sales orders from the Setup page</p>
+          <button
+            onClick={() => setPage("setup")}
+            className="mt-4 text-blue-600 underline"
+          >
+            Go to Setup
+          </button>
+        </div>
+      ) : (
+        <div className="text-center py-12 text-gray-500">
+          <Check className="mx-auto mb-4 text-green-600" size={48} />
+          <p>All sales orders have been picked!</p>
+          <p className="text-sm mt-2">All {salesOrders.length} sales orders are complete.</p>
         </div>
       )}
-
-      {/* Progress Bar */}
-      <div className="bg-white rounded-lg shadow p-4 mb-6">
-        <div className="flex justify-between items-center mb-2">
-          <h2 className="text-lg font-bold">{selectedWave?.waveNumber ?? "Active Wave"}</h2>
-          <span className="text-sm text-gray-600">
-            {currentPickIndex + 1} / {pickList.length}
-          </span>
-        </div>
-        <div className="w-full bg-gray-200 rounded-full h-3">
-          <div
-            className="bg-blue-600 h-3 rounded-full transition-all"
-            style={{ width: `${progress}%` }}
-          ></div>
-        </div>
-      </div>
-
-      {/* Current Pick */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <div className="flex items-center gap-2 mb-4">
-          <MapPin className="text-blue-600" size={24} />
-          <div>
-            <h3 className="text-2xl font-bold">{item.BinCode}</h3>
-            <p className="text-sm text-gray-600">Pick from this location</p>
-          </div>
-        </div>
-
-        <div className="border-t pt-4 mb-4">
-          <div className="flex items-start gap-3 mb-4">
-            <Package className="text-gray-600 mt-1" size={20} />
-            <div className="flex-1">
-              <h4 className="font-semibold text-lg">{item.Description}</h4>
-              <p className="text-sm text-gray-600">Code: {item.ItemCode}</p>
-              <p className="text-sm text-gray-600">Order: {order.orderNumber}</p>
-              <p className="text-sm text-gray-600">Customer: {order.customer}</p>
-              {order.priority === "urgent" && (
-                <span className="inline-block mt-1 px-2 py-1 bg-red-100 text-red-800 text-xs rounded-full">
-                  URGENT
-                </span>
-              )}
-            </div>
-          </div>
-
-          <div className="bg-blue-50 rounded-lg p-4 mb-4">
-            <p className="text-center text-3xl font-bold text-blue-600">
-              {item.OrderedQty}
-            </p>
-            <p className="text-center text-sm text-gray-600">Required Quantity</p>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-2">
-              Picked Quantity
-            </label>
-            <input
-              type="number"
-              value={pickedQty}
-              onChange={(e) => setPickedQty(Number(e.target.value))}
-              max={item.OrderedQty}
-              className="w-full border border-gray-300 rounded-md px-4 py-3 text-lg"
-            />
-          </div>
-        </div>
-
-        <div className="flex gap-2">
-          <button
-            onClick={handleConfirmPick}
-            disabled={isSaving}
-            className="flex-1 bg-green-600 text-white py-3 rounded-md hover:bg-green-700 font-medium text-lg disabled:bg-gray-400"
-          >
-            {isSaving ? "Saving..." : "Confirm Pick"}
-          </button>
-          <button
-            onClick={handleSkipPick}
-            className="px-6 bg-gray-200 text-gray-700 py-3 rounded-md hover:bg-gray-300"
-          >
-            Skip
-          </button>
-        </div>
-      </div>
     </div>
   );
 }
-
