@@ -52,3 +52,7 @@ Ideas that are not part of the current plan. Review at the end of each phase: pr
 ## Found 2026-11-13 (task 15, slice 3)
 - The pick page still creates and updates legacy waves (rf_waves) and orders (rf_orders). The earlier note that these exist only in sample data is out of date. The dashboard's "pending orders" and "active waves" include them. Decide whether to retire the wave flow or keep it and show it separately.
 
+## Found 2026-11-13 (task 15, slice 4)
+- RESOLVED: the unreachable duplicate sequential-count block in inventory-page.tsx (task 18 note) is removed. The block that runs is unchanged.
+- Wave picking (owner wants to keep it, rebuild planned): not correct today. (1) Nothing in the app creates waves; they come from sample data and the demo only. (2) A wave pick saves the order, then reduces bin stock in a second call; if that call fails the pick is recorded and stock is wrong. (3) Bin stock is clamped at zero, so over-picks are not refused (live sales-order picks refuse them on the server). (4) Wave picks write no pick transaction. (5) Waves live in rf_orders, while live picking uses rf_sales_orders, so the two never agree. Rebuild plan: a wave is a group of sales orders picked by bin, chosen with checkboxes on the sales-order list, and each pick goes through the same server pick operation.
+
