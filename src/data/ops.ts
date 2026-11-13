@@ -57,7 +57,7 @@ export function assignItemBin(params: ApiParams<"assignItemBin">[0]) {
 /** Pick against one sales-order line and take the stock from its bin. */
 export function pickSalesOrderLine(params: ApiParams<"pickSalesOrderLine">[0]) {
   return dataStore.mutate(() => api.pickSalesOrderLine(params), {
-    reload: ["rf_sales_orders", "rf_bins"],
+    reload: ["rf_sales_orders", "rf_bins", "rf_pick_waves"],
   });
 }
 

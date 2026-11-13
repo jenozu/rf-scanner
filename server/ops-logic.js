@@ -6,7 +6,7 @@
 // Keep this file free of Node-only imports so it also runs in the browser.
 
 import { QTY_EPSILON, roundQty } from './order-identity.js';
-import { ordersInOpenWaves, waveMembers, hasPickedLines, hasOpenLines } from './waves.js';
+import { ordersInOpenWaves, hasOpenLines, openWaveFor, wavePickKey, waveHasPicks } from './waves.js';
 
 export const APPEND_KEYS = {
   rf_receiving_txns: { cap: null },
@@ -587,11 +587,22 @@ export function applyPickSo(state, body, user) {
   // stockTracked: false.)
 
   const sos = state.sos;
+  // If the order is in a wave still in progress, the pick is that wave's work: record the line on
+  // the wave. Looked up before the pick, since this pick may be the one that completes the wave.
+  let nextWaves;
+  const wave = Array.isArray(state.waves) ? openWaveFor(state.waves, sosById(sos), so.id) : undefined;
+  if (wave) {
+    const key = wavePickKey(so.id, line);
+    const picked = wave.picked || [];
+    nextWaves = state.waves.map((w) => (w === wave ? { ...w, picked: picked.includes(key) ? picked : [...picked, key] } : w));
+  }
   recordPick(so, line, qty, user, body.short || null);
 
   const txn = {
     id: body.txnId,
+    soId: so.id,
     soNumber: so.soNumber,
+    waveId: wave ? wave.id : undefined,
     lineKey: line.LineKey,
     itemCode: line.ItemCode,
     qty,
@@ -607,7 +618,7 @@ export function applyPickSo(state, body, user) {
   };
   const txns = applyAppend(state.txns, { key: 'rf_pick_txns', record: txn });
   return {
-    data: { sos, bins: nextBins, txns: txns.data },
+    data: { sos, bins: nextBins, txns: txns.data, waves: nextWaves },
     result: { ok: true, so, line, binQuantity, shortfall: shortfall > 0 ? shortfall : undefined, txn },
   };
 }
@@ -826,6 +837,7 @@ export function applyWaveCreate(state, body, user) {
     id: `WAVE-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     waveNumber: nextWaveNumber(waves),
     soIds: [...body.soIds],
+    picked: [],
     createdBy: user?.username || 'unknown',
     createdAt: new Date().toISOString(),
   };
@@ -845,7 +857,7 @@ export function applyWaveDelete(state, body, user) {
   const wave = waves.find((w) => w.id === body.id);
   if (!wave) return { result: fail('Wave not found', 404) };
   const byId = sosById(state.sos);
-  if (waveMembers(wave, byId).some(hasPickedLines)) {
+  if (waveHasPicks(wave)) {
     return { result: fail('Some lines in this wave have been picked, so it cannot be deleted', 409, { code: 'WAVE_HAS_PICKS' }) };
   }
   return { data: { waves: waves.filter((w) => w.id !== body.id) }, result: { ok: true } };

@@ -181,7 +181,7 @@ export function registerOps(app, { authenticateToken, requireWriter, dataDir }) 
 
   app.post('/api/ops/pick-so', ...guard, composite('pick-so', {
     validate: logic.validatePickSo,
-    files: { sos: 'rf_sales_orders', bins: 'rf_bins', txns: 'rf_pick_txns' },
+    files: { sos: 'rf_sales_orders', bins: 'rf_bins', txns: 'rf_pick_txns', waves: 'rf_pick_waves' },
     apply: logic.applyPickSo,
   }));
 }

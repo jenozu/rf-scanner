@@ -65,9 +65,36 @@ try {
   await page.getByRole('button', { name: /Back to Sales Orders/ }).click();
   check(await page.getByRole('button', { name: 'Pick wave' }).first().isVisible(), 'back on the list, the wave is still there');
 
-  // 6. A wave whose lines already have picks cannot be deleted (the demo orders are part-delivered).
-  const deleteBtn = page.locator('.border-purple-500').getByRole('button', { name: 'Delete' }).first();
-  check(await deleteBtn.isDisabled(), 'a wave with picked lines cannot be deleted');
+  // 6. The demo orders were part-delivered before the wave existed. That is not the wave's work,
+  //    so the wave shows nothing picked and can still be deleted.
+  const waveCardEl = page.locator('.border-purple-500').first();
+  check((await waveCardEl.innerText()).includes('0 of'), 'earlier deliveries do not count as wave picks');
+  const deleteBtn = waveCardEl.getByRole('button', { name: 'Delete' });
+  check(await deleteBtn.isEnabled(), 'a wave with no picks of its own can be deleted');
+  if (await deleteBtn.isEnabled()) {
+    await deleteBtn.click();
+    await page.getByText(/Wave \S+ deleted/).first().waitFor({ timeout: 5000 });
+    check((await page.locator('.border-purple-500').count()) === 0, 'the deleted wave is gone');
+  }
+
+  // 7. A new wave with one line reported short in it: now it has picks and cannot be deleted.
+  await page.getByRole('checkbox').nth(0).check();
+  await page.getByRole('button', { name: 'Create wave' }).click();
+  await page.getByText(/Wave \S+ created/).first().waitFor({ timeout: 5000 });
+  await page.getByRole('button', { name: 'Pick wave' }).first().click();
+  for (let i = 0; i < 10 && await page.getByRole('button', { name: 'Assign a bin first' }).isVisible().catch(() => false); i++) {
+    await page.getByRole('button', { name: 'Skip' }).click();
+  }
+  await page.locator('input[type="number"]').fill('0');
+  await page.getByPlaceholder(/Why\?/).fill('smoke test: not on shelf');
+  await page.getByRole('button', { name: 'Report short' }).click();
+  await page.getByText(/Reported short/).first().waitFor({ timeout: 5000 });
+  const back = page.getByRole('button', { name: /Back to Sales Orders/ });
+  if (await back.isVisible().catch(() => false)) await back.click();
+  await page.locator('.border-purple-500').first().waitFor({ timeout: 5000 });
+  const afterPick = page.locator('.border-purple-500').first();
+  check((await afterPick.innerText()).includes('1 of'), 'the short-reported line counts as a wave pick');
+  check(await afterPick.getByRole('button', { name: 'Delete' }).isDisabled(), 'a wave with its own picks cannot be deleted');
 
   check(pageErrors.length === 0, 'no uncaught page errors');
   if (pageErrors.length) console.log('  page errors:', pageErrors);

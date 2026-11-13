@@ -418,7 +418,7 @@ function demoOperation(endpoint: string, method: string, body: any): unknown {
   }
   if (method === "POST" && endpoint === "/ops/pick-so") {
     return demoApplyMany(
-      { sos: "rf_sales_orders", bins: "rf_bins", txns: "rf_pick_txns" },
+      { sos: "rf_sales_orders", bins: "rf_bins", txns: "rf_pick_txns", waves: "rf_pick_waves" },
       ops.validatePickSo(body),
       (state) => ops.applyPickSo(state, body, demoUser)
     );
