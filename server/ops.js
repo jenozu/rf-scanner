@@ -166,6 +166,19 @@ export function registerOps(app, { authenticateToken, requireWriter, dataDir }) 
     apply: logic.applyAssignItemBin,
   }));
 
+  // Pick waves: a group of sales orders picked together. Picks still go through pick-so.
+  app.post('/api/waves/create', ...guard, composite('wave-create', {
+    validate: logic.validateWaveCreate,
+    files: { waves: 'rf_pick_waves', sos: 'rf_sales_orders' },
+    apply: logic.applyWaveCreate,
+  }));
+
+  app.post('/api/waves/delete', ...guard, composite('wave-delete', {
+    validate: logic.validateWaveDelete,
+    files: { waves: 'rf_pick_waves', sos: 'rf_sales_orders' },
+    apply: logic.applyWaveDelete,
+  }));
+
   app.post('/api/ops/pick-so', ...guard, composite('pick-so', {
     validate: logic.validatePickSo,
     files: { sos: 'rf_sales_orders', bins: 'rf_bins', txns: 'rf_pick_txns' },

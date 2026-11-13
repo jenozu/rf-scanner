@@ -6,6 +6,7 @@
 // Keep this file free of Node-only imports so it also runs in the browser.
 
 import { QTY_EPSILON, roundQty } from './order-identity.js';
+import { ordersInOpenWaves, waveMembers, hasPickedLines, hasOpenLines } from './waves.js';
 
 export const APPEND_KEYS = {
   rf_receiving_txns: { cap: null },
@@ -778,4 +779,74 @@ export function applyVarianceDecision(state, body, user) {
     data: { bins, variances },
     result: { ok: true, status: 'approved', changedSinceCount: heldNow !== v.heldQty, previousQty: heldNow, newQty: v.countedQty },
   };
+}
+
+// --- Pick waves ---
+// Create and delete are admin only. A wave is only a list of sales-order ids (see waves.js).
+
+const sosById = (sos) => Object.fromEntries((sos || []).map((s) => [s.id, s]));
+
+export function validateWaveCreate(body) {
+  const { soIds } = body || {};
+  if (!Array.isArray(soIds) || soIds.length === 0 || soIds.length > 200 ||
+      !soIds.every((id) => typeof id === 'string' && id)) {
+    return fail('soIds must be a list of 1 to 200 sales-order ids');
+  }
+  if (new Set(soIds).size !== soIds.length) return fail('A sales order can only be added to a wave once');
+  return null;
+}
+
+function nextWaveNumber(waves) {
+  const used = (waves || []).map((w) => Number(String(w.waveNumber || '').replace(/\D/g, ''))).filter(Number.isFinite);
+  return `W-${String((used.length ? Math.max(...used) : 0) + 1).padStart(3, '0')}`;
+}
+
+export function applyWaveCreate(state, body, user) {
+  if (user?.role !== 'admin') return { result: fail('Only an admin can create a wave', 403) };
+  const sos = state.sos || [];
+  const byId = sosById(sos);
+  const waves = [...(state.waves || [])];
+  const taken = ordersInOpenWaves(waves, byId);
+
+  for (const id of body.soIds) {
+    const so = byId[id];
+    if (!so) return { result: fail(`Sales order ${id} not found`, 404) };
+    if (so.status !== 'pending' && so.status !== 'picking') {
+      return { result: fail(`${so.soNumber || id} is ${so.status} and cannot go in a wave`, 409, { code: 'SO_NOT_PICKABLE', soId: id }) };
+    }
+    if (!hasOpenLines(so)) {
+      return { result: fail(`${so.soNumber || id} has nothing left to pick`, 409, { code: 'SO_NOTHING_OPEN', soId: id }) };
+    }
+    if (taken.has(id)) {
+      return { result: fail(`${so.soNumber || id} is already in an open wave`, 409, { code: 'SO_IN_WAVE', soId: id }) };
+    }
+  }
+
+  const wave = {
+    id: `WAVE-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    waveNumber: nextWaveNumber(waves),
+    soIds: [...body.soIds],
+    createdBy: user?.username || 'unknown',
+    createdAt: new Date().toISOString(),
+  };
+  waves.push(wave);
+  return { data: { waves }, result: { ok: true, wave } };
+}
+
+export function validateWaveDelete(body) {
+  if (typeof body?.id !== 'string' || !body.id) return fail('id is required');
+  return null;
+}
+
+// Only a wave with no picks can be deleted. Otherwise the picks would have no wave to belong to.
+export function applyWaveDelete(state, body, user) {
+  if (user?.role !== 'admin') return { result: fail('Only an admin can delete a wave', 403) };
+  const waves = state.waves || [];
+  const wave = waves.find((w) => w.id === body.id);
+  if (!wave) return { result: fail('Wave not found', 404) };
+  const byId = sosById(state.sos);
+  if (waveMembers(wave, byId).some(hasPickedLines)) {
+    return { result: fail('Some lines in this wave have been picked, so it cannot be deleted', 409, { code: 'WAVE_HAS_PICKS' }) };
+  }
+  return { data: { waves: waves.filter((w) => w.id !== body.id) }, result: { ok: true } };
 }
