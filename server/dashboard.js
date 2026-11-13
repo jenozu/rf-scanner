@@ -1,6 +1,7 @@
 // Whole-warehouse dashboard numbers, computed on the server from the shared files.
-// Definitions match the figures the home page showed when it computed them in the browser,
-// with two changes: the timeline is sorted newest first, and pending count approvals are added.
+// Orders are the sales orders; waves are the pick waves (rf_pick_waves), and a wave is active
+// until none of its orders has an open line. The legacy rf_orders / rf_waves files are no longer read.
+import { waveProgress } from './waves.js';
 
 const asArray = (v) => (Array.isArray(v) ? v : []);
 const time = (value) => {
@@ -9,13 +10,12 @@ const time = (value) => {
 };
 
 export function computeDashboard({
-  purchaseOrders, salesOrders, orders, waves, cycleCounts, bins,
+  purchaseOrders, salesOrders, pickWaves, cycleCounts, bins,
   receivingTxns, countTxns, countVariances, now = new Date(),
 }) {
   const pos = asArray(purchaseOrders);
   const sos = asArray(salesOrders);
-  const legacyOrders = asArray(orders);
-  const legacyWaves = asArray(waves);
+  const sosById = Object.fromEntries(sos.map((s) => [s.id, s]));
   const counts = asArray(cycleCounts);
   const receiving = asArray(receivingTxns);
   const countLog = asArray(countTxns);
@@ -27,10 +27,8 @@ export function computeDashboard({
   const stats = {
     pendingPOs: pos.filter(p => p.status === 'pending').length,
     receivingPOs: pos.filter(p => p.status === 'receiving').length,
-    pendingOrders:
-      legacyOrders.filter(o => o.status === 'pending' || o.status === 'picking').length +
-      sos.filter(o => o.status === 'pending' || o.status === 'picking').length,
-    activeWaves: legacyWaves.filter(w => w.status === 'active' || w.status === 'pending').length,
+    pendingOrders: sos.filter(o => o.status === 'pending' || o.status === 'picking').length,
+    activeWaves: asArray(pickWaves).filter(w => waveProgress(w, sosById).status !== 'completed').length,
     pendingCounts: counts.filter(c => c.Status === 'pending').length,
     completedCounts: completedCounts.length,
     totalBins: asArray(bins).length,
