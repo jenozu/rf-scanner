@@ -1,8 +1,12 @@
-import { useEffect, useRef, type RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import Quagga from "@ericblade/quagga2";
 
 /**
  * Runs the camera barcode scanner inside `target` while `active` is true.
+ *
+ * The camera is also released while the page is hidden (phone locked, app switched), so the
+ * phone's "camera in use" indicator does not stay on in the background; it comes back when the
+ * page is visible again.
  *
  * The latest `onDetected` is always the one called (no stale data from when the camera started),
  * and the exact handler that was added is the one removed when the scanner stops, so handlers do
@@ -19,8 +23,11 @@ export function useBarcodeScanner(
   detectedRef.current = onDetected;
   errorRef.current = onError;
 
+  const visible = usePageVisible();
+  const running = active && visible;
+
   useEffect(() => {
-    if (!active || !target.current) return;
+    if (!running || !target.current) return;
     let started = false;
     let cancelled = false;
 
@@ -56,5 +63,15 @@ export function useBarcodeScanner(
       Quagga.offDetected(handler as any);
       if (started) Quagga.stop();
     };
-  }, [active, target]);
+  }, [running, target]);
+}
+
+function usePageVisible(): boolean {
+  const [visible, setVisible] = useState(() => typeof document === "undefined" || document.visibilityState !== "hidden");
+  useEffect(() => {
+    const update = () => setVisible(document.visibilityState !== "hidden");
+    document.addEventListener("visibilitychange", update);
+    return () => document.removeEventListener("visibilitychange", update);
+  }, []);
+  return visible;
 }

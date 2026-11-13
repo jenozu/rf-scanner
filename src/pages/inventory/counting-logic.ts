@@ -81,3 +81,18 @@ export function uploadedRowsToCounts(rows: Item[], stamp = Date.now()): CycleCou
     Status: item.CountedQty !== undefined ? "counted" : "pending",
   }));
 }
+
+/** The server takes at most this many counts per request. */
+export const COUNT_BATCH_SIZE = 500;
+
+/**
+ * Splits an uploaded full count into what can be sent and what cannot: only rows with a counted
+ * quantity, a bin code and an item code are sent, in batches the server accepts.
+ */
+export function planFullCount(counts: CycleCount[], batchSize = COUNT_BATCH_SIZE) {
+  const counted = counts.filter((c) => c.Status === "counted");
+  const usable = counted.filter((c) => c.BinCode?.trim() && c.ItemCode?.trim());
+  const batches: CycleCount[][] = [];
+  for (let i = 0; i < usable.length; i += batchSize) batches.push(usable.slice(i, i + batchSize));
+  return { batches, sendable: usable.length, missingCodes: counted.length - usable.length, notCounted: counts.length - counted.length };
+}

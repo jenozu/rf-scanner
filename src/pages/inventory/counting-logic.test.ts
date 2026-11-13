@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BinLocation } from "../../types";
-import { buildSequentialItems, countLogsToCsv, selectBinsForCount, uploadedRowsToCounts } from "./counting-logic";
+import { buildSequentialItems, countLogsToCsv, planFullCount, selectBinsForCount, uploadedRowsToCounts } from "./counting-logic";
 
 const bin = (BinCode: string, items: Array<[string, number]> = [["A", 1]]): BinLocation => ({
   BinCode, Zone: "Z1", Capacity: 0, Status: "active",
@@ -58,5 +58,23 @@ describe("uploadedRowsToCounts", () => {
       ["full-count-1-0", "counted", 4],
       ["full-count-1-1", "pending", 0],
     ]);
+  });
+});
+
+describe("planFullCount", () => {
+  const row = (i: number, over: Record<string, unknown> = {}) =>
+    ({ id: `c${i}`, BinCode: "01-1", ItemCode: `I${i}`, ExpectedQty: 1, CountedQty: 1, Status: "counted", ...over }) as any;
+
+  it("sends only counted rows that have a bin and an item code", () => {
+    const plan = planFullCount([row(1), row(2, { BinCode: "" }), row(3, { ItemCode: " " }), row(4, { Status: "pending" })]);
+    expect(plan.sendable).toBe(1);
+    expect(plan.missingCodes).toBe(2);
+    expect(plan.notCounted).toBe(1);
+  });
+
+  it("splits large files into batches the server accepts", () => {
+    const rows = Array.from({ length: 1201 }, (_, i) => row(i));
+    const plan = planFullCount(rows);
+    expect(plan.batches.map((b) => b.length)).toEqual([500, 500, 201]);
   });
 });

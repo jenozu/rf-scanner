@@ -8,6 +8,7 @@ interface Props {
   sessionName: string | undefined;
   items: CycleCount[];
   status: string;
+  processing: boolean;
   toast: ToastState;
   onCancel: () => void;
   onFile: (e: React.ChangeEvent<HTMLInputElement>) => void;
@@ -15,7 +16,7 @@ interface Props {
 }
 
 /** Upload a full count file and submit its counted quantities. */
-export function FullCountScreen({ sessionName, items, status, toast, onCancel, onFile, onProcess }: Props) {
+export function FullCountScreen({ sessionName, items, status, processing, toast, onCancel, onFile, onProcess }: Props) {
   return (
     <div className="p-4 max-w-4xl mx-auto">
       <div className="flex justify-between items-center mb-4">
@@ -68,15 +69,15 @@ export function FullCountScreen({ sessionName, items, status, toast, onCancel, o
         
         <button
           onClick={onProcess}
-          disabled={items.length === 0}
+          disabled={items.length === 0 || processing}
           className={`w-full py-3 rounded-md font-medium flex items-center justify-center gap-2 transition-colors ${
-            items.length > 0
+            items.length > 0 && !processing
               ? "bg-green-600 text-white hover:bg-green-700"
               : "bg-gray-300 text-gray-500 cursor-not-allowed"
           }`}
         >
           <CheckCircle2 size={20} />
-          Process {items.length} Counted Items
+          {processing ? "Sending..." : `Send ${items.filter((c) => c.Status === "counted").length} Counted Items`}
         </button>
         
         {items.length > 0 && (

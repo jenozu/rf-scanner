@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import Quagga from "@ericblade/quagga2";
+import { useBarcodeScanner } from "../hooks/useBarcodeScanner";
 import { Item, BinLocation } from "../types";
-import { Package, MapPin, Plus, Search, ClipboardCheck, Tag } from "lucide-react";
+import { Package, MapPin, Plus, Search, ClipboardCheck, Tag, Camera } from "lucide-react";
 import { displayBinCode, fullBinCode, isSameBin, normalizeBinInput } from "../utils/bin-utils";
 import { parseBinList, lookupBinList, BinListResult } from "../utils/bin-list";
 import { smartSearch } from "../utils/search-utils";
@@ -82,82 +82,32 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem, onStartCount
     setToast({ message, type });
   };
 
-  // ✅ Initialize barcode scanner with better permission handling
-  useEffect(() => {
-    let isInitialized = false;
-
-    const initScanner = async () => {
-      // Check if we already have camera permission
-      try {
-        // Try to get camera permission status (modern browsers)
-        if (navigator.permissions && navigator.permissions.query) {
-          const permissionStatus = await navigator.permissions.query({ name: 'camera' as PermissionName });
-          
-          if (permissionStatus.state === 'denied') {
-            showToast("📷 Camera permission denied. Please enable it in your browser settings.", "error");
-            return;
-          }
-        }
-
-        // Initialize Quagga
-        Quagga.init(
-          {
-            inputStream: {
-              type: "LiveStream",
-              target: videoRef.current!,
-              constraints: {
-                facingMode: "environment",
-              },
-            },
-            decoder: {
-              readers: ["code_128_reader", "ean_reader", "upc_reader"],
-            },
-          },
-          (err) => {
-            if (err) {
-              const cameraErrorName = (err as any)?.name || "";
-              if (cameraErrorName === "NotFoundError" || cameraErrorName === "DevicesNotFoundError") {
-                console.info("No camera detected; manual lookup remains available.");
-                showToast("📷 No camera detected. Use manual lookup below.", "info");
-              } else {
-                console.error("Quagga init error:", err);
-                if (cameraErrorName === "NotAllowedError") {
-                  showToast("📷 Camera access denied. Use manual lookup below.", "error");
-                } else {
-                  showToast("📷 Camera unavailable. Use manual lookup below.", "error");
-                }
-              }
-              return;
-            }
-            isInitialized = true;
-            Quagga.start();
-          }
-        );
-
-        Quagga.onDetected((result) => {
-          const code = result.codeResult.code;
-          if (!code) return;
-          // Camera reports the same barcode on many frames: look it up once
-          const now = Date.now();
-          if (code === lastCameraCodeRef.current && now - lastCameraTimeRef.current < 2000) return;
-          lastCameraCodeRef.current = code;
-          lastCameraTimeRef.current = now;
-          handleScanRef.current(code);
-        });
-      } catch (error) {
-        console.error("Scanner initialization error:", error);
+  // The camera runs only while the person has it switched on (and the page is visible), so the
+  // phone's camera-in-use indicator is not on the whole time this page is open.
+  const [cameraOn, setCameraOn] = useState(false);
+  useBarcodeScanner(
+    cameraOn,
+    videoRef,
+    (code) => {
+      // Camera reports the same barcode on many frames: look it up once
+      const now = Date.now();
+      if (code === lastCameraCodeRef.current && now - lastCameraTimeRef.current < 2000) return;
+      lastCameraCodeRef.current = code;
+      lastCameraTimeRef.current = now;
+      handleScanRef.current(code);
+    },
+    (err) => {
+      setCameraOn(false);
+      const cameraErrorName = (err as any)?.name || "";
+      if (cameraErrorName === "NotFoundError" || cameraErrorName === "DevicesNotFoundError") {
+        showToast("📷 No camera detected. Use manual lookup below.", "info");
+      } else if (cameraErrorName === "NotAllowedError") {
+        showToast("📷 Camera access denied. Use manual lookup below.", "error");
+      } else {
+        showToast("📷 Camera unavailable. Use manual lookup below.", "error");
       }
-    };
-
-    initScanner();
-
-    return () => {
-      if (isInitialized) {
-        Quagga.stop();
-        Quagga.offDetected(() => {});
-      }
-    };
-  }, []);
+    }
+  );
 
   // ✅ Handle barcode scan with smart search
   const handleScan = (code: string) => {
@@ -298,11 +248,22 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem, onStartCount
         </div>
       )}
 
-      {/* ✅ Live camera stream */}
-      <div
-        ref={videoRef}
-        className="w-full max-w-sm aspect-video bg-black rounded-md overflow-hidden mx-auto mb-4"
-      ></div>
+      {/* Live camera stream (only while switched on) */}
+      <div className="max-w-sm mx-auto mb-4">
+        <button
+          onClick={() => setCameraOn((on) => !on)}
+          className={`w-full mb-2 py-3 rounded-md font-medium flex items-center justify-center gap-2 ${
+            cameraOn ? "bg-gray-200 text-gray-800 hover:bg-gray-300" : "bg-blue-600 text-white hover:bg-blue-700"
+          }`}
+        >
+          <Camera size={20} />
+          {cameraOn ? "Stop camera" : "Scan with camera"}
+        </button>
+        <div
+          ref={videoRef}
+          className={`w-full aspect-video bg-black rounded-md overflow-hidden ${cameraOn ? "" : "hidden"}`}
+        ></div>
+      </div>
 
       {/* Check several bins at once */}
       <div className="mb-6 bg-white rounded-lg shadow p-4">

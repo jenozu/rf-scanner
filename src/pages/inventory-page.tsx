@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { CycleCount, BinLocation, CycleCountTransaction, BinItem, InventorySession, TemporaryLocation, TemporaryLocationItem, SessionItem } from "../types";
-import { ClipboardCheck, Camera, AlertCircle, CheckCircle2, Plus, FolderOpen, MapPin, X, Save, Play, Download, List } from "lucide-react";
+import { ClipboardCheck, Camera, AlertCircle, CheckCircle2, Plus, FolderOpen, MapPin, X, Save, Play, Download, List, Upload } from "lucide-react";
 import { useBarcodeScanner } from "../hooks/useBarcodeScanner";
-import { buildSequentialItems, countLogsToCsv, selectBinsForCount, uploadedRowsToCounts } from "./inventory/counting-logic";
+import { buildSequentialItems, countLogsToCsv, planFullCount, selectBinsForCount, uploadedRowsToCounts } from "./inventory/counting-logic";
 import type { SequentialCountItem, SessionCountLog, ToastState } from "./inventory/types";
 import { ToastBanner } from "./inventory/toast-banner";
 import { SequentialCountScreen } from "./inventory/sequential-count-screen";
@@ -107,6 +107,7 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
   const [fullCountFile, setFullCountFile] = useState<File | null>(null);
   const [fullCountItems, setFullCountItems] = useState<CycleCount[]>([]);
   const [fullCountStatus, setFullCountStatus] = useState<string>("");
+  const [fullCountProcessing, setFullCountProcessing] = useState(false);
 
   // Once the server data has loaded (one time): restore the session this device was
   // working in, and handle "Start Count" coming from a bin scan.
@@ -921,71 +922,84 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     }
   };
 
-  const processFullCount = () => {
+  const processFullCount = async () => {
     if (!currentSession) {
       showToast("⚠️ Please start a session first", "error");
       return;
     }
-
     if (fullCountItems.length === 0) {
       showToast("⚠️ No items loaded for full count", "error");
       return;
     }
+    const plan = planFullCount(fullCountItems);
+    if (plan.sendable === 0) {
+      showToast("⚠️ No rows with a bin, an item code and a counted quantity", "error");
+      return;
+    }
 
-    // 1. Update the main cycleCounts list
-    const newCounts = fullCountItems.filter(c => c.Status === "counted");
-    const updatedCounts = [...cycleCounts, ...newCounts];
-    setCycleCounts(updatedCounts);
+    // Send in batches the server accepts. Matches are logged; differences wait for admin approval.
+    // Stock changes only when an admin approves a difference.
+    setFullCountProcessing(true);
+    const sent: CycleCount[] = [];
+    let matched = 0;
+    let pending = 0;
+    let failure: string | null = null;
+    for (const batch of plan.batches) {
+      try {
+        const result = await submitCounts(batch.map((c) => ({
+          binCode: c.BinCode,
+          itemCode: c.ItemCode,
+          description: c.ItemCode,
+          countedQty: c.CountedQty ?? 0,
+          expectedQty: c.ExpectedQty,
+          sessionId: currentSession.id,
+          sessionName: currentSession.name,
+        })));
+        matched += result.matched;
+        pending += result.pending;
+        sent.push(...batch);
+      } catch (error: any) {
+        failure = error?.message || "server error";
+        break;
+      }
+    }
+    setFullCountProcessing(false);
 
-    // 2. Update the current session with the new cycle count IDs
-    const newCountIds = newCounts.map(c => c.id);
-    const updatedSession: InventorySession = {
-      ...currentSession,
-      cycleCountIds: [...currentSession.cycleCountIds, ...newCountIds],
-      lastAccessedDate: new Date().toISOString(),
-    };
-    const updatedSessions = sessions.map((s) => (s.id === currentSession.id ? updatedSession : s));
-    setCurrentSession(updatedSession);
-    setSessions(updatedSessions);
+    if (sent.length > 0) {
+      // Keep a record of what was sent, in the count list, the session and the count log.
+      setCycleCounts([...cycleCounts, ...sent]);
+      const updatedSession: InventorySession = {
+        ...currentSession,
+        cycleCountIds: [...currentSession.cycleCountIds, ...sent.map((c) => c.id)],
+        lastAccessedDate: new Date().toISOString(),
+      };
+      setCurrentSession(updatedSession);
+      setSessions(sessions.map((s) => (s.id === currentSession.id ? updatedSession : s)));
+      const now = new Date().toISOString();
+      saveCountTxns(sent.map((c) => ({
+        id: `CC-${Date.now()}-${c.id}`,
+        binCode: c.BinCode,
+        itemCode: c.ItemCode,
+        description: c.ItemCode,
+        expectedQty: c.ExpectedQty,
+        countedQty: c.CountedQty ?? 0,
+        variance: (c.CountedQty ?? 0) - c.ExpectedQty,
+        timestamp: now,
+      })));
+    }
 
-    // 3. Counted quantities go to admin approval (see submitCounts); bins change only on approval.
-    const txns: CycleCountTransaction[] = [];
-
-    newCounts.forEach(newCount => {
-      const variance = newCount.CountedQty! - newCount.ExpectedQty;
-
-      // Create a transaction log
-      txns.push({
-        id: `CC-${Date.now()}-${newCount.id}`,
-        binCode: newCount.BinCode,
-        itemCode: newCount.ItemCode,
-        description: newCount.ItemCode, // Fallback description
-        expectedQty: newCount.ExpectedQty,
-        countedQty: newCount.CountedQty!,
-        variance: variance,
-        timestamp: new Date().toISOString(),
-      });
-    });
-
-    submitCounts(newCounts.map((c) => ({
-      binCode: c.BinCode,
-      itemCode: c.ItemCode,
-      description: c.ItemCode,
-      countedQty: c.CountedQty!,
-      expectedQty: c.ExpectedQty,
-      sessionId: currentSession.id,
-      sessionName: currentSession.name,
-    }))).catch(saveFailed("Full count"));
-
-    // 4. Save transactions
-    saveCountTxns(txns);
-
-    // 5. Reset and notify
+    const skipped = plan.missingCodes > 0 ? ` ${plan.missingCodes} rows skipped (no bin or item code).` : "";
+    if (failure) {
+      const unsent = plan.sendable - sent.length;
+      setFullCountStatus(`❌ Stopped: ${failure}. Sent ${sent.length}, not sent ${unsent}.${skipped} Upload the file again to send the rest (already-sent rows just replace their earlier count).`);
+      showToast(`❌ Full count stopped after ${sent.length} rows: ${failure}`, "error");
+      return;
+    }
     setFullCountFile(null);
     setFullCountItems([]);
-    setFullCountStatus(`✅ Successfully processed ${newCounts.length} counted items.`);
-    showToast(`✅ Full count processed! ${newCounts.length} items updated.`, "success");
-    setCountingMode("cycle"); // Switch back to cycle view
+    setFullCountStatus(`✅ Sent ${sent.length} counts: ${matched} matched, ${pending} waiting for admin approval.${skipped}`);
+    showToast(`✅ Full count sent: ${matched} matched, ${pending} waiting for approval`, "success");
+    setCountingMode("cycle");
   };
 
   // Camera scanners. Only one is open at a time; each closes itself once it reads a code.
@@ -1236,6 +1250,22 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
           >
             <List size={24} />
             Sequential Count (Bin Range)
+          </button>
+          <button
+            onClick={() => {
+              if (!currentSession) {
+                showToast("⚠️ Please start a session first", "error");
+                setShowSessionModal(true);
+                return;
+              }
+              setFullCountStatus("");
+              setFullCountItems([]);
+              setCountingMode("full");
+            }}
+            className="mt-3 w-full bg-yellow-500 text-white px-6 py-4 rounded-lg hover:bg-yellow-600 text-lg font-medium flex items-center justify-center gap-2"
+          >
+            <Upload size={24} />
+            Full Count (Upload File)
           </button>
           {currentSession && sessionCountLogs.filter(l => l.sessionId === currentSession.id).length > 0 && (
             <button
@@ -1660,10 +1690,11 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
         sessionName={currentSession?.name}
         items={fullCountItems}
         status={fullCountStatus}
+        processing={fullCountProcessing}
         toast={toast}
         onCancel={() => setCountingMode("cycle")}
         onFile={handleFullCountFileUpload}
-        onProcess={processFullCount}
+        onProcess={() => void processFullCount()}
       />
     );
   }
