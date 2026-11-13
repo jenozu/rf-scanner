@@ -670,3 +670,112 @@ export function applyBinsSet(current, body) {
   }
   return { data: bins, result: { ok: true, bins: bins.length, changed: changes.length, created: newBins.length } };
 }
+
+// --- Count variance approval ---
+// A count only changes stock after an admin approves it. A count that matches
+// what the bin holds needs no change and is logged as matched. A count that
+// differs is queued in rf_count_variances and leaves the bin untouched until
+// an admin approves (the counted quantity is then applied) or rejects it.
+
+export const VARIANCE_STATUSES = ['pending', 'approved', 'rejected'];
+
+export function validateCountSubmit(body) {
+  const { counts } = body || {};
+  if (!Array.isArray(counts) || counts.length === 0 || counts.length > 500) {
+    return fail('counts must be a list of 1 to 500 counts');
+  }
+  for (const c of counts) {
+    if (!isObject(c) || typeof c.binCode !== 'string' || !c.binCode || typeof c.itemCode !== 'string' || !c.itemCode) {
+      return fail('each count needs a binCode and an itemCode');
+    }
+    if (num(c.countedQty) === null || c.countedQty < 0) return fail('countedQty must be a number of 0 or more');
+  }
+  return null;
+}
+
+// state: { bins, variances } as read under the locks. Returns the new variance list only:
+// bins are never written by a count.
+export function applyCountSubmit(state, body, user) {
+  const bins = state.bins || [];
+  let variances = [...(state.variances || [])];
+  const now = new Date().toISOString();
+  let matched = 0;
+  const pendingIds = [];
+
+  body.counts.forEach((c, i) => {
+    const bin = bins.find(b => b.BinCode === c.binCode);
+    const item = bin?.Items?.find(x => x.ItemCode === c.itemCode);
+    const held = item ? Number(item.Quantity) || 0 : 0;
+    const variance = c.countedQty - held;
+
+    // A newer count for the same bin and item replaces the older pending one.
+    variances = variances.filter(v => !(v.status === 'pending' && v.binCode === c.binCode && v.itemCode === c.itemCode));
+
+    if (variance === 0) {
+      matched++;
+      return;
+    }
+    const id = `VAR-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 8)}`;
+    variances.push({
+      id,
+      status: 'pending',
+      binCode: c.binCode,
+      itemCode: c.itemCode,
+      description: typeof c.description === 'string' ? c.description : (item?.Description || ''),
+      heldQty: held,
+      countedQty: c.countedQty,
+      variance,
+      expectedAtCountStart: num(c.expectedQty),
+      sessionId: typeof c.sessionId === 'string' ? c.sessionId : null,
+      sessionName: typeof c.sessionName === 'string' ? c.sessionName : null,
+      submittedBy: user?.username || 'unknown',
+      submittedAt: now,
+    });
+    pendingIds.push(id);
+  });
+
+  return { data: { variances }, result: { ok: true, matched, pending: pendingIds.length, pendingIds } };
+}
+
+export function validateVarianceDecision(body) {
+  const { id, decision } = body || {};
+  if (typeof id !== 'string' || !id) return fail('id is required');
+  if (decision !== 'approve' && decision !== 'reject') return fail("decision must be 'approve' or 'reject'");
+  return null;
+}
+
+// Admin only. Approve applies the counted quantity to the bin; reject changes nothing.
+export function applyVarianceDecision(state, body, user) {
+  if (user?.role !== 'admin') return { result: fail('Only an admin can approve or reject count variances', 403) };
+  const variances = [...(state.variances || [])];
+  const idx = variances.findIndex(v => v.id === body.id);
+  if (idx < 0) return { result: fail('Variance not found', 404) };
+  const v = variances[idx];
+  if (v.status !== 'pending') return { result: fail(`Variance is already ${v.status}`, 409) };
+
+  const decided = { decidedBy: user.username, decidedAt: new Date().toISOString() };
+
+  if (body.decision === 'reject') {
+    variances[idx] = { ...v, ...decided, status: 'rejected' };
+    return { data: { variances }, result: { ok: true, status: 'rejected' } };
+  }
+
+  const bins = state.bins || [];
+  const bin = bins.find(b => b.BinCode === v.binCode);
+  const item = bin?.Items?.find(x => x.ItemCode === v.itemCode);
+  const heldNow = item ? Number(item.Quantity) || 0 : 0;
+  const step = applyBinAdjust(bins, {
+    binCode: v.binCode,
+    itemCode: v.itemCode,
+    description: v.description,
+    setQuantity: v.countedQty,
+    createBin: { Zone: 'Main' },
+  });
+  if (step.result?.error) return { result: step.result };
+
+  variances[idx] = { ...v, ...decided, status: 'approved', heldQtyAtApproval: heldNow };
+  return {
+    data: { bins, variances },
+    result: { ok: true, status: 'approved', changedSinceCount: heldNow !== v.heldQty, previousQty: heldNow, newQty: v.countedQty },
+  };
+}

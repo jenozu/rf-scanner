@@ -134,6 +134,20 @@ export function registerOps(app, { authenticateToken, requireWriter, dataDir }) 
     };
   }
 
+  // Counts: matched counts are logged; a count that differs is queued for admin
+  // approval and does not change the bin until approved.
+  app.post('/api/counts/submit', ...guard, composite('count-submit', {
+    validate: (body) => logic.validateCountSubmit(body),
+    files: { bins: 'rf_bins', variances: 'rf_count_variances' },
+    apply: (state, body, user) => logic.applyCountSubmit(state, body, user),
+  }));
+
+  app.post('/api/counts/variances/decide', ...guard, composite('variance-decide', {
+    validate: (body) => logic.validateVarianceDecision(body),
+    files: { bins: 'rf_bins', variances: 'rf_count_variances' },
+    apply: (state, body, user) => logic.applyVarianceDecision(state, body, user),
+  }));
+
   app.post('/api/ops/receive', ...guard, composite('receive', {
     validate: logic.validateReceive,
     files: { pos: 'rf_purchase_orders', bins: 'rf_bins', txns: 'rf_receiving_txns' },

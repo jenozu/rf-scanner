@@ -280,6 +280,30 @@ class ApiClient {
     return this.post<{ ok: true; bins: number; changed: number; created: number }>("/ops/bins-set", params);
   }
 
+  /** Submit counted quantities. Matching counts are logged; differing ones wait for admin approval. */
+  submitCounts(counts: Array<{
+    binCode: string;
+    itemCode: string;
+    description?: string;
+    countedQty: number;
+    expectedQty?: number;
+    sessionId?: string;
+    sessionName?: string;
+  }>) {
+    return this.post<{ ok: true; matched: number; pending: number; pendingIds: string[] }>(
+      "/counts/submit",
+      { counts }
+    );
+  }
+
+  /** Admin only: approve (applies the counted quantity) or reject a pending variance. */
+  decideVariance(id: string, decision: "approve" | "reject") {
+    return this.post<{ ok: true; status: string; changedSinceCount?: boolean; previousQty?: number; newQty?: number }>(
+      "/counts/variances/decide",
+      { id, decision }
+    );
+  }
+
   /**
    * Import parsed SAP orders. The server merges them under its file lock, so the same file
    * imported twice, or on two devices at once, never creates an order twice.

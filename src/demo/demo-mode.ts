@@ -386,6 +386,20 @@ function demoOperation(endpoint: string, method: string, body: any): unknown {
       (state) => ops.applyAssignBin(state, body, demoUser)
     );
   }
+  if (method === "POST" && endpoint === "/counts/submit") {
+    return demoApplyMany(
+      { bins: "rf_bins", variances: "rf_count_variances" },
+      ops.validateCountSubmit(body),
+      (state) => ops.applyCountSubmit(state, body, demoUser)
+    );
+  }
+  if (method === "POST" && endpoint === "/counts/variances/decide") {
+    return demoApplyMany(
+      { bins: "rf_bins", variances: "rf_count_variances" },
+      ops.validateVarianceDecision(body),
+      (state) => ops.applyVarianceDecision(state, body, demoUser)
+    );
+  }
   if (method === "POST" && endpoint === "/ops/pick-so") {
     return demoApplyMany(
       { sos: "rf_sales_orders", bins: "rf_bins", txns: "rf_pick_txns" },
