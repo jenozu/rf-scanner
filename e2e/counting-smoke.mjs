@@ -87,6 +87,25 @@ try {
   check(pendingAfter === pendingBefore - 1, `approving clears one variance from the queue (${pendingBefore} -> ${pendingAfter})`);
   const approvedMessage = await page.getByText(/^Approved/).first().innerText();
   check(approvedMessage.includes('is now'), `the admin sees the approval result (${approvedMessage})`);
+
+  // 7. Full count by file upload: the button opens it, a matching row is logged, a differing row
+  //    waits for approval, and a row with no bin is skipped.
+  await page.getByRole('button', { name: 'Full Count (Upload File)' }).click();
+  await page.getByRole('heading', { name: /Full Inventory Count/ }).waitFor({ timeout: 5000 });
+  check(true, 'the Full Count button opens the upload screen');
+  const csv = [
+    'BinCode,ItemCode,Description,ExpectedQty,CountedQty',
+    '01-0104,GBX-220,Gearbox,9,9',
+    '01-0210,FLT-310,Filter,0,999',
+    ',NOBIN-1,No bin,1,1',
+  ].join('\n');
+  await page.locator('input[type=file]').setInputFiles({ name: 'full-count.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
+  await page.getByText(/Loaded 3 items/).first().waitFor({ timeout: 5000 });
+  await page.getByRole('button', { name: /Send 3 Counted Items/ }).click();
+  const fullToast = await page.getByText(/Full count sent/).first().innerText({ timeout: 10000 });
+  check(/1 matched, 1 waiting/.test(fullToast), `full count reports matched and pending (toast: "${fullToast}")`);
+  await page.getByText('Count variances waiting for approval').waitFor({ timeout: 10000 });
+  check((await page.getByText('FLT-310').count()) >= 1, 'the differing full-count row is in the approval queue');
 } catch (error) {
   check(false, `unexpected error: ${error.message.split('\n')[0]}`);
 } finally {

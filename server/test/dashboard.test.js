@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { computeDashboard } from '../dashboard.js';
 
-const empty = { purchaseOrders: [], salesOrders: [], orders: [], waves: [], cycleCounts: [], bins: [], receivingTxns: [], countTxns: [], countVariances: [] };
+const empty = { purchaseOrders: [], salesOrders: [], pickWaves: [], cycleCounts: [], bins: [], receivingTxns: [], countTxns: [], countVariances: [] };
 
 test('order and line counts follow the statuses the server writes', () => {
   const d = computeDashboard({
@@ -57,4 +57,15 @@ test('missing files count as empty, not as errors', () => {
   const d = computeDashboard({});
   assert.equal(d.stats.totalBins, 0);
   assert.deepEqual(d.timeline, []);
+});
+
+test('active waves are pick waves whose orders still have open lines', () => {
+  const open = { id: 's1', status: 'picking', items: [{ RemainingQty: 2 }] };
+  const done = { id: 's2', status: 'picked', items: [{ RemainingQty: 0, DeliveredQty: 3 }] };
+  const d = computeDashboard({
+    ...empty,
+    salesOrders: [open, done],
+    pickWaves: [{ id: 'w1', soIds: ['s1'] }, { id: 'w2', soIds: ['s2'] }],
+  });
+  assert.equal(d.stats.activeWaves, 1);
 });

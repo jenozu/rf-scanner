@@ -638,13 +638,13 @@ app.post('/api/bins/unlock', authenticateToken, requireWriter, async (req, res) 
 app.get('/api/dashboard', authenticateToken, async (req, res) => {
   try {
     const read = (key) => store.readJSON(path.join(DATA_DIR, `${key}.json`));
-    const [purchaseOrders, salesOrders, orders, waves, cycleCounts, bins, receivingTxns, countTxns, countVariances] =
+    const [purchaseOrders, salesOrders, pickWaves, cycleCounts, bins, receivingTxns, countTxns, countVariances] =
       await Promise.all([
-        'rf_purchase_orders', 'rf_sales_orders', 'rf_orders', 'rf_waves', 'rf_cycle_counts', 'rf_bins',
+        'rf_purchase_orders', 'rf_sales_orders', 'rf_pick_waves', 'rf_cycle_counts', 'rf_bins',
         'rf_receiving_txns', 'rf_cycle_count_txns', 'rf_count_variances',
       ].map(read));
     res.json(computeDashboard({
-      purchaseOrders, salesOrders, orders, waves, cycleCounts, bins,
+      purchaseOrders, salesOrders, pickWaves, cycleCounts, bins,
       receivingTxns, countTxns, countVariances,
     }));
   } catch (error) {
