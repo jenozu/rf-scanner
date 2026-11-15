@@ -46,7 +46,12 @@ export function useBarcodeScanner(
         decoder: { readers: ["code_128_reader", "ean_reader", "upc_reader"] },
       },
       (err) => {
-        if (cancelled) return;
+        if (cancelled) {
+          // Switched off (or page hidden) while the camera was still starting: init has already
+          // opened the camera, so release it, or the phone keeps showing it as in use.
+          if (!err) Quagga.stop();
+          return;
+        }
         if (err) {
           console.error("Quagga init error:", err);
           errorRef.current?.(err);
