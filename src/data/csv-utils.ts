@@ -2,7 +2,7 @@ import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import { classifyBin, normalizeWarehouse } from "../../server/ops-logic.js";
 import { parseQty as parseCellQty } from "./cell-parsing";
-import { Item, ReceivingTransaction, CycleCountTransaction } from "../types";
+import { Item, ReceivingTransaction, CycleCountTransaction, BinNote } from "../types";
 
 // Purchase-order and sales-order import lives in sap-import.ts.
 
@@ -269,6 +269,32 @@ export function exportReceivingTxnsCSV(transactions: ReceivingTransaction[], fil
     ],
   });
 
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.setAttribute("download", filename);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * 📤 Export the bin locations people wrote down (to enter in SAP later)
+ */
+export function exportBinNotesCSV(notes: BinNote[], filename = "bin_location_notes.csv") {
+  const csv = Papa.unparse(
+    notes.map((n) => ({
+      ItemCode: n.ItemCode,
+      Description: n.Description ?? "",
+      Warehouse: n.Warehouse ?? "",
+      BinLocation: n.Location,
+      RecordedBy: n.RecordedBy,
+      RecordedAt: n.RecordedAt,
+    })),
+    { columns: ["ItemCode", "Description", "Warehouse", "BinLocation", "RecordedBy", "RecordedAt"] }
+  );
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");

@@ -226,6 +226,7 @@ const demoData: Record<string, unknown> = {
   rf_activity_logs: demoActivity,
   rf_inventory_sessions: demoSessions,
   rf_temporary_locations: demoTemporaryLocations,
+  rf_bin_notes: [],
   rf_session_count_logs: [],
   rf_pick_waves: [],
   rf_master_meta: {

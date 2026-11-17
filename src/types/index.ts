@@ -303,6 +303,21 @@ export interface TemporaryLocation {
   items: TemporaryLocationItem[];
 }
 
+/**
+ * A bin location written down for a part that has none in the system, so it can be
+ * entered in SAP later. One note per part (id = ItemCode); saving again replaces it.
+ * It is free text and does not change the part's bin or any stock.
+ */
+export interface BinNote {
+  id: string; // the ItemCode
+  ItemCode: string;
+  Description?: string;
+  Warehouse?: string;
+  Location: string; // what the person wrote, e.g. "01-A-12-3" or "shelf behind door"
+  RecordedBy: string;
+  RecordedAt: string; // ISO time
+}
+
 export interface TemporaryLocationItem {
   itemCode: string;
   description: string;
