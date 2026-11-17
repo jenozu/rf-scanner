@@ -1,13 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useBarcodeScanner } from "../hooks/useBarcodeScanner";
-import { Item, BinLocation } from "../types";
-import { Package, MapPin, Plus, Search, ClipboardCheck, Tag, Camera } from "lucide-react";
+import { Item, BinLocation, BinNote } from "../types";
+import { Package, MapPin, Plus, Search, ClipboardCheck, Tag, Camera, NotebookPen } from "lucide-react";
+import { useAuth } from "../hooks/useAuth";
 import { displayBinCode, fullBinCode, isSameBin, normalizeBinInput } from "../utils/bin-utils";
 import { parseBinList, lookupBinList, BinListResult } from "../utils/bin-list";
 import { smartSearch } from "../utils/search-utils";
+import { exportBinNotesCSV } from "../data/csv-utils";
 import { mergeScanBins, mergeScanItems } from "../utils/scan-inventory";
 import { useCollection } from "../data/hooks";
-import { saveBinChanges, assignItemBin } from "../data/ops";
+import { saveBinChanges, assignItemBin, upsertRecord, deleteRecord } from "../data/ops";
 import BinAssignPanel from "../components/bin-assign-panel";
 import { classifyBin } from "../../server/ops-logic.js";
 
@@ -51,6 +53,19 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem, onStartCount
     () => mergeScanBins(binsCollection.data, activeItems),
     [binsCollection.data, activeItems]
   );
+  // Bin locations written down for parts that have none in the system (to enter in SAP later)
+  const binNotesCollection = useCollection<BinNote[]>("rf_bin_notes", []);
+  const { currentUser } = useAuth();
+  const [binNoteText, setBinNoteText] = useState<string>("");
+  const [binNoteSaving, setBinNoteSaving] = useState(false);
+  const [showNoteList, setShowNoteList] = useState(false);
+  const [noteFilter, setNoteFilter] = useState("");
+  const sortedNotes = useMemo(() => {
+    const q = noteFilter.trim().toUpperCase();
+    return [...binNotesCollection.data]
+      .filter((n) => !q || `${n.ItemCode} ${n.Description ?? ""} ${n.Location}`.toUpperCase().includes(q))
+      .sort((a, b) => b.RecordedAt.localeCompare(a.RecordedAt));
+  }, [binNotesCollection.data, noteFilter]);
   const inventoryLoading =
     binsCollection.isLoading || itemsCollection.isLoading || masterCollection.isLoading;
   const inventoryError = binsCollection.error || itemsCollection.error || masterCollection.error;
@@ -219,6 +234,57 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem, onStartCount
     setBinListResult(lookupBinList(codes, bins));
   };
 
+  const scannedItemCode = scanResult?.type === "item" ? scanResult.item?.ItemCode : undefined;
+  const savedBinNote = useMemo(
+    () => (scannedItemCode ? binNotesCollection.data.find((n) => n.id === scannedItemCode) : undefined),
+    [binNotesCollection.data, scannedItemCode]
+  );
+  // Show the saved note in the box when a part is opened (and after it is saved or removed)
+  useEffect(() => {
+    setBinNoteText(savedBinNote?.Location ?? "");
+  }, [scannedItemCode, savedBinNote?.Location]);
+
+  const handleSaveBinNote = async () => {
+    const item = scanResult?.type === "item" ? scanResult.item : undefined;
+    const location = binNoteText.trim();
+    if (!item) return;
+    if (!location) {
+      showToast("⚠️ Type the bin location first", "error");
+      return;
+    }
+    setBinNoteSaving(true);
+    try {
+      const note: BinNote = {
+        id: item.ItemCode,
+        ItemCode: item.ItemCode,
+        Description: item.Description,
+        Warehouse: item.Warehouse,
+        Location: location,
+        RecordedBy: currentUser?.username || "unknown",
+        RecordedAt: new Date().toISOString(),
+      };
+      await upsertRecord("rf_bin_notes", note);
+      showToast(`✅ Saved location for ${item.ItemCode}`, "success");
+    } catch (error: any) {
+      showToast(`❌ Not saved: ${error?.message || "server error"}`, "error");
+    } finally {
+      setBinNoteSaving(false);
+    }
+  };
+
+  const handleRemoveBinNote = async () => {
+    if (!savedBinNote) return;
+    setBinNoteSaving(true);
+    try {
+      await deleteRecord("rf_bin_notes", savedBinNote.id);
+      showToast(`Removed note for ${savedBinNote.ItemCode}`, "info");
+    } catch (error: any) {
+      showToast(`❌ Not removed: ${error?.message || "server error"}`, "error");
+    } finally {
+      setBinNoteSaving(false);
+    }
+  };
+
   // Clear scan result
   const handleClearScan = () => {
     setScanResult(null);
@@ -362,6 +428,68 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem, onStartCount
             <Search size={20} />
           </button>
         </div>
+      </div>
+
+      {/* Bin locations written down for SAP */}
+      <div className="mb-6 bg-white rounded-lg shadow p-4">
+        <button
+          type="button"
+          onClick={() => setShowNoteList((v) => !v)}
+          className="w-full flex items-center justify-between text-sm font-medium"
+        >
+          <span className="flex items-center gap-2">
+            <NotebookPen size={18} className="text-gray-600" />
+            Saved bin notes ({binNotesCollection.data.length})
+          </span>
+          <span className="text-blue-700">{showNoteList ? "Hide" : "Show"}</span>
+        </button>
+        {showNoteList && (
+          <div className="mt-3">
+            {binNotesCollection.data.length === 0 ? (
+              <p className="text-sm text-gray-500">
+                Nothing saved yet. Look up a part and use “Document bin location”.
+              </p>
+            ) : (
+              <>
+                <div className="flex gap-2 mb-3">
+                  <input
+                    type="text"
+                    value={noteFilter}
+                    onChange={(e) => setNoteFilter(e.target.value)}
+                    placeholder="Filter by part, description or bin"
+                    className="flex-1 min-w-0 border border-gray-300 rounded-md px-3 py-2 text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => exportBinNotesCSV(sortedNotes)}
+                    className="bg-blue-600 text-white px-3 py-2 rounded-md text-sm hover:bg-blue-700"
+                  >
+                    Download CSV
+                  </button>
+                </div>
+                <ul className="divide-y divide-gray-100 max-h-80 overflow-y-auto overscroll-contain">
+                  {sortedNotes.map((n) => (
+                    <li key={n.id} className="py-2">
+                      <button
+                        type="button"
+                        onClick={() => handleScan(n.ItemCode)}
+                        className="w-full text-left"
+                      >
+                        <div className="flex justify-between gap-2">
+                          <span className="font-medium">{n.ItemCode}</span>
+                          <span className="font-semibold text-blue-700">{n.Location}</span>
+                        </div>
+                        <p className="text-xs text-gray-500">
+                          {n.Description} · {n.RecordedBy}, {new Date(n.RecordedAt).toLocaleDateString()}
+                        </p>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Display scanned result */}
@@ -553,6 +681,51 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem, onStartCount
                       + Assign bin
                     </button>
                   )
+                )}
+              </div>
+
+              {/* Write down where the part really is, to add to SAP later */}
+              <div className="border-t pt-4 mb-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <NotebookPen size={20} className="text-gray-600" />
+                  <p className="font-medium">Document bin location</p>
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    inputMode="text"
+                    value={binNoteText}
+                    onChange={(e) => setBinNoteText(e.target.value.toUpperCase())}
+                    onKeyDown={(e) => e.key === "Enter" && handleSaveBinNote()}
+                    placeholder="e.g. 01-A-12-3"
+                    aria-label="Bin location to document"
+                    className="flex-1 min-w-0 border border-gray-300 rounded-md px-3 py-2"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSaveBinNote}
+                    disabled={binNoteSaving || !binNoteText.trim() || binNoteText.trim() === savedBinNote?.Location}
+                    className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {binNoteSaving ? "Saving…" : "Save"}
+                  </button>
+                </div>
+                {savedBinNote ? (
+                  <p className="text-xs text-gray-500 mt-2">
+                    Saved by {savedBinNote.RecordedBy} on {new Date(savedBinNote.RecordedAt).toLocaleDateString()}.{" "}
+                    <button
+                      type="button"
+                      onClick={handleRemoveBinNote}
+                      disabled={binNoteSaving}
+                      className="text-red-700 underline"
+                    >
+                      Remove
+                    </button>
+                  </p>
+                ) : (
+                  <p className="text-xs text-gray-500 mt-2">
+                    A note only. It does not change the part's bin or any stock.
+                  </p>
                 )}
               </div>
 

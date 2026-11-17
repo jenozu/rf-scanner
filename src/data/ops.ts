@@ -75,7 +75,7 @@ export function importOrders(kind: "po" | "so", orders: ImportBody["orders"]) {
 
 type RecordKey =
   | "rf_purchase_orders" | "rf_sales_orders" | "rf_waves" | "rf_orders"
-  | "rf_cycle_counts" | "rf_inventory_sessions" | "rf_temporary_locations";
+  | "rf_cycle_counts" | "rf_inventory_sessions" | "rf_temporary_locations" | "rf_bin_notes";
 
 export function upsertRecord(key: RecordKey, record: { id: string }) {
   return dataStore.mutate(() => api.upsertRecord(key, record), { reload: [key] });

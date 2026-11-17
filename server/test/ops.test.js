@@ -339,7 +339,7 @@ test('records/apply: upserts and removes several records at once for counting da
   assert.equal(res.status, 200);
   assert.deepEqual(await res.json(), { ok: true, added: 1, updated: 1, removed: 1 });
   assert.deepEqual((await read('rf_cycle_counts')).map(c => [c.id, c.Status]), [['c1', 'counted'], ['c3', 'pending']]);
-  for (const key of ['rf_inventory_sessions', 'rf_temporary_locations']) {
+  for (const key of ['rf_inventory_sessions', 'rf_temporary_locations', 'rf_bin_notes']) {
     assert.equal((await post(op, `/api/records/${key}/apply`, { upsert: [{ id: 'x' }] })).status, 200);
   }
   assert.equal((await post(op, '/api/records/rf_bins/apply', { upsert: [{ id: 'x' }] })).status, 400);
