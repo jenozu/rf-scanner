@@ -1,5 +1,9 @@
 # GitHub Actions + your VPS: a guide you can reuse
 
+> **This project now uses a simpler way:** the VPS checks GitHub every 5 minutes and updates itself,
+> with no GitHub secrets or deploy key. See `docs/VPS_AUTO_DEPLOY.md`. The GitHub Actions route below
+> still works if you prefer it; it stays switched off until its secrets are added.
+
 What you get: when a change is merged and its tests pass, GitHub deploys it to your VPS by
 itself. Every morning GitHub also checks the server and opens an issue only if something is wrong.
 You do the setup once per project (about 15 minutes). After that you do nothing.

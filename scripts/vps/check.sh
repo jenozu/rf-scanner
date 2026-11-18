@@ -64,6 +64,13 @@ main() {
     fail "no backup cron entry (see docs/BACKUP_AND_RESTORE.md)"
   fi
 
+  # 5b. self-update cron entry (optional; without it, updates are deployed by hand)
+  if crontab -l 2>/dev/null | grep -v '^[[:space:]]*#' | grep -q 'rf-auto-deploy'; then
+    pass "auto-deploy cron entry exists"
+  else
+    warn "no auto-deploy cron entry: updates are not deployed automatically (see docs/VPS_AUTO_DEPLOY.md)"
+  fi
+
   # 6. a recent backup file (26 hours = 1560 minutes)
   if find backups -maxdepth 1 -name 'rf-data-*.tar.gz' -mmin -1560 2>/dev/null | grep -q .; then
     pass "a backup from the last 26 hours exists"

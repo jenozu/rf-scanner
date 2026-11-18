@@ -29,6 +29,17 @@ exit 0
 EOF
 cat > "$BIN/curl" <<'EOF'
 #!/usr/bin/env bash
+# GitHub "check-runs" API: FAKE_CI = success | failure | pending | none | down
+if printf '%s ' "$@" | grep -q 'check-runs'; then
+  case "${FAKE_CI:-success}" in
+    down)    exit 22 ;;
+    none)    echo '{"total_count": 0, "check_runs": []}' ;;
+    pending) echo '{"total_count": 1, "check_runs": [{"name": "test", "status": "in_progress", "conclusion": null}]}' ;;
+    failure) echo '{"total_count": 1, "check_runs": [{"name": "test", "status": "completed", "conclusion": "failure"}]}' ;;
+    *)       echo '{"total_count": 1, "check_runs": [{"name": "test", "status": "completed", "conclusion": "success"}]}' ;;
+  esac
+  exit 0
+fi
 if printf '%s ' "$@" | grep -q 'http_code'; then printf '%s' "${FAKE_LOGIN_CODE:-401}"; exit 0; fi
 # health: unhealthy whenever the checked-out code contains a file called BAD
 if [ -e "${RF_DIR:-.}/BAD" ] || [ -n "${FAKE_UNHEALTHY:-}" ]; then exit 22; fi
@@ -159,6 +170,74 @@ check "check: stopped nginx FAILS"                   bash -c "FAKE_NO_NGINX=1 ba
 check "check: unhealthy API FAILS and exits 1"       bash -c "FAKE_UNHEALTHY=1 bash '$VPS/check.sh' >/dev/null 2>&1; [ \$? -eq 1 ]"
 check "check: no recent backup FAILS"                bash -c "rm -f '$APP'/backups/*; bash '$VPS/check.sh' 2>&1 | grep -q 'FAIL.*backup newer'"
 check "check: is read-only (no compose up)"          bash -c "! grep -q 'compose up' <(FAKE_LOG='$WORK/ro.log' bash '$VPS/check.sh' >/dev/null 2>&1; cat '$WORK/ro.log' 2>/dev/null)"
+
+# ===== 7. auto-deploy (the VPS updates itself) =====
+git -C "$APP" checkout -q -- . ; git -C "$APP" update-index --no-assume-unchanged server/.env
+export RF_STATE_DIR="$WORK/auto-state"
+auto() { bash "$VPS/auto-deploy.sh" "$@" 2>&1; }
+# bring the VPS up to date first
+# origin still has the BAD file from section 4: remove it so main is healthy again
+git -C "$SEED" rm -q BAD; git -C "$SEED" commit -qm "remove BAD"; git -C "$SEED" push -q origin main
+auto >/dev/null
+UP=$(head_of)
+check "auto: catches up to origin/main"               test "$UP" = "$(git -C "$SEED" rev-parse HEAD)"
+
+: > "$FAKE_LOG"
+out=$(auto); code=$?
+check "auto: nothing new -> silent, exit 0"           bash -c "[ $code -eq 0 ] && [ -z '$out' ] && [ ! -s '$FAKE_LOG' ]"
+
+A=$(new_commit version.txt)
+out=$(FAKE_CI=pending auto)
+check "auto: tests still running -> waits quietly"    bash -c "[ -z '$out' ] && [ '$(head_of)' = '$UP' ]"
+out=$(FAKE_CI=none auto)
+check "auto: no test run yet -> waits"                test "$(head_of)" = "$UP"
+out=$(FAKE_CI=down auto)
+check "auto: GitHub unreachable -> waits, says so"    bash -c "echo '$out' | grep -q WAIT && [ '$(head_of)' = '$UP' ]"
+out=$(FAKE_CI=failure auto)
+check "auto: failed tests -> NOT DEPLOYING"           bash -c "echo '$out' | grep -q 'NOT DEPLOYING' && [ '$(head_of)' = '$UP' ]"
+out=$(FAKE_CI=success auto)
+check "auto: ...and that commit is not tried again"   bash -c "[ -z '$out' ] && [ '$(head_of)' = '$UP' ]"
+out=$(FAKE_CI=success auto --retry)
+check "auto: --retry tries it again and deploys"      bash -c "echo '$out' | grep -q 'DONE' && [ '$(head_of)' = '$A' ]"
+
+: > "$FAKE_LOG"
+B=$(new_commit version.txt)
+out=$(auto); code=$?
+check "auto: passing tests -> deploys, exit 0"        bash -c "[ $code -eq 0 ] && echo '$out' | grep -q 'DEPLOY OK' && [ '$(head_of)' = '$B' ]"
+check "auto: backup ran (via deploy.sh)"              grep -q 'backup ran' "$FAKE_LOG"
+check "auto: every printed line is time-stamped"      bash -c "echo '$out' | grep -vqE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T' && exit 1 || exit 0"
+
+mkdir -p "$SEED/docs"; : > "$FAKE_LOG"
+D=$(new_commit docs/notes.md)
+out=$(auto)
+check "auto: docs-only change -> skipped, no rebuild" bash -c "echo '$out' | grep -q 'only documentation' && [ ! -s '$FAKE_LOG' ] && [ '$(head_of)' = '$B' ]"
+out=$(auto)
+check "auto: ...and says so only once"                test -z "$out"
+
+prev=$(head_of)
+BAD2=$(new_commit BAD)
+out=$(auto); code=$?
+check "auto: unhealthy version rolls back, exit 1"    bash -c "[ $code -eq 1 ] && echo '$out' | grep -q 'ROLLED BACK' && [ '$(head_of)' = '$prev' ]"
+: > "$FAKE_LOG"
+out=$(auto)
+check "auto: rolled-back commit is not retried"       bash -c "[ -z '$out' ] && [ ! -s '$FAKE_LOG' ]"
+git -C "$SEED" rm -q BAD; echo "fix-$RANDOM" >> "$SEED/version.txt"; git -C "$SEED" add -A
+git -C "$SEED" commit -qm "remove BAD, real fix"; git -C "$SEED" push -q origin main
+FIX=$(git -C "$SEED" rev-parse HEAD)
+out=$(auto)
+check "auto: the next commit is deployed"             test "$(head_of)" = "$FIX"
+
+C=$(new_commit version.txt)
+( exec 8>"$RF_STATE_DIR/lock"; flock -n 8; sleep 3 ) & sleep 1
+out=$(auto)
+check "auto: does nothing while a run is going"       test "$(head_of)" = "$FIX"
+wait
+( exec 9>"$RF_LOCK"; flock -n 9; sleep 3 ) & sleep 1
+out=$(auto)
+check "auto: waits while a manual deploy runs"        bash -c "[ '$(head_of)' = '$FIX' ] && [ ! -s '$RF_STATE_DIR/failed' ]"
+wait
+out=$(auto)
+check "auto: ...then deploys on the next run"         test "$(head_of)" = "$C"
 
 # ===== 7. syntax of every script =====
 for f in "$VPS"/*.sh "$HERE/test-vps-ci.sh"; do check "bash -n $(basename "$f")" bash -n "$f"; done
