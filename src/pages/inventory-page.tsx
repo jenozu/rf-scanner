@@ -1039,6 +1039,33 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
     }
   };
 
+  // Remove a count that was added to the list by mistake. Only counts that have not been
+  // done yet can be removed, so no stock or count record is touched.
+  const handleRemovePendingCount = (count: CycleCount) => {
+    if (count.Status !== "pending") return;
+    if (!window.confirm(`Remove the pending count for ${count.ItemCode} in ${count.BinCode}?`)) return;
+    setCycleCounts(cycleCounts.filter((c) => c.id !== count.id));
+    const affected = sessions.filter(
+      (s) => s.cycleCountIds.includes(count.id) || s.currentCycleCountId === count.id
+    );
+    if (affected.length > 0) {
+      const updated = sessions.map((s) =>
+        affected.some((a) => a.id === s.id)
+          ? {
+              ...s,
+              cycleCountIds: s.cycleCountIds.filter((id) => id !== count.id),
+              currentCycleCountId: s.currentCycleCountId === count.id ? undefined : s.currentCycleCountId,
+            }
+          : s
+      );
+      setSessions(updated);
+      if (currentSession) {
+        setCurrentSession(updated.find((s) => s.id === currentSession.id) ?? currentSession);
+      }
+    }
+    showToast(`Removed pending count for ${count.ItemCode}`, "info");
+  };
+
   // Select count task manually
   const handleSelectCount = (count: CycleCount) => {
     setSelectedCount(count);
@@ -1370,12 +1397,26 @@ export default function InventoryPage({ setPage }: InventoryPageProps) {
                           Expected: {count.ExpectedQty} units
                         </p>
                       </div>
-                      <button
-                        onClick={() => handleSelectCount(count)}
-                        className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
-                      >
-                        Count
-                      </button>
+                      <div className="flex flex-col gap-2">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleSelectCount(count);
+                          }}
+                          className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
+                        >
+                          Count
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRemovePendingCount(count);
+                          }}
+                          className="bg-white text-red-700 border border-red-300 px-4 py-2 rounded-md hover:bg-red-50"
+                        >
+                          Remove
+                        </button>
+                      </div>
                     </div>
                   </div>
                 );
