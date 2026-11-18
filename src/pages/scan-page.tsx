@@ -620,19 +620,11 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem, onStartCount
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4 mb-4">
+              <div className="mb-4">
                 <div className="bg-blue-50 p-4 rounded-lg">
                   <p className="text-sm text-gray-600 mb-1">Expected Qty</p>
                   <p className="text-2xl font-bold text-blue-600">
                     {scanResult.item.ExpectedQty}
-                  </p>
-                </div>
-                <div className="bg-green-50 p-4 rounded-lg">
-                  <p className="text-sm text-gray-600 mb-1">Counted Qty</p>
-                  <p className="text-2xl font-bold text-green-600">
-                    {scanResult.item.CountedQty !== undefined && scanResult.item.CountedQty !== null
-                      ? scanResult.item.CountedQty
-                      : <span className="text-sm text-gray-400">Not counted</span>}
                   </p>
                 </div>
               </div>
@@ -728,22 +720,6 @@ const ScanPage: React.FC<ScanPageProps> = ({ setPage, onAdjustItem, onStartCount
                   </p>
                 )}
               </div>
-
-              {scanResult.item.Variance !== undefined && (
-                <div className="border-t pt-4">
-                  <p className="text-sm text-gray-600 mb-1">Variance</p>
-                  <p
-                    className={`text-lg font-bold ${
-                      scanResult.item.Variance === 0
-                        ? "text-green-600"
-                        : "text-yellow-600"
-                    }`}
-                  >
-                    {scanResult.item.Variance > 0 ? "+" : ""}
-                    {scanResult.item.Variance}
-                  </p>
-                </div>
-              )}
 
               <button
                 onClick={handleClearScan}
